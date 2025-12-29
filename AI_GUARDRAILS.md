@@ -109,10 +109,20 @@ Hard rules:
 - Show file paths
 - Copy-pasteable code
 - No long essays
+- **ALWAYS update files directly - never ask user to manually edit files**
+- Create/update .env files, config files, and all code files automatically
 
 ---
 
-## 11) Current Task
+## 11) SQL File Rule
+- **All SQL must be saved to a file** in `backend/src/db/` for future reference
+- File naming: `setup-{feature}.sql` or `migration-{date}-{description}.sql`
+- Include header comments with date and purpose
+- Never provide SQL only in chat - always save to file first
+
+---
+
+## 12) Current Task
 Current focus: **Dashboard foundation (theme + layout)**
 
 Definition of done:

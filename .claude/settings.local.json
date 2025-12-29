@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(tree:*)",
+      "Bash(npm run dev:*)",
+      "Bash(timeout /t 5 /nobreak)",
+      "Bash(curl:*)",
+      "Bash(cat:*)",
+      "Bash(tasklist:*)",
+      "Bash(netstat:*)",
+      "Bash(taskkill //F //PID 10584)",
+      "Bash(ROOM_ID=\"a129ad0b-19bb-4a15-8f31-e9906024a285\":*)",
+      "Bash(findstr:*)",
+      "Bash(timeout /t 3 /nobreak)",
+      "Bash(npm run build:*)",
+      "Bash(npm install:*)",
+      "Bash(dir:*)",
+      "Bash(grep:*)",
+      "Bash(taskkill //F //PID 4732)",
+      "Bash(taskkill //F //PID 8396)",
+      "Bash(git add:*)"
+    ]
+  }
+}

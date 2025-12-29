@@ -1,0 +1,21 @@
+{
+  "name": "vilo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Lightweight SaaS for accommodation businesses",
+  "workspaces": [
+    "frontend",
+    "backend"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev:frontend\" \"npm run dev:backend\"",
+    "dev:frontend": "cd frontend; npm run dev",
+    "dev:backend": "cd backend; npm run dev",
+    "install:all": "npm install; cd frontend; npm install; cd ../backend; npm install",
+    "check:supabase": "node --loader tsx scripts/check-supabase.js"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
+
