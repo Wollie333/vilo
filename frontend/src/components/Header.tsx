@@ -1,11 +1,11 @@
 import { useState, useRef, useEffect } from 'react'
-import { Search, ChevronLeft, ChevronRight, HelpCircle, ChevronDown, LogOut, Sun, Moon } from 'lucide-react'
+import { Search, ChevronLeft, ChevronRight, HelpCircle, ChevronDown, LogOut, Sun, Moon, ExternalLink } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 
 export default function Header() {
   const navigate = useNavigate()
-  const { user, signOut } = useAuth()
+  const { user, signOut, tenant } = useAuth()
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [isDark, setIsDark] = useState(() => {
     return localStorage.getItem('theme') === 'dark'
@@ -42,7 +42,18 @@ export default function Header() {
   }
 
   const userEmail = user?.email || 'User'
-  const userInitials = userEmail.substring(0, 2).toUpperCase()
+  const firstName = user?.user_metadata?.first_name || ''
+  const lastName = user?.user_metadata?.last_name || ''
+  const avatarUrl = user?.user_metadata?.avatar_url || ''
+
+  // Get initials from name if available, otherwise from email
+  const userInitials = firstName || lastName
+    ? `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase()
+    : userEmail.substring(0, 2).toUpperCase()
+
+  const displayName = firstName && lastName
+    ? `${firstName} ${lastName}`
+    : userEmail
 
   return (
     <header style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-color)' }} className="border-b px-6 py-3 transition-colors">
@@ -74,6 +85,19 @@ export default function Header() {
           </div>
         </div>
         <div className="flex items-center gap-4">
+          {(tenant?.custom_domain || tenant?.slug) && (
+            <a
+              href={tenant.custom_domain ? `https://${tenant.custom_domain}` : `https://${tenant.slug}.vilo.io`}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ backgroundColor: isDark ? '#374151' : '#f3f4f6' }}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg transition-colors hover:opacity-80"
+              title="View your website"
+            >
+              <ExternalLink size={18} style={{ color: 'var(--text-secondary)' }} />
+              <span style={{ color: 'var(--text-secondary)' }} className="text-sm font-medium">View Site</span>
+            </a>
+          )}
           <button
             onClick={toggleTheme}
             style={{ backgroundColor: isDark ? '#374151' : '#f3f4f6' }}
@@ -98,21 +122,34 @@ export default function Header() {
               onClick={() => setDropdownOpen(!dropdownOpen)}
               className="flex items-center gap-2 cursor-pointer rounded-md px-2 py-1.5 transition-colors hover:opacity-80"
             >
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center">
-                <span className="text-white text-xs font-medium">{userInitials}</span>
+              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center overflow-hidden">
+                {avatarUrl ? (
+                  <img src={avatarUrl} alt="Profile" className="w-full h-full object-cover" />
+                ) : (
+                  <span className="text-white text-xs font-medium">{userInitials}</span>
+                )}
               </div>
-              <span style={{ color: 'var(--text-primary)' }} className="text-sm font-medium max-w-[120px] truncate">{userEmail}</span>
+              <span style={{ color: 'var(--text-primary)' }} className="text-sm font-medium max-w-[120px] truncate">{displayName}</span>
               <ChevronDown size={16} style={{ color: 'var(--text-muted)' }} />
             </button>
             {dropdownOpen && (
               <div style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-color)' }} className="absolute right-0 mt-2 w-56 rounded-lg shadow-lg border py-1 z-50">
-                <div style={{ borderColor: 'var(--border-color)' }} className="px-4 py-3 border-b">
-                  <p style={{ color: 'var(--text-primary)' }} className="text-sm font-medium truncate">{userEmail}</p>
-                  <p style={{ color: 'var(--text-muted)' }} className="text-xs">Administrator</p>
+                <div style={{ borderColor: 'var(--border-color)' }} className="px-4 py-3 border-b flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center overflow-hidden flex-shrink-0">
+                    {avatarUrl ? (
+                      <img src={avatarUrl} alt="Profile" className="w-full h-full object-cover" />
+                    ) : (
+                      <span className="text-white text-sm font-medium">{userInitials}</span>
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    <p style={{ color: 'var(--text-primary)' }} className="text-sm font-medium truncate">{displayName}</p>
+                    <p style={{ color: 'var(--text-muted)' }} className="text-xs truncate">{userEmail}</p>
+                  </div>
                 </div>
                 <button
                   onClick={handleSignOut}
-                  className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-500 hover:bg-red-50 transition-colors"
+                  className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
                 >
                   <LogOut size={16} />
                   Sign out

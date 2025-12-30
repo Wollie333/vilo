@@ -9,9 +9,11 @@
   ],
   "scripts": {
     "dev": "concurrently \"npm run dev:frontend\" \"npm run dev:backend\"",
-    "dev:frontend": "cd frontend; npm run dev",
-    "dev:backend": "cd backend; npm run dev",
-    "install:all": "npm install; cd frontend; npm install; cd ../backend; npm install",
+    "dev:frontend": "npm run dev --workspace=frontend",
+    "dev:backend": "npm run dev --workspace=backend",
+    "build": "npm run build --workspace=frontend && npm run build --workspace=backend",
+    "start": "NODE_ENV=production npm run start --workspace=backend",
+    "install:all": "npm install && npm install --workspace=frontend && npm install --workspace=backend",
     "check:supabase": "node --loader tsx scripts/check-supabase.js"
   },
   "devDependencies": {

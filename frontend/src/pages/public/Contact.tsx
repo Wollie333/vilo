@@ -1,5 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Phone, Mail, MapPin, Clock, Send, CheckCircle } from 'lucide-react'
+import { publicContactApi, publicBookingApi, PublicPropertyInfo } from '../../services/api'
+import { useAuth } from '../../contexts/AuthContext'
 
 // Hook for scroll-triggered animations
 function useInView(threshold = 0.1) {
@@ -38,9 +41,14 @@ interface FormErrors {
   name?: string
   email?: string
   message?: string
+  submit?: string
 }
 
 export default function Contact() {
+  const { tenant } = useAuth()
+  const [searchParams] = useSearchParams()
+  const tenantId = searchParams.get('property') || tenant?.id || import.meta.env.VITE_TENANT_ID || ''
+
   const [formData, setFormData] = useState<FormData>({
     name: '',
     email: '',
@@ -51,10 +59,20 @@ export default function Contact() {
   const [errors, setErrors] = useState<FormErrors>({})
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isSubmitted, setIsSubmitted] = useState(false)
+  const [propertyInfo, setPropertyInfo] = useState<PublicPropertyInfo | null>(null)
 
   const heroSection = useInView()
   const contactSection = useInView(0.05)
   const mapSection = useInView()
+
+  // Fetch property info on mount
+  useEffect(() => {
+    if (tenantId) {
+      publicBookingApi.getProperty(tenantId)
+        .then(setPropertyInfo)
+        .catch(err => console.error('Failed to fetch property info:', err))
+    }
+  }, [tenantId])
 
   const validateForm = (): boolean => {
     const newErrors: FormErrors = {}
@@ -94,40 +112,124 @@ export default function Contact() {
     if (!validateForm()) return
 
     setIsSubmitting(true)
+    setErrors(prev => ({ ...prev, submit: undefined }))
 
-    // Simulate form submission
-    // In production, this would send to your backend
-    await new Promise((resolve) => setTimeout(resolve, 1500))
+    try {
+      if (!tenantId) {
+        throw new Error('Property not configured. Please try again later.')
+      }
 
-    setIsSubmitting(false)
-    setIsSubmitted(true)
+      // Map subject values to readable labels
+      const subjectLabels: Record<string, string> = {
+        general: 'General Inquiry',
+        booking: 'Room Booking',
+        availability: 'Check Availability',
+        feedback: 'Feedback',
+        other: 'Other'
+      }
+
+      await publicContactApi.submit(tenantId, {
+        name: formData.name,
+        email: formData.email,
+        phone: formData.phone || undefined,
+        subject: subjectLabels[formData.subject] || formData.subject,
+        message: formData.message
+      })
+
+      setIsSubmitted(true)
+    } catch (error: any) {
+      console.error('Failed to submit contact form:', error)
+      setErrors(prev => ({
+        ...prev,
+        submit: error.message || 'Failed to send message. Please try again.'
+      }))
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
+  // Build contact info from property settings
+  const phoneDisplay = propertyInfo?.phone || null
+  const phoneLink = phoneDisplay ? `tel:${phoneDisplay.replace(/\s/g, '')}` : null
+  const emailDisplay = propertyInfo?.email || null
+  const emailLink = emailDisplay ? `mailto:${emailDisplay}` : null
+  const addressDisplay = propertyInfo?.address || null
+
+  // Format business hours for display
+  const formatTime = (time: string) => {
+    const [hours, minutes] = time.split(':')
+    const h = parseInt(hours, 10)
+    const ampm = h >= 12 ? 'PM' : 'AM'
+    const hour12 = h % 12 || 12
+    return `${hour12}:${minutes} ${ampm}`
+  }
+
+  const formatBusinessHours = () => {
+    const hours = propertyInfo?.business_hours
+    if (!hours) return null
+
+    const dayOrder = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+    const dayAbbrev: Record<string, string> = {
+      monday: 'Mon', tuesday: 'Tue', wednesday: 'Wed', thursday: 'Thu',
+      friday: 'Fri', saturday: 'Sat', sunday: 'Sun'
+    }
+
+    // Group consecutive days with same hours
+    const groups: { days: string[]; open: string; close: string; closed: boolean }[] = []
+
+    for (const day of dayOrder) {
+      const dayHours = hours[day]
+      if (!dayHours) continue
+
+      const lastGroup = groups[groups.length - 1]
+      if (lastGroup &&
+          lastGroup.closed === dayHours.closed &&
+          lastGroup.open === dayHours.open &&
+          lastGroup.close === dayHours.close) {
+        lastGroup.days.push(day)
+      } else {
+        groups.push({
+          days: [day],
+          open: dayHours.open,
+          close: dayHours.close,
+          closed: dayHours.closed
+        })
+      }
+    }
+
+    return groups.map(group => {
+      const dayRange = group.days.length === 1
+        ? dayAbbrev[group.days[0]]
+        : `${dayAbbrev[group.days[0]]} - ${dayAbbrev[group.days[group.days.length - 1]]}`
+
+      if (group.closed) {
+        return `${dayRange}: Closed`
+      }
+      return `${dayRange}: ${formatTime(group.open)} - ${formatTime(group.close)}`
+    })
+  }
+
+  const businessHoursDisplay = formatBusinessHours()
+
   const contactInfo = [
-    {
+    ...(phoneDisplay ? [{
       icon: Phone,
       title: 'Phone',
-      content: '+27 12 345 6789',
-      link: 'tel:+27123456789',
-    },
-    {
+      content: phoneDisplay,
+      link: phoneLink,
+    }] : []),
+    ...(emailDisplay ? [{
       icon: Mail,
       title: 'Email',
-      content: 'info@viloguesthouse.com',
-      link: 'mailto:info@viloguesthouse.com',
-    },
-    {
+      content: emailDisplay,
+      link: emailLink,
+    }] : []),
+    ...(addressDisplay ? [{
       icon: MapPin,
       title: 'Address',
-      content: '123 Guest House Street, Pretoria, South Africa',
+      content: addressDisplay,
       link: null,
-    },
-    {
-      icon: Clock,
-      title: 'Reception Hours',
-      content: 'Mon - Sun: 7:00 AM - 10:00 PM',
-      link: null,
-    },
+    }] : []),
   ]
 
   if (isSubmitted) {
@@ -242,6 +344,28 @@ export default function Contact() {
                     </div>
                   </div>
                 ))}
+
+                {/* Business Hours */}
+                {businessHoursDisplay && businessHoursDisplay.length > 0 && (
+                  <div
+                    className={`flex items-start gap-3 sm:gap-4 transition-all duration-500 ${
+                      contactSection.isInView ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'
+                    }`}
+                    style={{ transitionDelay: `${contactInfo.length * 100 + 200}ms` }}
+                  >
+                    <div className="flex-shrink-0 w-10 h-10 sm:w-12 sm:h-12 bg-gray-100 rounded-full flex items-center justify-center transition-transform hover:scale-110">
+                      <Clock size={18} className="text-gray-700 sm:w-5 sm:h-5" />
+                    </div>
+                    <div>
+                      <h3 className="font-medium text-gray-900 text-sm sm:text-base">Business Hours</h3>
+                      <div className="text-gray-600 text-sm sm:text-base space-y-0.5">
+                        {businessHoursDisplay.map((line, idx) => (
+                          <p key={idx}>{line}</p>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -359,6 +483,13 @@ export default function Contact() {
                     )}
                   </div>
 
+                  {/* Error Message */}
+                  {errors.submit && (
+                    <div className="p-3 bg-red-50 border border-red-200 rounded-md">
+                      <p className="text-sm text-red-600">{errors.submit}</p>
+                    </div>
+                  )}
+
                   {/* Submit Button */}
                   <div>
                     <button
@@ -406,31 +537,37 @@ export default function Contact() {
       </section>
 
       {/* Map Section */}
-      <section ref={mapSection.ref} className="bg-gray-100">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 sm:py-16">
-          <div className={`text-center mb-6 sm:mb-8 transition-all duration-700 ${mapSection.isInView ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
-            <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-2">Find Us</h2>
-            <p className="text-gray-600 text-sm sm:text-base">Located in the heart of Pretoria</p>
-          </div>
-          <div className={`bg-gray-200 rounded-lg h-64 sm:h-80 flex items-center justify-center transition-all duration-700 hover:shadow-lg ${mapSection.isInView ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`} style={{ transitionDelay: '100ms' }}>
-            <div className="text-center px-4">
-              <MapPin size={36} className="mx-auto text-gray-400 mb-4 sm:w-12 sm:h-12 animate-float" />
-              <p className="text-gray-600 text-sm sm:text-base">
-                123 Guest House Street<br />
-                Pretoria, South Africa
-              </p>
-              <a
-                href="https://maps.google.com"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-block mt-4 text-gray-900 font-medium hover:underline text-sm sm:text-base transition-colors"
-              >
-                View on Google Maps
-              </a>
+      {addressDisplay && (
+        <section ref={mapSection.ref} className="bg-gray-100">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 sm:py-16">
+            <div className={`text-center mb-6 sm:mb-8 transition-all duration-700 ${mapSection.isInView ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
+              <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-2">Find Us</h2>
+              {propertyInfo?.city && (
+                <p className="text-gray-600 text-sm sm:text-base">Located in {propertyInfo.city}</p>
+              )}
+            </div>
+            <div className={`bg-gray-200 rounded-lg h-64 sm:h-80 flex items-center justify-center transition-all duration-700 hover:shadow-lg ${mapSection.isInView ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`} style={{ transitionDelay: '100ms' }}>
+              <div className="text-center px-4">
+                <MapPin size={36} className="mx-auto text-gray-400 mb-4 sm:w-12 sm:h-12 animate-float" />
+                <p className="text-gray-600 text-sm sm:text-base">
+                  {propertyInfo?.address_line1 && <>{propertyInfo.address_line1}<br /></>}
+                  {propertyInfo?.city && propertyInfo?.country && (
+                    <>{propertyInfo.city}, {propertyInfo.country}</>
+                  )}
+                </p>
+                <a
+                  href={`https://maps.google.com/maps?q=${encodeURIComponent(addressDisplay)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-block mt-4 text-gray-900 font-medium hover:underline text-sm sm:text-base transition-colors"
+                >
+                  View on Google Maps
+                </a>
+              </div>
             </div>
           </div>
-        </div>
-      </section>
+        </section>
+      )}
     </div>
   )
 }

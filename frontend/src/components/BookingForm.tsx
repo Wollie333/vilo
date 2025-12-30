@@ -59,39 +59,7 @@ export default function BookingForm({ booking, isOpen, onClose, onSubmit, isSubm
       setRooms(data)
     } catch (error) {
       console.error('Failed to load rooms:', error)
-      // Fallback mock rooms for development
-      setRooms([
-        {
-          id: '1',
-          name: 'Deluxe Double Room',
-          bed_type: 'Double',
-          bed_count: 1,
-          max_guests: 2,
-          amenities: [],
-          images: { featured: null, gallery: [] },
-          base_price_per_night: 1500,
-          currency: 'ZAR',
-          inventory_mode: 'single_unit',
-          total_units: 1,
-          is_active: true,
-          min_stay_nights: 1,
-        },
-        {
-          id: '2',
-          name: 'Family Suite',
-          bed_type: 'King',
-          bed_count: 2,
-          max_guests: 4,
-          amenities: [],
-          images: { featured: null, gallery: [] },
-          base_price_per_night: 2800,
-          currency: 'ZAR',
-          inventory_mode: 'room_type',
-          total_units: 3,
-          is_active: true,
-          min_stay_nights: 1,
-        },
-      ])
+      setRooms([])
     } finally {
       setLoadingRooms(false)
     }

@@ -1,18 +1,28 @@
 import { useState } from 'react'
-import { Plus, Edit2, Trash2, Calendar } from 'lucide-react'
+import { Plus, Edit2, Trash2, Calendar, Users, Building2, UserPlus } from 'lucide-react'
 import Button from '../Button'
-import { SeasonalRate, roomsApi } from '../../services/api'
+import { SeasonalRate, roomsApi, PricingMode } from '../../services/api'
 import { useNotification } from '../../contexts/NotificationContext'
 
 interface PricingStepProps {
   roomId: string
+  pricingMode: PricingMode
   basePrice: number
+  additionalPersonRate?: number
+  childPricePerNight?: number
+  childFreeUntilAge?: number
+  childAgeLimit?: number
   currency: string
   minStayNights: number
   maxStayNights?: number
   seasonalRates: SeasonalRate[]
   onRatesChange: (rates: SeasonalRate[]) => void
+  onPricingModeChange: (mode: PricingMode) => void
   onBasePriceChange: (price: number) => void
+  onAdditionalPersonRateChange: (rate: number | undefined) => void
+  onChildPriceChange: (price: number | undefined) => void
+  onChildFreeUntilAgeChange: (age: number | undefined) => void
+  onChildAgeLimitChange: (age: number | undefined) => void
   onCurrencyChange: (currency: string) => void
   onMinStayChange: (min: number) => void
   onMaxStayChange: (max: number | undefined) => void
@@ -22,9 +32,32 @@ interface RateFormData {
   name: string
   start_date: string
   end_date: string
+  pricing_mode?: PricingMode
   price_per_night: number
+  additional_person_rate?: number
   priority: number
 }
+
+const PRICING_MODES: { value: PricingMode; label: string; description: string; icon: React.ReactNode }[] = [
+  {
+    value: 'per_unit',
+    label: 'Per Unit',
+    description: 'Flat rate for the entire room regardless of number of guests',
+    icon: <Building2 size={20} />,
+  },
+  {
+    value: 'per_person',
+    label: 'Per Person',
+    description: 'Price multiplied by number of guests',
+    icon: <Users size={20} />,
+  },
+  {
+    value: 'per_person_sharing',
+    label: 'Per Person Sharing',
+    description: 'Base rate for first person, additional rate for each extra guest',
+    icon: <UserPlus size={20} />,
+  },
+]
 
 const CURRENCIES = [
   { code: 'ZAR', name: 'South African Rand' },
@@ -36,13 +69,23 @@ const CURRENCIES = [
 
 export default function PricingStep({
   roomId,
+  pricingMode,
   basePrice,
+  additionalPersonRate,
+  childPricePerNight,
+  childFreeUntilAge,
+  childAgeLimit,
   currency,
   minStayNights,
   maxStayNights,
   seasonalRates,
   onRatesChange,
+  onPricingModeChange,
   onBasePriceChange,
+  onAdditionalPersonRateChange,
+  onChildPriceChange,
+  onChildFreeUntilAgeChange,
+  onChildAgeLimitChange,
   onCurrencyChange,
   onMinStayChange,
   onMaxStayChange,
@@ -55,7 +98,9 @@ export default function PricingStep({
     name: '',
     start_date: '',
     end_date: '',
+    pricing_mode: undefined, // Inherit from room
     price_per_night: 0,
+    additional_person_rate: undefined,
     priority: 0,
   })
 
@@ -80,7 +125,9 @@ export default function PricingStep({
       name: '',
       start_date: '',
       end_date: '',
+      pricing_mode: undefined, // Inherit from room
       price_per_night: basePrice,
+      additional_person_rate: additionalPersonRate,
       priority: seasonalRates.length,
     })
     setShowRateForm(true)
@@ -92,7 +139,9 @@ export default function PricingStep({
       name: rate.name,
       start_date: rate.start_date,
       end_date: rate.end_date,
+      pricing_mode: rate.pricing_mode,
       price_per_night: rate.price_per_night,
+      additional_person_rate: rate.additional_person_rate,
       priority: rate.priority,
     })
     setShowRateForm(true)
@@ -146,7 +195,12 @@ export default function PricingStep({
     try {
       setIsSaving(true)
       await roomsApi.update(roomId, {
+        pricing_mode: pricingMode,
         base_price_per_night: basePrice,
+        additional_person_rate: additionalPersonRate,
+        child_price_per_night: childPricePerNight,
+        child_free_until_age: childFreeUntilAge,
+        child_age_limit: childAgeLimit,
         currency,
         min_stay_nights: minStayNights,
         max_stay_nights: maxStayNights,
@@ -160,18 +214,62 @@ export default function PricingStep({
     }
   }
 
+  // Get the label for base price based on pricing mode
+  const getBasePriceLabel = () => {
+    switch (pricingMode) {
+      case 'per_person':
+        return 'Price per Person per Night *'
+      case 'per_person_sharing':
+        return 'Base Price (First Person) per Night *'
+      default:
+        return 'Price per Unit per Night *'
+    }
+  }
+
   return (
     <div className="p-6 space-y-8">
+      {/* Pricing Mode */}
+      <div>
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">Pricing Model</h3>
+        <p className="text-sm text-gray-500 mb-4">
+          Choose how you want to charge for this room.
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {PRICING_MODES.map((mode) => (
+            <button
+              key={mode.value}
+              type="button"
+              onClick={() => onPricingModeChange(mode.value)}
+              className={`p-4 rounded-lg border-2 text-left transition-all ${
+                pricingMode === mode.value
+                  ? 'border-black bg-gray-50'
+                  : 'border-gray-200 hover:border-gray-300'
+              }`}
+            >
+              <div className="flex items-center gap-3 mb-2">
+                <div className={`${pricingMode === mode.value ? 'text-black' : 'text-gray-400'}`}>
+                  {mode.icon}
+                </div>
+                <span className={`font-medium ${pricingMode === mode.value ? 'text-black' : 'text-gray-700'}`}>
+                  {mode.label}
+                </span>
+              </div>
+              <p className="text-sm text-gray-500">{mode.description}</p>
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* Base Price */}
       <div>
         <h3 className="text-lg font-semibold text-gray-900 mb-4">Base Price</h3>
         <p className="text-sm text-gray-500 mb-4">
           Set the default nightly rate for this room. Seasonal rates can override this for specific date ranges.
         </p>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Price per Night *
+              {getBasePriceLabel()}
             </label>
             <input
               type="number"
@@ -181,7 +279,29 @@ export default function PricingStep({
               step="0.01"
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
             />
+            {pricingMode === 'per_person' && (
+              <p className="text-xs text-gray-500 mt-1">Total = Price x Number of guests</p>
+            )}
           </div>
+
+          {pricingMode === 'per_person_sharing' && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Additional Person Rate *
+              </label>
+              <input
+                type="number"
+                value={additionalPersonRate ?? ''}
+                onChange={(e) => onAdditionalPersonRateChange(e.target.value ? parseFloat(e.target.value) : undefined)}
+                min="0"
+                step="0.01"
+                placeholder="Rate per extra person"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
+              />
+              <p className="text-xs text-gray-500 mt-1">Price for each additional guest after first</p>
+            </div>
+          )}
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Currency
@@ -198,6 +318,118 @@ export default function PricingStep({
               ))}
             </select>
           </div>
+        </div>
+
+        {/* Pricing Example */}
+        <div className="mt-4 p-3 bg-blue-50 border border-blue-100 rounded-lg">
+          <p className="text-sm font-medium text-blue-800 mb-1">Pricing Example (2 adults):</p>
+          <p className="text-sm text-blue-700">
+            {pricingMode === 'per_unit' && (
+              <>Total per night: <span className="font-medium">{formatCurrency(basePrice)}</span></>
+            )}
+            {pricingMode === 'per_person' && (
+              <>Total per night: {formatCurrency(basePrice)} x 2 = <span className="font-medium">{formatCurrency(basePrice * 2)}</span></>
+            )}
+            {pricingMode === 'per_person_sharing' && (
+              <>Total per night: {formatCurrency(basePrice)} + {formatCurrency(additionalPersonRate || 0)} = <span className="font-medium">{formatCurrency(basePrice + (additionalPersonRate || 0))}</span></>
+            )}
+          </p>
+        </div>
+      </div>
+
+      {/* Children Pricing */}
+      <div>
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">Children Pricing</h3>
+        <p className="text-sm text-gray-500 mb-4">
+          Set pricing rules for children. Define age ranges and whether children stay free or at a reduced rate.
+        </p>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Children Age Limit
+            </label>
+            <select
+              value={childAgeLimit ?? 12}
+              onChange={(e) => onChildAgeLimitChange(parseInt(e.target.value))}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
+            >
+              {[6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18].map((age) => (
+                <option key={age} value={age}>
+                  Under {age} years
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-gray-500 mt-1">
+              Guests {childAgeLimit ?? 12}+ pay adult rate
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Free Until Age
+            </label>
+            <select
+              value={childFreeUntilAge ?? ''}
+              onChange={(e) => onChildFreeUntilAgeChange(e.target.value ? parseInt(e.target.value) : undefined)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
+            >
+              <option value="">No free children</option>
+              {[2, 3, 4, 5, 6].map((age) => (
+                <option key={age} value={age}>
+                  Under {age} years free
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-gray-500 mt-1">
+              {childFreeUntilAge
+                ? `Children 0-${childFreeUntilAge - 1} stay free`
+                : 'All children pay'}
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Child Price/Night ({currency})
+            </label>
+            <input
+              type="number"
+              value={childPricePerNight ?? ''}
+              onChange={(e) => onChildPriceChange(e.target.value ? parseFloat(e.target.value) : undefined)}
+              min="0"
+              step="0.01"
+              placeholder="Same as adult"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              {childPricePerNight === 0
+                ? 'All children stay free'
+                : childPricePerNight
+                  ? `${childFreeUntilAge ? `Ages ${childFreeUntilAge}-${(childAgeLimit ?? 12) - 1}` : `Ages 0-${(childAgeLimit ?? 12) - 1}`} pay this rate`
+                  : 'Leave empty for adult rate'}
+            </p>
+          </div>
+        </div>
+
+        {/* Pricing Summary */}
+        <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+          <h4 className="text-sm font-medium text-gray-700 mb-2">Pricing Summary</h4>
+          <ul className="text-sm text-gray-600 space-y-1">
+            <li>• Adults ({childAgeLimit ?? 12}+ years): <span className="font-medium">{formatCurrency(basePrice)}/night</span></li>
+            {childFreeUntilAge && (
+              <li>• Infants/Toddlers (0-{childFreeUntilAge - 1} years): <span className="font-medium text-green-600">Free</span></li>
+            )}
+            <li>
+              • Children ({childFreeUntilAge ?? 0}-{(childAgeLimit ?? 12) - 1} years):{' '}
+              <span className="font-medium">
+                {childPricePerNight === 0
+                  ? <span className="text-green-600">Free</span>
+                  : childPricePerNight
+                    ? `${formatCurrency(childPricePerNight)}/night`
+                    : `${formatCurrency(basePrice)}/night (same as adult)`}
+              </span>
+            </li>
+          </ul>
         </div>
       </div>
 

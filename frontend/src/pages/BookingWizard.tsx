@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, ArrowRight, Check, Save } from 'lucide-react'
 import Button from '../components/Button'
+import { scrollToTop } from '../components/ScrollToTop'
 import RoomDatesStep from '../components/booking-wizard/RoomDatesStep'
 import GuestInfoStep from '../components/booking-wizard/GuestInfoStep'
 import PaymentConfirmStep, { SelectedAddon } from '../components/booking-wizard/PaymentConfirmStep'
@@ -25,11 +26,14 @@ export interface BookingFormData {
   guest_name: string
   guest_email: string
   guest_phone: string
+  adults: number
+  children: number
+  children_ages: number[]
   room_id: string
   room_name: string
   check_in: string
   check_out: string
-  status: 'pending' | 'confirmed' | 'cancelled' | 'completed'
+  status: 'pending' | 'confirmed' | 'checked_in' | 'checked_out' | 'cancelled' | 'completed'
   payment_status: 'pending' | 'paid' | 'partial' | 'refunded'
   total_amount: number
   currency: string
@@ -55,6 +59,9 @@ export default function BookingWizard() {
     guest_name: '',
     guest_email: '',
     guest_phone: '',
+    adults: 2,
+    children: 0,
+    children_ages: [],
     room_id: '',
     room_name: '',
     check_in: '',
@@ -78,10 +85,24 @@ export default function BookingWizard() {
     try {
       setIsLoading(true)
       const booking = await bookingsApi.getById(bookingId)
+
+      // Parse notes to get adults/children if available
+      let parsedNotes: any = {}
+      let notesText = booking.notes || ''
+      try {
+        parsedNotes = booking.notes ? JSON.parse(booking.notes) : {}
+        notesText = parsedNotes.special_requests || ''
+      } catch {
+        // Notes is plain text
+      }
+
       setFormData({
         guest_name: booking.guest_name,
         guest_email: booking.guest_email || '',
         guest_phone: booking.guest_phone || '',
+        adults: parsedNotes.adults || parsedNotes.guests || 2,
+        children: parsedNotes.children || 0,
+        children_ages: parsedNotes.children_ages || [],
         room_id: booking.room_id,
         room_name: booking.room_name || '',
         check_in: booking.check_in,
@@ -90,7 +111,7 @@ export default function BookingWizard() {
         payment_status: booking.payment_status,
         total_amount: booking.total_amount,
         currency: booking.currency,
-        notes: booking.notes || '',
+        notes: notesText,
         override_rules: false,
       })
       // Mark step one as valid since we're editing an existing booking
@@ -132,19 +153,26 @@ export default function BookingWizard() {
   const handleNext = () => {
     if (currentStep < STEPS.length) {
       setCurrentStep((prev) => prev + 1)
+      scrollToTop()
     }
   }
 
   const handleBack = () => {
     setCurrentStep((prev) => Math.max(prev - 1, 1))
+    scrollToTop()
   }
 
   const handleFinish = async () => {
     try {
       setIsSaving(true)
 
-      // Build notes JSON with add-ons and special requests
-      const notesData: any = {}
+      // Build notes JSON with guests, add-ons and special requests
+      const notesData: any = {
+        guests: formData.adults + formData.children,
+        adults: formData.adults,
+        children: formData.children,
+        children_ages: formData.children_ages,
+      }
       if (formData.notes) {
         notesData.special_requests = formData.notes
       }
@@ -170,7 +198,7 @@ export default function BookingWizard() {
         payment_status: formData.payment_status,
         total_amount: formData.total_amount,
         currency: formData.currency,
-        notes: Object.keys(notesData).length > 0 ? JSON.stringify(notesData) : undefined,
+        notes: JSON.stringify(notesData),
       }
 
       if (isEditing && id) {
@@ -317,10 +345,16 @@ export default function BookingWizard() {
               guestName={formData.guest_name}
               guestEmail={formData.guest_email}
               guestPhone={formData.guest_phone}
+              adults={formData.adults}
+              children={formData.children}
+              childrenAges={formData.children_ages}
               notes={formData.notes}
               onGuestNameChange={(name) => updateFormData({ guest_name: name })}
               onGuestEmailChange={(email) => updateFormData({ guest_email: email })}
               onGuestPhoneChange={(phone) => updateFormData({ guest_phone: phone })}
+              onAdultsChange={(adults) => updateFormData({ adults })}
+              onChildrenChange={(children) => updateFormData({ children })}
+              onChildrenAgesChange={(children_ages) => updateFormData({ children_ages })}
               onNotesChange={(notes) => updateFormData({ notes: notes })}
             />
           )}

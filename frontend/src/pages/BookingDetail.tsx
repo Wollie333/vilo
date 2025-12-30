@@ -24,9 +24,16 @@ import {
   File,
   Trash2,
   Download,
+  Plus,
+  Minus,
+  RotateCcw,
+  DollarSign,
+  Star,
+  MessageSquare,
 } from 'lucide-react'
 import Button from '../components/Button'
-import { bookingsApi, Booking, roomsApi, Room, ProofOfPayment } from '../services/api'
+import StarRating from '../components/StarRating'
+import { bookingsApi, Booking, roomsApi, Room, ProofOfPayment, addonsApi, AddOn, reviewsApi, Review } from '../services/api'
 import { useNotification } from '../contexts/NotificationContext'
 
 const statusOptions = [
@@ -45,8 +52,23 @@ const paymentStatusOptions = [
   { value: 'refunded', label: 'Refunded', color: 'bg-red-100 text-red-700' },
 ]
 
+interface NightlyRate {
+  date: string
+  base_price: number
+  effective_price: number
+  override_price?: number // Manual override by user
+  seasonal_rate?: {
+    id: string
+    name: string
+    price_per_night: number
+  } | null
+}
+
 interface BookingNotes {
   guests?: number
+  adults?: number
+  children?: number
+  children_ages?: number[]
   addons?: Array<{
     id: string
     name: string
@@ -54,6 +76,7 @@ interface BookingNotes {
     price: number
     total: number
   }>
+  nightly_rates?: NightlyRate[] // Store manual rate overrides
   special_requests?: string
   booking_reference?: string
   booked_online?: boolean
@@ -66,6 +89,7 @@ export default function BookingDetail() {
 
   const [booking, setBooking] = useState<Booking | null>(null)
   const [room, setRoom] = useState<Room | null>(null)
+  const [rooms, setRooms] = useState<Room[]>([]) // All available rooms for switching
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
@@ -76,6 +100,8 @@ export default function BookingDetail() {
     guest_name: '',
     guest_email: '',
     guest_phone: '',
+    room_id: '',
+    room_name: '',
     check_in: '',
     check_out: '',
     status: 'pending' as Booking['status'],
@@ -92,6 +118,24 @@ export default function BookingDetail() {
 
   // Parsed notes
   const [bookingNotes, setBookingNotes] = useState<BookingNotes>({})
+
+  // Addons management
+  const [availableAddons, setAvailableAddons] = useState<AddOn[]>([])
+  const [loadingAddons, setLoadingAddons] = useState(false)
+  const [showAddonSelector, setShowAddonSelector] = useState(false)
+  const [selectedAddons, setSelectedAddons] = useState<Map<string, { addon: AddOn; quantity: number }>>(new Map())
+  const [savingAddons, setSavingAddons] = useState(false)
+
+  // Nightly rates management
+  const [nightlyRates, setNightlyRates] = useState<NightlyRate[]>([])
+  const [loadingRates, setLoadingRates] = useState(false)
+  const [editingRates, setEditingRates] = useState(false)
+  const [savingRates, setSavingRates] = useState(false)
+
+  // Review management
+  const [review, setReview] = useState<Review | null>(null)
+  const [loadingReview, setLoadingReview] = useState(false)
+  const [sendingReviewRequest, setSendingReviewRequest] = useState(false)
 
   useEffect(() => {
     if (id) {
@@ -118,6 +162,8 @@ export default function BookingDetail() {
         guest_name: data.guest_name || '',
         guest_email: data.guest_email || '',
         guest_phone: data.guest_phone || '',
+        room_id: data.room_id || '',
+        room_name: data.room_name || '',
         check_in: data.check_in || '',
         check_out: data.check_out || '',
         status: data.status,
@@ -129,6 +175,14 @@ export default function BookingDetail() {
 
       // Set proof of payment
       setProofOfPayment(data.proof_of_payment || null)
+
+      // Load all available rooms for room switching
+      try {
+        const roomsData = await roomsApi.getAll({ is_active: true })
+        setRooms(roomsData)
+      } catch {
+        // Failed to load rooms list
+      }
 
       // Load room details if available
       if (data.room_id) {
@@ -157,6 +211,8 @@ export default function BookingDetail() {
         guest_name: editForm.guest_name,
         guest_email: editForm.guest_email,
         guest_phone: editForm.guest_phone,
+        room_id: editForm.room_id,
+        room_name: editForm.room_name,
         check_in: editForm.check_in,
         check_out: editForm.check_out,
         status: editForm.status,
@@ -277,6 +333,314 @@ export default function BookingDetail() {
       `Booking update notification sent to ${booking.guest_email}`
     )
     setSendingEmail(false)
+  }
+
+  // Load available addons
+  const loadAvailableAddons = async () => {
+    setLoadingAddons(true)
+    try {
+      const addons = await addonsApi.getAll({ is_active: true })
+      // Filter addons that are available for this room (or available for all rooms)
+      const filteredAddons = addons.filter(addon =>
+        addon.available_for_rooms.length === 0 ||
+        (booking?.room_id && addon.available_for_rooms.includes(booking.room_id))
+      )
+      setAvailableAddons(filteredAddons)
+    } catch (error) {
+      console.error('Failed to load addons:', error)
+      showError('Error', 'Failed to load available add-ons')
+    } finally {
+      setLoadingAddons(false)
+    }
+  }
+
+  // Open addon selector
+  const handleOpenAddonSelector = () => {
+    loadAvailableAddons()
+    // Initialize selected addons from existing booking addons
+    const initialSelected = new Map<string, { addon: AddOn; quantity: number }>()
+    if (bookingNotes.addons) {
+      bookingNotes.addons.forEach(existingAddon => {
+        // Find the full addon data from available addons or create a minimal one
+        initialSelected.set(existingAddon.id, {
+          addon: {
+            id: existingAddon.id,
+            name: existingAddon.name,
+            price: existingAddon.price,
+            pricing_type: 'per_booking',
+            addon_type: 'service',
+            currency: booking?.currency || 'ZAR',
+            max_quantity: 10,
+            image: null,
+            available_for_rooms: [],
+            is_active: true,
+          },
+          quantity: existingAddon.quantity,
+        })
+      })
+    }
+    setSelectedAddons(initialSelected)
+    setShowAddonSelector(true)
+  }
+
+  // Update addon quantity
+  const updateAddonQuantity = (addon: AddOn, delta: number) => {
+    const newSelected = new Map(selectedAddons)
+    const current = newSelected.get(addon.id!)
+
+    if (current) {
+      const newQty = current.quantity + delta
+      if (newQty <= 0) {
+        newSelected.delete(addon.id!)
+      } else if (newQty <= addon.max_quantity) {
+        newSelected.set(addon.id!, { addon, quantity: newQty })
+      }
+    } else if (delta > 0) {
+      newSelected.set(addon.id!, { addon, quantity: 1 })
+    }
+
+    setSelectedAddons(newSelected)
+  }
+
+  // Calculate addon total based on pricing type
+  const calculateAddonTotal = (addon: AddOn, quantity: number): number => {
+    const nights = calculateNights()
+    const guests = bookingNotes.guests || 1
+
+    switch (addon.pricing_type) {
+      case 'per_night':
+        return addon.price * quantity * nights
+      case 'per_guest':
+        return addon.price * quantity * guests
+      case 'per_guest_per_night':
+        return addon.price * quantity * guests * nights
+      case 'per_booking':
+      default:
+        return addon.price * quantity
+    }
+  }
+
+  // Save addons to booking
+  const handleSaveAddons = async () => {
+    if (!booking?.id) return
+
+    setSavingAddons(true)
+    try {
+      // Build addon list for notes
+      const addonsList = Array.from(selectedAddons.values()).map(({ addon, quantity }) => ({
+        id: addon.id!,
+        name: addon.name,
+        quantity,
+        price: addon.price,
+        total: calculateAddonTotal(addon, quantity),
+      }))
+
+      // Calculate new total
+      const addonsTotal = addonsList.reduce((sum, a) => sum + a.total, 0)
+      const roomTotal = room ? room.base_price_per_night * calculateNights() : (booking.total_amount - (bookingNotes.addons?.reduce((s, a) => s + a.total, 0) || 0))
+      const newTotal = roomTotal + addonsTotal
+
+      // Update booking notes
+      const updatedNotes: BookingNotes = {
+        ...bookingNotes,
+        addons: addonsList.length > 0 ? addonsList : undefined,
+      }
+
+      await bookingsApi.update(booking.id, {
+        notes: JSON.stringify(updatedNotes),
+        total_amount: newTotal,
+      })
+
+      showSuccess('Add-ons Updated', 'The booking add-ons have been updated successfully.')
+      setShowAddonSelector(false)
+      await loadBooking(booking.id)
+    } catch (error) {
+      console.error('Failed to save addons:', error)
+      showError('Error', 'Failed to update add-ons')
+    } finally {
+      setSavingAddons(false)
+    }
+  }
+
+  // Remove a single addon from the booking
+  const handleRemoveAddon = async (addonId: string) => {
+    if (!booking?.id) return
+
+    try {
+      const updatedAddons = bookingNotes.addons?.filter(a => a.id !== addonId) || []
+      const removedAddon = bookingNotes.addons?.find(a => a.id === addonId)
+
+      const updatedNotes: BookingNotes = {
+        ...bookingNotes,
+        addons: updatedAddons.length > 0 ? updatedAddons : undefined,
+      }
+
+      const newTotal = booking.total_amount - (removedAddon?.total || 0)
+
+      await bookingsApi.update(booking.id, {
+        notes: JSON.stringify(updatedNotes),
+        total_amount: newTotal,
+      })
+
+      showSuccess('Add-on Removed', 'The add-on has been removed from this booking.')
+      await loadBooking(booking.id)
+    } catch (error) {
+      console.error('Failed to remove addon:', error)
+      showError('Error', 'Failed to remove add-on')
+    }
+  }
+
+  // Load nightly rates for the booking period
+  const loadNightlyRates = async () => {
+    if (!booking?.room_id || !booking?.check_in || !booking?.check_out) return
+
+    setLoadingRates(true)
+    try {
+      const batchPricing = await roomsApi.getBatchPrices(
+        booking.room_id,
+        booking.check_in,
+        booking.check_out
+      )
+
+      // Merge with any saved override rates from booking notes
+      const savedRates = bookingNotes.nightly_rates || []
+      const mergedRates: NightlyRate[] = batchPricing.nights.map(night => {
+        const savedRate = savedRates.find(r => r.date === night.date)
+        return {
+          date: night.date,
+          base_price: night.base_price,
+          effective_price: night.effective_price,
+          override_price: savedRate?.override_price,
+          seasonal_rate: night.seasonal_rate,
+        }
+      })
+
+      setNightlyRates(mergedRates)
+    } catch (error) {
+      console.error('Failed to load nightly rates:', error)
+    } finally {
+      setLoadingRates(false)
+    }
+  }
+
+  // Update a single night's rate
+  const handleRateChange = (date: string, newPrice: number) => {
+    setNightlyRates(prev =>
+      prev.map(rate =>
+        rate.date === date
+          ? { ...rate, override_price: newPrice }
+          : rate
+      )
+    )
+  }
+
+  // Reset a single night's rate to default
+  const handleResetRate = (date: string) => {
+    setNightlyRates(prev =>
+      prev.map(rate =>
+        rate.date === date
+          ? { ...rate, override_price: undefined }
+          : rate
+      )
+    )
+  }
+
+  // Calculate total from nightly rates
+  const calculateRatesTotal = (): number => {
+    return nightlyRates.reduce((sum, rate) => {
+      const price = rate.override_price ?? rate.effective_price
+      return sum + price
+    }, 0)
+  }
+
+  // Save nightly rate overrides
+  const handleSaveRates = async () => {
+    if (!booking?.id) return
+
+    setSavingRates(true)
+    try {
+      // Only save rates that have overrides
+      const ratesToSave = nightlyRates.filter(r => r.override_price !== undefined)
+
+      const updatedNotes: BookingNotes = {
+        ...bookingNotes,
+        nightly_rates: ratesToSave.length > 0 ? nightlyRates : undefined,
+      }
+
+      // Calculate new total: room rates + addons
+      const roomTotal = calculateRatesTotal()
+      const addonsTotal = bookingNotes.addons?.reduce((sum, a) => sum + a.total, 0) || 0
+      const newTotal = roomTotal + addonsTotal
+
+      await bookingsApi.update(booking.id, {
+        notes: JSON.stringify(updatedNotes),
+        total_amount: newTotal,
+      })
+
+      showSuccess('Rates Updated', 'Nightly rates have been updated successfully.')
+      setEditingRates(false)
+      await loadBooking(booking.id)
+    } catch (error) {
+      console.error('Failed to save rates:', error)
+      showError('Error', 'Failed to update nightly rates')
+    } finally {
+      setSavingRates(false)
+    }
+  }
+
+  // Load nightly rates when booking or notes change
+  useEffect(() => {
+    if (booking?.room_id && booking?.check_in && booking?.check_out) {
+      loadNightlyRates()
+    }
+  }, [booking?.room_id, booking?.check_in, booking?.check_out, bookingNotes.nightly_rates])
+
+  // Load review when booking loads
+  useEffect(() => {
+    if (booking?.id) {
+      loadReview(booking.id)
+    }
+  }, [booking?.id])
+
+  // Load review for booking
+  const loadReview = async (bookingId: string) => {
+    setLoadingReview(true)
+    try {
+      const result = await reviewsApi.getByBookingId(bookingId)
+      if (result.hasReview) {
+        setReview(result as Review)
+      } else {
+        setReview(null)
+      }
+    } catch {
+      setReview(null)
+    } finally {
+      setLoadingReview(false)
+    }
+  }
+
+  // Send review request to guest
+  const handleSendReviewRequest = async () => {
+    if (!booking?.id) return
+
+    setSendingReviewRequest(true)
+    try {
+      const result = await reviewsApi.sendRequest(booking.id)
+      showSuccess('Review Request Sent', result.message)
+    } catch (error: any) {
+      showError('Error', error.message || 'Failed to send review request')
+    } finally {
+      setSendingReviewRequest(false)
+    }
+  }
+
+  // Check if booking is eligible for review
+  const isReviewEligible = () => {
+    if (!booking) return false
+    return (
+      ['checked_out', 'completed'].includes(booking.status) &&
+      booking.payment_status === 'paid'
+    )
   }
 
   const formatDate = (dateString: string) => {
@@ -468,13 +832,27 @@ export default function BookingDetail() {
                 )}
               </div>
 
-              {bookingNotes.guests && (
+              {(bookingNotes.guests || bookingNotes.adults) && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-500 mb-1">Number of Guests</label>
+                  <label className="block text-sm font-medium text-gray-500 mb-1">Guests</label>
                   <div className="flex items-center gap-2">
                     <Users size={16} className="text-gray-400" />
-                    <span className="text-gray-900">{bookingNotes.guests}</span>
+                    <div>
+                      <span className="text-gray-900">
+                        {bookingNotes.adults ?? bookingNotes.guests ?? 1} {(bookingNotes.adults ?? bookingNotes.guests ?? 1) === 1 ? 'Adult' : 'Adults'}
+                      </span>
+                      {bookingNotes.children && bookingNotes.children > 0 && (
+                        <span className="text-gray-600">
+                          {', '}{bookingNotes.children} {bookingNotes.children === 1 ? 'Child' : 'Children'}
+                        </span>
+                      )}
+                    </div>
                   </div>
+                  {bookingNotes.children_ages && bookingNotes.children_ages.length > 0 && (
+                    <p className="text-xs text-gray-500 mt-1">
+                      Children ages: {bookingNotes.children_ages.join(', ')} years
+                    </p>
+                  )}
                 </div>
               )}
             </div>
@@ -532,46 +910,431 @@ export default function BookingDetail() {
                 </div>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-500 mb-1">Room</label>
-                <div className="flex items-center gap-2">
-                  <BedDouble size={16} className="text-gray-400" />
-                  <span className="text-gray-900 font-medium">
-                    {booking.room_name || booking.room_id}
-                  </span>
-                </div>
-                {room && (
-                  <p className="text-sm text-gray-500 mt-1">
-                    {room.bed_count}x {room.bed_type} · Max {room.max_guests} guests
-                  </p>
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-500 mb-2">Room</label>
+                {isEditing ? (
+                  <select
+                    value={editForm.room_id}
+                    onChange={(e) => {
+                      const selectedRoom = rooms.find(r => r.id === e.target.value)
+                      setEditForm({
+                        ...editForm,
+                        room_id: e.target.value,
+                        room_name: selectedRoom?.name || '',
+                      })
+                    }}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-black focus:border-transparent"
+                  >
+                    <option value="">Select a room...</option>
+                    {rooms.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.name} - {new Intl.NumberFormat('en-ZA', {
+                          style: 'currency',
+                          currency: r.currency,
+                        }).format(r.base_price_per_night)}/night
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <div className="flex items-start gap-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                    {/* Room Thumbnail */}
+                    {room?.images?.featured ? (
+                      <img
+                        src={room.images.featured.url}
+                        alt={room.name}
+                        className="w-20 h-20 object-cover rounded-lg flex-shrink-0"
+                      />
+                    ) : (
+                      <div className="w-20 h-20 bg-gray-200 rounded-lg flex items-center justify-center flex-shrink-0">
+                        <BedDouble size={24} className="text-gray-400" />
+                      </div>
+                    )}
+                    {/* Room Details */}
+                    <div className="flex-1 min-w-0">
+                      <h4 className="font-semibold text-gray-900">
+                        {booking.room_name || 'Unknown Room'}
+                      </h4>
+                      <p className="text-xs text-gray-400 font-mono mt-0.5">
+                        {room?.room_code || booking.room_id}
+                      </p>
+                      {room && (
+                        <>
+                          <p className="text-sm text-gray-600 mt-1">
+                            {room.bed_count}x {room.bed_type} · Max {room.max_guests} guests
+                          </p>
+                          <p className="text-sm font-medium text-gray-900 mt-1">
+                            {new Intl.NumberFormat('en-ZA', {
+                              style: 'currency',
+                              currency: room.currency,
+                            }).format(room.base_price_per_night)}/night
+                          </p>
+                        </>
+                      )}
+                    </div>
+                  </div>
                 )}
               </div>
             </div>
           </div>
 
-          {/* Add-ons (if any) */}
-          {bookingNotes.addons && bookingNotes.addons.length > 0 && (
-            <div className="bg-white rounded-lg border border-gray-200 p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+          {/* Nightly Rates Card */}
+          <div className="bg-white rounded-lg border border-gray-200 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                <DollarSign size={20} />
+                Nightly Rates
+              </h2>
+              {!editingRates ? (
+                <button
+                  onClick={() => setEditingRates(true)}
+                  className="flex items-center gap-1 px-3 py-1.5 text-sm bg-gray-900 text-white rounded-md hover:bg-gray-800 transition-colors"
+                >
+                  <Edit size={14} />
+                  Edit Rates
+                </button>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      setEditingRates(false)
+                      loadNightlyRates() // Reset to saved values
+                    }}
+                    className="px-3 py-1.5 text-sm border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSaveRates}
+                    disabled={savingRates}
+                    className="flex items-center gap-1 px-3 py-1.5 text-sm bg-gray-900 text-white rounded-md hover:bg-gray-800 transition-colors disabled:opacity-50"
+                  >
+                    {savingRates ? (
+                      <Loader2 size={14} className="animate-spin" />
+                    ) : (
+                      <Save size={14} />
+                    )}
+                    Save
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {loadingRates ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+                <span className="ml-2 text-gray-500">Loading rates...</span>
+              </div>
+            ) : nightlyRates.length === 0 ? (
+              <div className="text-center py-6 text-gray-500">
+                <DollarSign size={32} className="mx-auto mb-2 opacity-50" />
+                <p className="text-sm">No nightly rate data available</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {/* Table Header */}
+                <div className="grid grid-cols-12 gap-2 text-xs font-medium text-gray-500 uppercase tracking-wider pb-2 border-b">
+                  <div className="col-span-4">Date</div>
+                  <div className="col-span-3 text-right">Base Rate</div>
+                  <div className="col-span-4 text-right">
+                    {editingRates ? 'Override Rate' : 'Final Rate'}
+                  </div>
+                  {editingRates && <div className="col-span-1"></div>}
+                </div>
+
+                {/* Table Rows */}
+                {nightlyRates.map((rate) => {
+                  const finalPrice = rate.override_price ?? rate.effective_price
+                  const hasOverride = rate.override_price !== undefined
+                  const hasSeasonal = rate.seasonal_rate !== null
+
+                  return (
+                    <div
+                      key={rate.date}
+                      className={`grid grid-cols-12 gap-2 py-2 items-center border-b border-gray-100 last:border-0 ${
+                        hasOverride ? 'bg-blue-50 -mx-2 px-2 rounded' : ''
+                      }`}
+                    >
+                      <div className="col-span-4">
+                        <p className="text-sm font-medium text-gray-900">
+                          {new Date(rate.date).toLocaleDateString('en-ZA', {
+                            weekday: 'short',
+                            day: 'numeric',
+                            month: 'short',
+                          })}
+                        </p>
+                        {hasSeasonal && !editingRates && (
+                          <p className="text-xs text-gray-500">{rate.seasonal_rate?.name}</p>
+                        )}
+                      </div>
+                      <div className="col-span-3 text-right">
+                        <span className="text-sm text-gray-500">
+                          {formatCurrency(rate.base_price, booking.currency)}
+                        </span>
+                        {hasSeasonal && (
+                          <p className="text-xs text-green-600">
+                            Season: {formatCurrency(rate.effective_price, booking.currency)}
+                          </p>
+                        )}
+                      </div>
+                      <div className="col-span-4 text-right">
+                        {editingRates ? (
+                          <input
+                            type="number"
+                            value={rate.override_price ?? rate.effective_price}
+                            onChange={(e) => handleRateChange(rate.date, parseFloat(e.target.value) || 0)}
+                            className={`w-full px-2 py-1 text-sm text-right border rounded-md focus:ring-2 focus:ring-black focus:border-transparent ${
+                              hasOverride ? 'border-blue-400 bg-white' : 'border-gray-300'
+                            }`}
+                          />
+                        ) : (
+                          <span className={`text-sm font-medium ${hasOverride ? 'text-blue-600' : 'text-gray-900'}`}>
+                            {formatCurrency(finalPrice, booking.currency)}
+                            {hasOverride && (
+                              <span className="ml-1 text-xs text-blue-500">(custom)</span>
+                            )}
+                          </span>
+                        )}
+                      </div>
+                      {editingRates && (
+                        <div className="col-span-1 text-right">
+                          {hasOverride && (
+                            <button
+                              onClick={() => handleResetRate(rate.date)}
+                              className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors"
+                              title="Reset to default"
+                            >
+                              <RotateCcw size={14} />
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+
+                {/* Total Row */}
+                <div className="pt-3 border-t border-gray-200">
+                  <div className="flex justify-between">
+                    <span className="font-medium text-gray-700">Room Total ({calculateNights()} nights)</span>
+                    <span className="text-lg font-bold text-gray-900">
+                      {formatCurrency(
+                        editingRates ? calculateRatesTotal() : nightlyRates.reduce((sum, r) => sum + (r.override_price ?? r.effective_price), 0),
+                        booking.currency
+                      )}
+                    </span>
+                  </div>
+                  {nightlyRates.some(r => r.override_price !== undefined) && !editingRates && (
+                    <p className="text-xs text-blue-600 mt-1">
+                      * Some rates have been manually adjusted
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Add-ons Card */}
+          <div className="bg-white rounded-lg border border-gray-200 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
                 <Package size={20} />
                 Add-ons & Extras
               </h2>
+              <button
+                onClick={handleOpenAddonSelector}
+                className="flex items-center gap-1 px-3 py-1.5 text-sm bg-gray-900 text-white rounded-md hover:bg-gray-800 transition-colors"
+              >
+                <Plus size={14} />
+                {bookingNotes.addons && bookingNotes.addons.length > 0 ? 'Manage' : 'Add'}
+              </button>
+            </div>
 
+            {bookingNotes.addons && bookingNotes.addons.length > 0 ? (
               <div className="space-y-3">
                 {bookingNotes.addons.map((addon, index) => (
                   <div
                     key={index}
                     className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0"
                   >
-                    <div>
+                    <div className="flex-1">
                       <p className="font-medium text-gray-900">{addon.name}</p>
-                      <p className="text-sm text-gray-500">Qty: {addon.quantity}</p>
+                      <p className="text-sm text-gray-500">
+                        Qty: {addon.quantity} x {formatCurrency(addon.price, booking.currency)}
+                      </p>
                     </div>
-                    <p className="font-medium text-gray-900">
-                      {formatCurrency(addon.total, booking.currency)}
-                    </p>
+                    <div className="flex items-center gap-3">
+                      <p className="font-medium text-gray-900">
+                        {formatCurrency(addon.total, booking.currency)}
+                      </p>
+                      <button
+                        onClick={() => handleRemoveAddon(addon.id)}
+                        className="p-1 text-red-500 hover:bg-red-50 rounded transition-colors"
+                        title="Remove add-on"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
                   </div>
                 ))}
+                <div className="pt-2 border-t border-gray-200">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-500">Add-ons Total</span>
+                    <span className="font-semibold text-gray-900">
+                      {formatCurrency(
+                        bookingNotes.addons.reduce((sum, a) => sum + a.total, 0),
+                        booking.currency
+                      )}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="text-center py-6 text-gray-500">
+                <Package size={32} className="mx-auto mb-2 opacity-50" />
+                <p className="text-sm">No add-ons added yet</p>
+                <p className="text-xs text-gray-400 mt-1">Click "Add" to include extras</p>
+              </div>
+            )}
+          </div>
+
+          {/* Add-on Selector Modal */}
+          {showAddonSelector && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-lg shadow-xl max-w-lg w-full max-h-[80vh] overflow-hidden">
+                <div className="p-4 border-b border-gray-200">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-lg font-semibold text-gray-900">Manage Add-ons</h3>
+                    <button
+                      onClick={() => setShowAddonSelector(false)}
+                      className="p-1 text-gray-500 hover:text-gray-700"
+                    >
+                      <X size={20} />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="p-4 overflow-y-auto max-h-[50vh]">
+                  {loadingAddons ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+                      <span className="ml-2 text-gray-500">Loading add-ons...</span>
+                    </div>
+                  ) : availableAddons.length === 0 ? (
+                    <div className="text-center py-8 text-gray-500">
+                      <Package size={32} className="mx-auto mb-2 opacity-50" />
+                      <p>No add-ons available</p>
+                      <p className="text-xs text-gray-400 mt-1">Create add-ons in Settings first</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {availableAddons.map((addon) => {
+                        const selected = selectedAddons.get(addon.id!)
+                        const quantity = selected?.quantity || 0
+                        const total = calculateAddonTotal(addon, quantity)
+
+                        return (
+                          <div
+                            key={addon.id}
+                            className={`p-3 border rounded-lg transition-colors ${
+                              quantity > 0 ? 'border-gray-900 bg-gray-50' : 'border-gray-200'
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="flex-1">
+                                <p className="font-medium text-gray-900">{addon.name}</p>
+                                {addon.description && (
+                                  <p className="text-sm text-gray-500 mt-0.5">{addon.description}</p>
+                                )}
+                                <p className="text-sm text-gray-600 mt-1">
+                                  {formatCurrency(addon.price, addon.currency)}
+                                  <span className="text-gray-400 ml-1">
+                                    / {addon.pricing_type.replace(/_/g, ' ')}
+                                  </span>
+                                </p>
+                              </div>
+
+                              <div className="flex items-center gap-2">
+                                {quantity > 0 && (
+                                  <span className="text-sm font-medium text-gray-700">
+                                    {formatCurrency(total, addon.currency)}
+                                  </span>
+                                )}
+                                <div className="flex items-center border border-gray-300 rounded-md">
+                                  <button
+                                    onClick={() => updateAddonQuantity(addon, -1)}
+                                    disabled={quantity === 0}
+                                    className="p-1.5 text-gray-500 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed"
+                                  >
+                                    <Minus size={14} />
+                                  </button>
+                                  <span className="w-8 text-center text-sm font-medium">
+                                    {quantity}
+                                  </span>
+                                  <button
+                                    onClick={() => updateAddonQuantity(addon, 1)}
+                                    disabled={quantity >= addon.max_quantity}
+                                    className="p-1.5 text-gray-500 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed"
+                                  >
+                                    <Plus size={14} />
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Footer with totals and save button */}
+                <div className="p-4 border-t border-gray-200 bg-gray-50">
+                  {selectedAddons.size > 0 && (
+                    <div className="mb-3 pb-3 border-b border-gray-200">
+                      <div className="flex justify-between text-sm mb-1">
+                        <span className="text-gray-500">Selected add-ons</span>
+                        <span className="font-medium">{selectedAddons.size}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="font-medium text-gray-700">Add-ons Total</span>
+                        <span className="font-semibold text-gray-900">
+                          {formatCurrency(
+                            Array.from(selectedAddons.values()).reduce(
+                              (sum, { addon, quantity }) => sum + calculateAddonTotal(addon, quantity),
+                              0
+                            ),
+                            booking.currency
+                          )}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => setShowAddonSelector(false)}
+                      className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-100 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleSaveAddons}
+                      disabled={savingAddons}
+                      className="flex-1 px-4 py-2 bg-gray-900 text-white rounded-md hover:bg-gray-800 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                    >
+                      {savingAddons ? (
+                        <>
+                          <Loader2 size={16} className="animate-spin" />
+                          Saving...
+                        </>
+                      ) : (
+                        <>
+                          <Save size={16} />
+                          Save Changes
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -911,6 +1674,76 @@ export default function BookingDetail() {
                 </button>
               )}
             </div>
+          </div>
+
+          {/* Guest Review */}
+          <div className="bg-white rounded-lg border border-gray-200 p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+              <Star size={20} />
+              Guest Review
+            </h2>
+
+            {loadingReview ? (
+              <div className="flex items-center justify-center py-4">
+                <Loader2 size={20} className="animate-spin text-gray-400" />
+              </div>
+            ) : review ? (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <StarRating rating={review.rating} size="sm" />
+                  <span className="text-sm font-medium text-gray-900">{review.rating}/5</span>
+                </div>
+                {review.title && (
+                  <p className="font-medium text-gray-900">"{review.title}"</p>
+                )}
+                {review.content && (
+                  <p className="text-sm text-gray-600">{review.content}</p>
+                )}
+                <p className="text-xs text-gray-500">
+                  Submitted {review.created_at && new Date(review.created_at).toLocaleDateString('en-ZA', {
+                    day: 'numeric',
+                    month: 'short',
+                    year: 'numeric'
+                  })}
+                </p>
+                {review.owner_response && (
+                  <div className="mt-3 p-3 bg-blue-50 rounded-lg border-l-4 border-blue-500">
+                    <div className="flex items-center gap-1 mb-1">
+                      <MessageSquare size={12} className="text-blue-600" />
+                      <span className="text-xs font-medium text-blue-700">Your Response</span>
+                    </div>
+                    <p className="text-sm text-gray-700">{review.owner_response}</p>
+                  </div>
+                )}
+              </div>
+            ) : isReviewEligible() ? (
+              <div className="text-center py-2">
+                <p className="text-sm text-gray-500 mb-3">
+                  No review yet. Send a request to the guest.
+                </p>
+                <button
+                  onClick={handleSendReviewRequest}
+                  disabled={sendingReviewRequest || !booking.guest_email}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-yellow-500 text-white rounded-md hover:bg-yellow-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {sendingReviewRequest ? (
+                    <Loader2 size={16} className="animate-spin" />
+                  ) : (
+                    <Star size={16} />
+                  )}
+                  Request Review
+                </button>
+                {!booking.guest_email && (
+                  <p className="text-xs text-gray-400 mt-2">No email address on file</p>
+                )}
+              </div>
+            ) : (
+              <div className="text-center py-2">
+                <p className="text-sm text-gray-500">
+                  Reviews can be requested after the guest has checked out and payment is complete.
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Booking Meta */}

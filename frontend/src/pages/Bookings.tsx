@@ -42,57 +42,11 @@ export default function Bookings() {
   const loadBookings = async () => {
     try {
       setLoading(true)
-      // For now, use mock data if API fails
-      try {
-        const data = await bookingsApi.getAll()
-        setBookings(data)
-      } catch (error) {
-        console.error('Failed to load bookings, using mock data:', error)
-        // Fallback to mock data for development
-        setBookings([
-          {
-            id: '1',
-            guest_name: 'John Smith',
-            guest_email: 'john@example.com',
-            room_id: '301',
-            room_name: 'Suite 301',
-            check_in: '2025-01-15',
-            check_out: '2025-01-18',
-            status: 'confirmed',
-            payment_status: 'paid',
-            total_amount: 450,
-            currency: 'ZAR'
-          },
-          {
-            id: '2',
-            guest_name: 'Sarah Johnson',
-            guest_email: 'sarah@example.com',
-            room_id: '205',
-            room_name: 'Room 205',
-            check_in: '2025-01-16',
-            check_out: '2025-01-20',
-            status: 'pending',
-            payment_status: 'pending',
-            total_amount: 600,
-            currency: 'ZAR'
-          },
-          {
-            id: '3',
-            guest_name: 'Michael Chen',
-            guest_email: 'michael@example.com',
-            room_id: '102',
-            room_name: 'Suite 102',
-            check_in: '2025-01-10',
-            check_out: '2025-01-12',
-            status: 'completed',
-            payment_status: 'paid',
-            total_amount: 320,
-            currency: 'ZAR'
-          },
-        ])
-      }
+      const data = await bookingsApi.getAll()
+      setBookings(data)
     } catch (error) {
-      console.error('Error loading bookings:', error)
+      console.error('Failed to load bookings:', error)
+      setBookings([])
     } finally {
       setLoading(false)
     }

@@ -5,28 +5,31 @@ let cachedTenantId: string | null = null
 
 export const setTenantId = (id: string | null) => {
   cachedTenantId = id
-  if (id) {
-    localStorage.setItem('tenantId', id)
-  } else {
-    localStorage.removeItem('tenantId')
-  }
 }
 
 const getTenantId = (): string => {
-  if (cachedTenantId) return cachedTenantId
-  const stored = localStorage.getItem('tenantId')
-  if (stored) {
-    cachedTenantId = stored
-    return stored
-  }
-  // Fallback for development only
-  return '00000000-0000-0000-0000-000000000000'
+  return cachedTenantId || ''
 }
 
-const getHeaders = () => ({
-  'Content-Type': 'application/json',
-  'x-tenant-id': getTenantId(),
-})
+// Cache for auth token to avoid async calls on every request
+let cachedAccessToken: string | null = null
+
+export const setAccessToken = (token: string | null) => {
+  cachedAccessToken = token
+}
+
+const getHeaders = (): Record<string, string> => {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'x-tenant-id': getTenantId(),
+  }
+
+  if (cachedAccessToken) {
+    headers['Authorization'] = `Bearer ${cachedAccessToken}`
+  }
+
+  return headers
+}
 
 export interface ProofOfPayment {
   url: string
@@ -65,18 +68,40 @@ export interface RoomImages {
   gallery: RoomImage[]
 }
 
+export interface BedConfiguration {
+  id: string // Unique ID for React keys
+  bed_type: string // King, Queen, Double, Twin, Single, Bunk, Sofa Bed, etc.
+  quantity: number // How many of this bed type
+  sleeps: number // How many people can sleep in this bed configuration
+}
+
+// Pricing mode types
+export type PricingMode = 'per_unit' | 'per_person' | 'per_person_sharing'
+
 export interface Room {
   id?: string
   name: string
   description?: string
   room_code?: string
-  bed_type: string
-  bed_count: number
+  // New flexible bed configuration (optional for backwards compatibility)
+  beds?: BedConfiguration[]
+  // Legacy fields (kept for backwards compatibility)
+  bed_type?: string
+  bed_count?: number
   room_size_sqm?: number
   max_guests: number
+  max_adults?: number
+  max_children?: number
   amenities: string[]
+  extra_options?: string[] // Extra room options like "Balcony", "Sea View", "Kitchenette"
   images: RoomImages
-  base_price_per_night: number
+  // Pricing configuration
+  pricing_mode?: PricingMode // per_unit, per_person, per_person_sharing (defaults to per_unit)
+  base_price_per_night: number // For per_unit: total room price, For per_person: price per person
+  additional_person_rate?: number // For per_person_sharing: rate for each additional person after first
+  child_price_per_night?: number // Price per child per night (0 = free, null = same as adult)
+  child_free_until_age?: number // Children younger than this age stay free (e.g., 2 = 0-1 years free)
+  child_age_limit?: number // Max age considered a child (e.g., 12 = 0-11 are children, 12+ are adults)
   currency: string
   min_stay_nights: number
   max_stay_nights?: number
@@ -93,7 +118,9 @@ export interface SeasonalRate {
   name: string
   start_date: string
   end_date: string
-  price_per_night: number
+  pricing_mode?: PricingMode // Inherits from room if not set
+  price_per_night: number // For per_unit: total room price, For per_person: price per person
+  additional_person_rate?: number // For per_person_sharing: rate for each additional person
   priority: number
 }
 
@@ -360,13 +387,24 @@ export interface PublicRoom {
   id: string
   name: string
   description?: string
-  bed_type: string
-  bed_count: number
+  room_code?: string
+  beds?: BedConfiguration[] // Optional for backwards compatibility
+  bed_type?: string // Legacy
+  bed_count?: number // Legacy
   room_size_sqm?: number
   max_guests: number
+  max_adults?: number
+  max_children?: number
   amenities: string[]
+  extra_options?: string[]
   images: RoomImages
+  // Pricing configuration
+  pricing_mode?: PricingMode // defaults to per_unit
   base_price_per_night: number
+  additional_person_rate?: number
+  child_price_per_night?: number
+  child_free_until_age?: number
+  child_age_limit?: number
   currency: string
   min_stay_nights: number
   max_stay_nights?: number
@@ -417,6 +455,8 @@ export interface BookingRequest {
   check_in: string
   check_out: string
   guests: number
+  adults?: number
+  children?: number
   addons?: Array<{
     id: string
     name: string
@@ -443,10 +483,34 @@ export interface BookingResponse {
     currency: string
     status: string
   }
+  // Customer session for automatic portal login
+  customer?: {
+    id: string
+    email: string
+    name: string | null
+    hasPassword: boolean
+  } | null
+  token?: string | null
+  expiresAt?: string | null
+}
+
+export interface PublicPropertyInfo {
+  id: string
+  name: string
+  email: string | null
+  phone: string | null
+  address: string | null
+  address_line1: string | null
+  address_line2: string | null
+  city: string | null
+  state_province: string | null
+  postal_code: string | null
+  country: string | null
+  business_hours: Record<string, { open: string; close: string; closed: boolean }> | null
 }
 
 export const publicBookingApi = {
-  getProperty: async (tenantId: string): Promise<{ id: string; name: string }> => {
+  getProperty: async (tenantId: string): Promise<PublicPropertyInfo> => {
     const response = await fetch(`${API_BASE_URL}/public/${tenantId}/property`)
     if (!response.ok) throw new Error('Property not found')
     return response.json()
@@ -483,6 +547,23 @@ export const publicBookingApi = {
     return response.json()
   },
 
+  getBookedDates: async (
+    tenantId: string,
+    roomId: string,
+    startDate?: string,
+    endDate?: string
+  ): Promise<{ unavailable_dates: string[]; total_units: number; inventory_mode: string }> => {
+    const params = new URLSearchParams()
+    if (startDate) params.set('start_date', startDate)
+    if (endDate) params.set('end_date', endDate)
+    const queryString = params.toString() ? `?${params.toString()}` : ''
+    const response = await fetch(
+      `${API_BASE_URL}/public/${tenantId}/rooms/${roomId}/booked-dates${queryString}`
+    )
+    if (!response.ok) throw new Error('Failed to get booked dates')
+    return response.json()
+  },
+
   getPricing: async (
     tenantId: string,
     roomId: string,
@@ -512,6 +593,251 @@ export const publicBookingApi = {
   getBooking: async (tenantId: string, reference: string) => {
     const response = await fetch(`${API_BASE_URL}/public/${tenantId}/bookings/${reference}`)
     if (!response.ok) throw new Error('Booking not found')
+    return response.json()
+  },
+
+  getSeasonalRates: async (
+    tenantId: string,
+    roomId: string
+  ): Promise<{ rates: Array<{ name: string; start_date: string; end_date: string }> }> => {
+    const response = await fetch(`${API_BASE_URL}/public/${tenantId}/rooms/${roomId}/seasonal-rates`)
+    if (!response.ok) throw new Error('Failed to get seasonal rates')
+    return response.json()
+  },
+}
+
+// Review types
+export interface Review {
+  id?: string
+  tenant_id?: string
+  booking_id: string
+  rating: number
+  title?: string
+  content?: string
+  guest_name: string
+  owner_response?: string
+  owner_response_at?: string
+  status: 'published' | 'hidden' | 'flagged'
+  created_at?: string
+  updated_at?: string
+  bookings?: {
+    id: string
+    guest_name: string
+    guest_email?: string
+    room_id: string
+    room_name: string
+    check_in: string
+    check_out: string
+  }
+}
+
+export interface ReviewStats {
+  total_reviews: number
+  average_rating: number
+  rating_distribution?: {
+    1: number
+    2: number
+    3: number
+    4: number
+    5: number
+  }
+}
+
+export interface PublicReview {
+  id: string
+  rating: number
+  title?: string
+  content?: string
+  guest_name: string
+  owner_response?: string
+  owner_response_at?: string
+  created_at: string
+  bookings: {
+    room_id: string
+    room_name: string
+    check_in: string
+    check_out: string
+  }
+}
+
+export interface ReviewVerification {
+  valid: boolean
+  booking: {
+    id: string
+    guest_name: string
+    room_name: string
+    check_in: string
+    check_out: string
+  }
+  property_name: string
+}
+
+// Reviews API (admin)
+export const reviewsApi = {
+  getAll: async (params?: { status?: string; room_id?: string; rating?: number; sort?: string }): Promise<Review[]> => {
+    const searchParams = new URLSearchParams()
+    if (params?.status) searchParams.set('status', params.status)
+    if (params?.room_id) searchParams.set('room_id', params.room_id)
+    if (params?.rating) searchParams.set('rating', String(params.rating))
+    if (params?.sort) searchParams.set('sort', params.sort)
+
+    const url = `${API_BASE_URL}/reviews${searchParams.toString() ? `?${searchParams}` : ''}`
+    const response = await fetch(url, { headers: getHeaders() })
+    if (!response.ok) {
+      throw new Error('Failed to fetch reviews')
+    }
+    return response.json()
+  },
+
+  getById: async (id: string): Promise<Review> => {
+    const response = await fetch(`${API_BASE_URL}/reviews/${id}`, {
+      headers: getHeaders(),
+    })
+    if (!response.ok) {
+      throw new Error('Failed to fetch review')
+    }
+    return response.json()
+  },
+
+  getByBookingId: async (bookingId: string): Promise<Review & { hasReview: boolean }> => {
+    const response = await fetch(`${API_BASE_URL}/reviews/booking/${bookingId}`, {
+      headers: getHeaders(),
+    })
+    if (!response.ok) {
+      if (response.status === 404) {
+        return { hasReview: false } as any
+      }
+      throw new Error('Failed to fetch review')
+    }
+    return response.json()
+  },
+
+  getStats: async (): Promise<ReviewStats> => {
+    const response = await fetch(`${API_BASE_URL}/reviews/stats`, {
+      headers: getHeaders(),
+    })
+    if (!response.ok) {
+      throw new Error('Failed to fetch review stats')
+    }
+    return response.json()
+  },
+
+  update: async (id: string, data: { owner_response?: string; status?: string }): Promise<Review> => {
+    const response = await fetch(`${API_BASE_URL}/reviews/${id}`, {
+      method: 'PUT',
+      headers: getHeaders(),
+      body: JSON.stringify(data),
+    })
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || 'Failed to update review')
+    }
+    return response.json()
+  },
+
+  delete: async (id: string): Promise<void> => {
+    const response = await fetch(`${API_BASE_URL}/reviews/${id}`, {
+      method: 'DELETE',
+      headers: getHeaders(),
+    })
+    if (!response.ok) {
+      throw new Error('Failed to delete review')
+    }
+  },
+
+  sendRequest: async (bookingId: string): Promise<{ success: boolean; message: string; reviewUrl: string }> => {
+    const response = await fetch(`${API_BASE_URL}/reviews/send-request/${bookingId}`, {
+      method: 'POST',
+      headers: getHeaders(),
+    })
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || 'Failed to send review request')
+    }
+    return response.json()
+  },
+}
+
+// Public Rooms API (no auth)
+export const publicRoomsApi = {
+  getByCode: async (roomCode: string, tenantId?: string): Promise<Room> => {
+    const url = `${API_BASE_URL}/rooms/public/by-code/${roomCode}${tenantId ? `?tenant_id=${tenantId}` : ''}`
+    const response = await fetch(url)
+    if (!response.ok) throw new Error('Room not found')
+    return response.json()
+  },
+
+  getById: async (roomId: string): Promise<Room> => {
+    const response = await fetch(`${API_BASE_URL}/rooms/public/by-id/${roomId}`)
+    if (!response.ok) throw new Error('Room not found')
+    return response.json()
+  },
+
+  getAll: async (tenantId: string): Promise<Room[]> => {
+    const response = await fetch(`${API_BASE_URL}/rooms/public/tenant/${tenantId}`)
+    if (!response.ok) throw new Error('Failed to fetch rooms')
+    return response.json()
+  },
+}
+
+// Public Reviews API (no auth)
+export const publicReviewsApi = {
+  getPropertyReviews: async (tenantId: string, limit?: number): Promise<PublicReview[]> => {
+    const url = `${API_BASE_URL}/reviews/public/${tenantId}${limit ? `?limit=${limit}` : ''}`
+    const response = await fetch(url)
+    if (!response.ok) throw new Error('Failed to fetch reviews')
+    return response.json()
+  },
+
+  getRoomReviews: async (tenantId: string, roomId: string): Promise<PublicReview[]> => {
+    const response = await fetch(`${API_BASE_URL}/reviews/public/${tenantId}/room/${roomId}`)
+    if (!response.ok) throw new Error('Failed to fetch room reviews')
+    return response.json()
+  },
+
+  getRoomReviewsByCode: async (tenantId: string, roomCode: string): Promise<PublicReview[]> => {
+    const response = await fetch(`${API_BASE_URL}/reviews/public/${tenantId}/room/by-code/${roomCode}`)
+    if (!response.ok) throw new Error('Failed to fetch room reviews')
+    return response.json()
+  },
+
+  getPropertyStats: async (tenantId: string): Promise<ReviewStats> => {
+    const response = await fetch(`${API_BASE_URL}/reviews/public/${tenantId}/stats`)
+    if (!response.ok) throw new Error('Failed to fetch review stats')
+    return response.json()
+  },
+
+  getRoomStats: async (tenantId: string, roomId: string): Promise<ReviewStats> => {
+    const response = await fetch(`${API_BASE_URL}/reviews/public/${tenantId}/room/${roomId}/stats`)
+    if (!response.ok) throw new Error('Failed to fetch room review stats')
+    return response.json()
+  },
+
+  getRoomStatsByCode: async (tenantId: string, roomCode: string): Promise<ReviewStats> => {
+    const response = await fetch(`${API_BASE_URL}/reviews/public/${tenantId}/room/by-code/${roomCode}/stats`)
+    if (!response.ok) throw new Error('Failed to fetch room review stats')
+    return response.json()
+  },
+
+  verifyToken: async (tenantId: string, token: string): Promise<ReviewVerification> => {
+    const response = await fetch(`${API_BASE_URL}/reviews/public/verify/${tenantId}/${token}`)
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || 'Invalid review link')
+    }
+    return response.json()
+  },
+
+  submitReview: async (tenantId: string, token: string, data: { rating: number; title?: string; content?: string }): Promise<{ success: boolean; message: string }> => {
+    const response = await fetch(`${API_BASE_URL}/reviews/public/submit/${tenantId}/${token}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    })
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || 'Failed to submit review')
+    }
     return response.json()
   },
 }
@@ -579,3 +905,262 @@ export const addonsApi = {
   },
 }
 
+// Customer types
+export interface CustomerListItem {
+  email: string
+  name: string | null
+  phone: string | null
+  customerId: string | null
+  hasPortalAccess: boolean
+  bookingCount: number
+  totalSpent: number
+  currency: string
+  firstStay: string
+  lastStay: string
+}
+
+export interface CustomerStats {
+  totalCustomers: number
+  repeatCustomers: number
+  repeatRate: string
+  totalRevenue: number
+  averageBookingsPerCustomer: string
+  customersWithPortalAccess: number
+}
+
+export interface CustomerDetail {
+  customer: {
+    email: string
+    name: string | null
+    phone: string | null
+    customerId: string | null
+    hasPortalAccess: boolean
+    lastLoginAt: string | null
+  }
+  stats: {
+    totalBookings: number
+    totalSpent: number
+    currency: string
+    firstStay: string
+    lastStay: string
+    averageRating: number | null
+  }
+  bookings: Booking[]
+  supportTickets: any[]
+}
+
+// Customers API (admin)
+export const customersApi = {
+  getAll: async (params?: {
+    search?: string
+    sort?: string
+    order?: 'asc' | 'desc'
+    page?: number
+    limit?: number
+  }): Promise<{
+    customers: CustomerListItem[]
+    total: number
+    page: number
+    limit: number
+    totalPages: number
+  }> => {
+    const searchParams = new URLSearchParams()
+    if (params?.search) searchParams.set('search', params.search)
+    if (params?.sort) searchParams.set('sort', params.sort)
+    if (params?.order) searchParams.set('order', params.order)
+    if (params?.page) searchParams.set('page', String(params.page))
+    if (params?.limit) searchParams.set('limit', String(params.limit))
+
+    const url = `${API_BASE_URL}/customers${searchParams.toString() ? `?${searchParams}` : ''}`
+    const response = await fetch(url, { headers: getHeaders() })
+    if (!response.ok) {
+      throw new Error('Failed to fetch customers')
+    }
+    return response.json()
+  },
+
+  getStats: async (): Promise<CustomerStats> => {
+    const response = await fetch(`${API_BASE_URL}/customers/stats`, {
+      headers: getHeaders(),
+    })
+    if (!response.ok) {
+      throw new Error('Failed to fetch customer stats')
+    }
+    return response.json()
+  },
+
+  getByEmail: async (email: string): Promise<CustomerDetail> => {
+    const response = await fetch(`${API_BASE_URL}/customers/${encodeURIComponent(email)}`, {
+      headers: getHeaders(),
+    })
+    if (!response.ok) {
+      throw new Error('Failed to fetch customer')
+    }
+    return response.json()
+  },
+
+  exportCsv: async (): Promise<void> => {
+    const response = await fetch(`${API_BASE_URL}/customers/export`, {
+      headers: getHeaders(),
+    })
+    if (!response.ok) {
+      throw new Error('Failed to export customers')
+    }
+    const blob = await response.blob()
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `customers-${new Date().toISOString().split('T')[0]}.csv`
+    document.body.appendChild(a)
+    a.click()
+    window.URL.revokeObjectURL(url)
+    document.body.removeChild(a)
+  },
+}
+
+// ============================================
+// SUPPORT TYPES & API
+// ============================================
+
+export interface SupportReply {
+  id: string
+  content: string
+  sender_type: 'customer' | 'admin'
+  sender_name: string
+  created_at: string
+}
+
+export interface SupportTicket {
+  id: string
+  tenant_id: string
+  customer_id: string | null
+  booking_id: string | null
+  subject: string
+  message: string
+  sender_email: string
+  sender_name: string | null
+  sender_phone: string | null
+  status: 'new' | 'open' | 'pending' | 'resolved' | 'closed'
+  source: 'website' | 'portal'
+  assigned_to: string | null
+  created_at: string
+  updated_at: string
+  customers?: {
+    id: string
+    name: string | null
+    email: string
+  } | null
+  bookings?: {
+    id: string
+    room_name: string
+    check_in: string
+    check_out: string
+  } | null
+  support_replies?: SupportReply[]
+  replyCount?: number
+}
+
+export interface TeamMember {
+  id: string
+  email: string
+  name: string | null
+  role: string
+  avatar_url: string | null
+}
+
+export const supportApi = {
+  getTickets: async (params?: {
+    source?: string
+    status?: string
+    assigned_to?: string
+    page?: number
+    limit?: number
+  }): Promise<{
+    tickets: SupportTicket[]
+    total: number
+    page: number
+    totalPages: number
+  }> => {
+    const searchParams = new URLSearchParams()
+    if (params?.source) searchParams.set('source', params.source)
+    if (params?.status) searchParams.set('status', params.status)
+    if (params?.assigned_to) searchParams.set('assigned_to', params.assigned_to)
+    if (params?.page) searchParams.set('page', String(params.page))
+    if (params?.limit) searchParams.set('limit', String(params.limit))
+
+    const url = `${API_BASE_URL}/customers/support/tickets${searchParams.toString() ? `?${searchParams}` : ''}`
+    const response = await fetch(url, { headers: getHeaders() })
+    if (!response.ok) {
+      throw new Error('Failed to fetch support tickets')
+    }
+    return response.json()
+  },
+
+  getTicket: async (id: string): Promise<SupportTicket> => {
+    const response = await fetch(`${API_BASE_URL}/customers/support/tickets/${id}`, {
+      headers: getHeaders(),
+    })
+    if (!response.ok) {
+      throw new Error('Failed to fetch support ticket')
+    }
+    return response.json()
+  },
+
+  replyToTicket: async (id: string, data: { content: string; status?: string }): Promise<{ success: boolean; reply: SupportReply }> => {
+    const response = await fetch(`${API_BASE_URL}/customers/support/tickets/${id}/reply`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(data),
+    })
+    if (!response.ok) {
+      throw new Error('Failed to reply to ticket')
+    }
+    return response.json()
+  },
+
+  updateTicket: async (id: string, data: { status?: string; assigned_to?: string | null }): Promise<{ success: boolean; ticket: SupportTicket }> => {
+    const response = await fetch(`${API_BASE_URL}/customers/support/tickets/${id}`, {
+      method: 'PATCH',
+      headers: getHeaders(),
+      body: JSON.stringify(data),
+    })
+    if (!response.ok) {
+      throw new Error('Failed to update ticket')
+    }
+    return response.json()
+  },
+
+  getTeamMembers: async (): Promise<TeamMember[]> => {
+    const response = await fetch(`${API_BASE_URL}/customers/support/team-members`, {
+      headers: getHeaders(),
+    })
+    if (!response.ok) {
+      throw new Error('Failed to fetch team members')
+    }
+    return response.json()
+  },
+}
+
+// Public contact form API
+export const publicContactApi = {
+  submit: async (tenantId: string, data: {
+    name: string
+    email: string
+    phone?: string
+    subject: string
+    message: string
+  }): Promise<{ success: boolean; message: string; id: string }> => {
+    const response = await fetch(`${API_BASE_URL.replace('/api', '')}/api/public/${tenantId}/contact`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(data),
+    })
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || 'Failed to submit contact form')
+    }
+    return response.json()
+  },
+}

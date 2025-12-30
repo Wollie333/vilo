@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Save, Package, DollarSign, Settings, Image as ImageIcon } from 'lucide-react'
 import Button from '../components/Button'
 import AddOnImageUpload from '../components/AddOnImageUpload'
-import { addonsApi, roomsApi, AddOn, AddOnImage, Room } from '../services/api'
+import { addonsApi, roomsApi, AddOnImage, Room } from '../services/api'
 import { useNotification } from '../contexts/NotificationContext'
 
 // Generate a unique addon code: AO-XXXXXX (6 alphanumeric chars)

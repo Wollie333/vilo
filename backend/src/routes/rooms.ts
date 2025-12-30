@@ -57,6 +57,99 @@ router.get('/', async (req, res) => {
   }
 })
 
+// ============================================
+// PUBLIC ENDPOINTS (no tenant header required)
+// MUST be before /:id routes to avoid conflicts
+// ============================================
+
+// Get room by room_code (public)
+router.get('/public/by-code/:roomCode', async (req, res) => {
+  try {
+    const { roomCode } = req.params
+    const { tenant_id } = req.query
+
+    let query = supabase
+      .from('rooms')
+      .select('*')
+      .eq('room_code', roomCode)
+      .eq('is_active', true)
+
+    if (tenant_id) {
+      query = query.eq('tenant_id', tenant_id)
+    }
+
+    const { data, error } = await query.single()
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return res.status(404).json({ error: 'Room not found' })
+      }
+      console.error('Error fetching room by code:', error)
+      return res.status(500).json({ error: 'Failed to fetch room' })
+    }
+
+    res.json(data)
+  } catch (error) {
+    console.error('Unexpected error:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+// Get all active rooms for a tenant (public - for listing pages)
+router.get('/public/tenant/:tenantId', async (req, res) => {
+  try {
+    const { tenantId } = req.params
+
+    const { data, error } = await supabase
+      .from('rooms')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .eq('is_active', true)
+      .order('created_at', { ascending: false })
+
+    if (error) {
+      console.error('Error fetching public rooms:', error)
+      return res.status(500).json({ error: 'Failed to fetch rooms' })
+    }
+
+    res.json(data || [])
+  } catch (error) {
+    console.error('Unexpected error:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+// Get room by UUID (public - for room detail pages)
+router.get('/public/by-id/:roomId', async (req, res) => {
+  try {
+    const { roomId } = req.params
+
+    const { data, error } = await supabase
+      .from('rooms')
+      .select('*')
+      .eq('id', roomId)
+      .eq('is_active', true)
+      .single()
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return res.status(404).json({ error: 'Room not found' })
+      }
+      console.error('Error fetching room by id:', error)
+      return res.status(500).json({ error: 'Failed to fetch room' })
+    }
+
+    res.json(data)
+  } catch (error) {
+    console.error('Unexpected error:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+// ============================================
+// ADMIN ENDPOINTS (require tenant header)
+// ============================================
+
 // Get single room by ID
 router.get('/:id', async (req, res) => {
   try {
@@ -96,13 +189,23 @@ router.post('/', async (req, res) => {
       name,
       description,
       room_code,
-      bed_type,
-      bed_count = 1,
+      beds = [], // New flexible bed configuration
+      bed_type, // Legacy - kept for backwards compatibility
+      bed_count = 1, // Legacy
       room_size_sqm,
       max_guests = 2,
+      max_adults = null,
+      max_children = null,
       amenities = [],
+      extra_options = [], // Extra room features like "Balcony", "Sea View"
       images = { featured: null, gallery: [] },
+      // Pricing configuration
+      pricing_mode = 'per_unit', // per_unit, per_person, per_person_sharing
       base_price_per_night,
+      additional_person_rate = null, // For per_person_sharing mode
+      child_price_per_night = null,
+      child_free_until_age = null,
+      child_age_limit = 12,
       currency = 'ZAR',
       min_stay_nights = 1,
       max_stay_nights = null,
@@ -115,9 +218,13 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ error: 'Tenant ID required' })
     }
 
-    if (!name || !bed_type || base_price_per_night === undefined) {
-      return res.status(400).json({ error: 'Missing required fields: name, bed_type, base_price_per_night' })
+    if (!name || base_price_per_night === undefined) {
+      return res.status(400).json({ error: 'Missing required fields: name, base_price_per_night' })
     }
+
+    // Derive legacy bed_type from beds array if not provided
+    const effectiveBedType = bed_type || (beds.length > 0 ? beds[0].bed_type : 'Double')
+    const effectiveBedCount = bed_count || (beds.length > 0 ? beds.reduce((sum: number, b: any) => sum + b.quantity, 0) : 1)
 
     const { data, error } = await supabase
       .from('rooms')
@@ -126,13 +233,22 @@ router.post('/', async (req, res) => {
         name,
         description,
         room_code,
-        bed_type,
-        bed_count,
+        beds, // JSONB column
+        bed_type: effectiveBedType,
+        bed_count: effectiveBedCount,
         room_size_sqm,
         max_guests,
+        max_adults,
+        max_children,
         amenities,
+        extra_options, // JSONB column
         images,
+        pricing_mode,
         base_price_per_night,
+        additional_person_rate,
+        child_price_per_night,
+        child_free_until_age,
+        child_age_limit,
         currency,
         min_stay_nights,
         max_stay_nights,

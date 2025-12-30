@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
+import { scrollToTop } from '../../components/ScrollToTop'
 import {
   Calendar,
   Users,
@@ -8,7 +9,6 @@ import {
   ChevronRight,
   ChevronLeft,
   Loader2,
-  MapPin,
   Coffee,
   Wifi,
   Car,
@@ -22,18 +22,21 @@ import {
   AlertCircle,
   CheckCircle,
   X,
+  ArrowLeft,
+  Maximize,
 } from 'lucide-react'
 import {
   publicBookingApi,
   PublicRoom,
   PublicAddOn,
   PricingResponse,
-  AvailabilityResponse,
 } from '../../services/api'
+import { setCustomerToken } from '../../services/portalApi'
 import { useAuth } from '../../contexts/AuthContext'
+import BookingCalendar from '../../components/BookingCalendar'
 
 const STEPS = [
-  { id: 1, name: 'Dates & Room', short: 'Room' },
+  { id: 1, name: 'Select Dates', short: 'Dates' },
   { id: 2, name: 'Extras', short: 'Extras' },
   { id: 3, name: 'Your Details', short: 'Details' },
   { id: 4, name: 'Confirm', short: 'Confirm' },
@@ -72,6 +75,12 @@ export default function Book() {
   // Get tenant ID from URL or auth context
   const tenantId = searchParams.get('property') || tenant?.id || ''
 
+  // Get pre-selected room ID from URL (when coming from room detail page)
+  const preSelectedRoomId = searchParams.get('room') || ''
+
+  // Get pre-filled guest count from URL
+  const preFilledGuests = searchParams.get('guests')
+
   const [step, setStep] = useState(1)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
@@ -79,15 +88,21 @@ export default function Book() {
 
   // Property data
   const [propertyName, setPropertyName] = useState<string>('')
-  const [rooms, setRooms] = useState<PublicRoom[]>([])
+  const [_rooms, setRooms] = useState<PublicRoom[]>([])
 
   // Step 1: Dates & Room Selection
   const [checkIn, setCheckIn] = useState<string>('')
   const [checkOut, setCheckOut] = useState<string>('')
-  const [guests, setGuests] = useState(2)
+  const [adults, setAdults] = useState(2)
+  const [children, setChildren] = useState(0)
   const [selectedRoom, setSelectedRoom] = useState<PublicRoom | null>(null)
-  const [availability, setAvailability] = useState<Record<string, AvailabilityResponse>>({})
+  const [unavailableDates, setUnavailableDates] = useState<string[]>([])
+  const [seasonalDates, setSeasonalDates] = useState<string[]>([])
+  const [navigateToMonth, setNavigateToMonth] = useState<Date | null>(null)
   const [pricing, setPricing] = useState<PricingResponse | null>(null)
+
+  // Total guests (computed)
+  const guests = adults + children
 
   // Step 2: Add-ons
   const [addons, setAddons] = useState<PublicAddOn[]>([])
@@ -103,7 +118,7 @@ export default function Book() {
   const [bookingConfirmed, setBookingConfirmed] = useState(false)
   const [bookingReference, setBookingReference] = useState('')
 
-  // Set default dates (today + 1 to today + 3)
+  // Set default dates (today + 1 to today + 3) and pre-fill guests if provided
   useEffect(() => {
     const today = new Date()
     const tomorrow = new Date(today)
@@ -113,7 +128,15 @@ export default function Book() {
 
     setCheckIn(tomorrow.toISOString().split('T')[0])
     setCheckOut(dayAfterTomorrow.toISOString().split('T')[0])
-  }, [])
+
+    // Pre-fill guest count if provided in URL
+    if (preFilledGuests) {
+      const guestCount = parseInt(preFilledGuests, 10)
+      if (!isNaN(guestCount) && guestCount > 0) {
+        setAdults(Math.min(guestCount, 8)) // Cap at 8 adults
+      }
+    }
+  }, [preFilledGuests])
 
   // Load property and rooms
   useEffect(() => {
@@ -132,6 +155,17 @@ export default function Book() {
         ])
         setPropertyName(property.name)
         setRooms(roomsData)
+
+        // Auto-select room if pre-selected from URL (e.g., coming from room detail page)
+        if (preSelectedRoomId && roomsData.length > 0) {
+          // Match by ID or room_code
+          const roomToSelect = roomsData.find(
+            (r: PublicRoom) => r.id === preSelectedRoomId || r.room_code === preSelectedRoomId
+          )
+          if (roomToSelect) {
+            setSelectedRoom(roomToSelect)
+          }
+        }
       } catch (err) {
         setError('Failed to load property information')
       } finally {
@@ -140,41 +174,52 @@ export default function Book() {
     }
 
     loadData()
-  }, [tenantId])
+  }, [tenantId, preSelectedRoomId])
 
-  // Check availability when dates change
+  // Fetch booked/unavailable dates for the selected room
   useEffect(() => {
-    if (!checkIn || !checkOut || rooms.length === 0) return
+    if (!selectedRoom || !tenantId) return
 
-    const checkAllAvailability = async () => {
-      const results: Record<string, AvailabilityResponse> = {}
-      for (const room of rooms) {
-        try {
-          const avail = await publicBookingApi.checkAvailability(
-            tenantId,
-            room.id,
-            checkIn,
-            checkOut
-          )
-          results[room.id] = avail
-        } catch {
-          results[room.id] = {
-            available: false,
-            available_units: 0,
-            total_units: room.total_units,
-            nights: 0,
-            min_stay_nights: room.min_stay_nights,
-            max_stay_nights: room.max_stay_nights || null,
-            meets_min_stay: false,
-            meets_max_stay: false,
-          }
-        }
+    const loadBookedDates = async () => {
+      try {
+        const data = await publicBookingApi.getBookedDates(tenantId, selectedRoom.id)
+        setUnavailableDates(data.unavailable_dates)
+      } catch (err) {
+        console.error('Failed to load booked dates:', err)
+        setUnavailableDates([])
       }
-      setAvailability(results)
     }
 
-    checkAllAvailability()
-  }, [checkIn, checkOut, rooms, tenantId])
+    loadBookedDates()
+  }, [selectedRoom, tenantId])
+
+  // Fetch seasonal rate periods for the selected room
+  useEffect(() => {
+    if (!selectedRoom || !tenantId) return
+
+    const loadSeasonalRates = async () => {
+      try {
+        const data = await publicBookingApi.getSeasonalRates(tenantId, selectedRoom.id)
+        // Convert rate periods to array of individual dates
+        const dates: string[] = []
+        for (const rate of data.rates) {
+          const start = new Date(rate.start_date)
+          const end = new Date(rate.end_date)
+          const current = new Date(start)
+          while (current <= end) {
+            dates.push(current.toISOString().split('T')[0])
+            current.setDate(current.getDate() + 1)
+          }
+        }
+        setSeasonalDates(dates)
+      } catch (err) {
+        console.error('Failed to load seasonal rates:', err)
+        setSeasonalDates([])
+      }
+    }
+
+    loadSeasonalRates()
+  }, [selectedRoom, tenantId])
 
   // Load pricing when room is selected
   useEffect(() => {
@@ -215,6 +260,24 @@ export default function Book() {
 
   const formatCurrency = (amount: number, currency: string) => {
     return new Intl.NumberFormat('en-ZA', { style: 'currency', currency }).format(amount)
+  }
+
+  // Handle date input changes and navigate calendar
+  const handleCheckInInputChange = (dateStr: string) => {
+    setCheckIn(dateStr)
+    setCheckOut('') // Reset check-out when check-in changes
+    if (dateStr) {
+      const date = new Date(dateStr)
+      setNavigateToMonth(date)
+    }
+  }
+
+  const handleCheckOutInputChange = (dateStr: string) => {
+    setCheckOut(dateStr)
+    if (dateStr) {
+      const date = new Date(dateStr)
+      setNavigateToMonth(date)
+    }
   }
 
   const formatDate = (dateStr: string) => {
@@ -278,27 +341,45 @@ export default function Book() {
     return selectedAddons.reduce((sum, a) => sum + a.total, 0)
   }
 
-  const getTotalAmount = () => {
-    return (pricing?.subtotal || 0) + getAddonsTotal()
+  const getChildrenTotal = () => {
+    if (!selectedRoom || children === 0) return 0
+    const nights = calculateNights()
+    // If child_price_per_night is undefined/null, children pay same as adults (already in pricing)
+    // If child_price_per_night is 0, children are free
+    // If child_price_per_night is > 0, use that rate
+    if (selectedRoom.child_price_per_night === undefined || selectedRoom.child_price_per_night === null) {
+      return 0 // Children pricing not defined, assume included in room pricing
+    }
+    return selectedRoom.child_price_per_night * children * nights
   }
 
-  const handleSelectRoom = (room: PublicRoom) => {
-    const avail = availability[room.id]
-    if (!avail?.available) return
-
-    if (guests > room.max_guests) {
-      setError(`This room allows maximum ${room.max_guests} guests`)
-      return
-    }
-
-    setSelectedRoom(room)
-    setError(null)
+  const getTotalAmount = () => {
+    return (pricing?.subtotal || 0) + getChildrenTotal() + getAddonsTotal()
   }
 
   const handleNext = () => {
-    if (step === 1 && !selectedRoom) {
-      setError('Please select a room')
-      return
+    if (step === 1) {
+      if (!selectedRoom) {
+        setError('Please select a room first')
+        return
+      }
+      if (!checkIn || !checkOut) {
+        setError('Please select your check-in and check-out dates')
+        return
+      }
+      if (guests > selectedRoom.max_guests) {
+        setError(`This room allows maximum ${selectedRoom.max_guests} guests`)
+        return
+      }
+      const nights = calculateNights()
+      if (nights < selectedRoom.min_stay_nights) {
+        setError(`Minimum stay is ${selectedRoom.min_stay_nights} nights`)
+        return
+      }
+      if (selectedRoom.max_stay_nights && nights > selectedRoom.max_stay_nights) {
+        setError(`Maximum stay is ${selectedRoom.max_stay_nights} nights`)
+        return
+      }
     }
     if (step === 3) {
       if (!guestName.trim()) {
@@ -312,11 +393,13 @@ export default function Book() {
     }
     setError(null)
     setStep((prev) => Math.min(prev + 1, 4))
+    scrollToTop()
   }
 
   const handleBack = () => {
     setError(null)
     setStep((prev) => Math.max(prev - 1, 1))
+    scrollToTop()
   }
 
   const handleSubmit = async () => {
@@ -334,6 +417,8 @@ export default function Book() {
         check_in: checkIn,
         check_out: checkOut,
         guests,
+        adults,
+        children,
         addons: selectedAddons.map((a) => ({
           id: a.id,
           name: a.name,
@@ -347,6 +432,16 @@ export default function Book() {
       })
 
       setBookingReference(result.booking.reference)
+
+      // If we got a token back, auto-login and redirect to customer portal
+      if (result.token) {
+        setCustomerToken(result.token)
+        // Redirect to customer portal with the new booking
+        navigate('/portal/bookings')
+        return
+      }
+
+      // Fallback to showing confirmation if no token
       setBookingConfirmed(true)
     } catch (err: any) {
       setError(err.message || 'Failed to complete booking')
@@ -417,7 +512,10 @@ export default function Book() {
                 </div>
                 <div>
                   <p className="text-gray-500">Guests</p>
-                  <p className="font-medium">{guests}</p>
+                  <p className="font-medium">
+                    {adults} {adults === 1 ? 'Adult' : 'Adults'}
+                    {children > 0 && `, ${children} ${children === 1 ? 'Child' : 'Children'}`}
+                  </p>
                 </div>
                 <div>
                   <p className="text-gray-500">Total</p>
@@ -528,187 +626,207 @@ export default function Book() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Left Column - Main Content */}
           <div className="lg:col-span-2">
-            {/* Step 1: Dates & Room Selection */}
+            {/* Step 1: Select Dates */}
             {step === 1 && (
               <div className="space-y-6">
-                {/* Date & Guest Selection */}
-                <div className="bg-white rounded-xl shadow-sm border p-6">
-                  <h2 className="text-lg font-semibold mb-4">When are you staying?</h2>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        <Calendar size={14} className="inline mr-1" />
-                        Check-in
-                      </label>
-                      <input
-                        type="date"
-                        value={checkIn}
-                        min={new Date().toISOString().split('T')[0]}
-                        onChange={(e) => setCheckIn(e.target.value)}
-                        className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-black focus:border-transparent"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        <Calendar size={14} className="inline mr-1" />
-                        Check-out
-                      </label>
-                      <input
-                        type="date"
-                        value={checkOut}
-                        min={checkIn || new Date().toISOString().split('T')[0]}
-                        onChange={(e) => setCheckOut(e.target.value)}
-                        className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-black focus:border-transparent"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        <Users size={14} className="inline mr-1" />
-                        Guests
-                      </label>
-                      <select
-                        value={guests}
-                        onChange={(e) => setGuests(parseInt(e.target.value))}
-                        className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-black focus:border-transparent"
-                      >
-                        {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
-                          <option key={n} value={n}>
-                            {n} {n === 1 ? 'Guest' : 'Guests'}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                {/* No room selected - show message */}
+                {!selectedRoom && (
+                  <div className="bg-white rounded-xl shadow-sm border p-8 text-center">
+                    <BedDouble className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+                    <h2 className="text-lg font-semibold text-gray-900 mb-2">No Room Selected</h2>
+                    <p className="text-gray-500 mb-4">Please select a room from our accommodation page first.</p>
+                    <button
+                      onClick={() => navigate('/accommodation')}
+                      className="inline-flex items-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors"
+                    >
+                      <ArrowLeft size={18} />
+                      View Rooms
+                    </button>
                   </div>
-                  {calculateNights() > 0 && (
-                    <p className="mt-3 text-sm text-gray-500">
-                      {calculateNights()} {calculateNights() === 1 ? 'night' : 'nights'} ·{' '}
-                      {formatDate(checkIn)} to {formatDate(checkOut)}
-                    </p>
-                  )}
-                </div>
+                )}
 
-                {/* Room Selection */}
-                <div>
-                  <h2 className="text-lg font-semibold mb-4">Select your room</h2>
-                  <div className="space-y-4">
-                    {rooms.length === 0 ? (
-                      <div className="bg-white rounded-xl shadow-sm border p-8 text-center">
-                        <BedDouble className="w-12 h-12 mx-auto mb-4 text-gray-300" />
-                        <p className="text-gray-500">No rooms available</p>
-                      </div>
-                    ) : (
-                      rooms.map((room) => {
-                        const avail = availability[room.id]
-                        const isAvailable = avail?.available
-                        const isSelected = selectedRoom?.id === room.id
+                {/* Room selected - show room info, calendar, and guest selection */}
+                {selectedRoom && (
+                  <>
+                    {/* Selected Room Info */}
+                    <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
+                      <div className="flex flex-col sm:flex-row">
+                        {/* Room Image */}
+                        <div className="sm:w-48 h-48 sm:h-auto flex-shrink-0">
+                          {selectedRoom.images?.featured ? (
+                            <img
+                              src={selectedRoom.images.featured.url}
+                              alt={selectedRoom.name}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <div className="w-full h-full bg-gray-100 flex items-center justify-center">
+                              <BedDouble className="w-12 h-12 text-gray-300" />
+                            </div>
+                          )}
+                        </div>
 
-                        return (
-                          <div
-                            key={room.id}
-                            onClick={() => handleSelectRoom(room)}
-                            className={`bg-white rounded-xl shadow-sm border overflow-hidden cursor-pointer transition-all ${
-                              isSelected
-                                ? 'ring-2 ring-black border-transparent'
-                                : isAvailable
-                                ? 'hover:shadow-md'
-                                : 'opacity-60 cursor-not-allowed'
-                            }`}
-                          >
-                            <div className="flex flex-col sm:flex-row">
-                              {/* Room Image */}
-                              <div className="sm:w-48 h-48 sm:h-auto flex-shrink-0">
-                                {room.images?.featured ? (
-                                  <img
-                                    src={room.images.featured.url}
-                                    alt={room.name}
-                                    className="w-full h-full object-cover"
-                                  />
-                                ) : (
-                                  <div className="w-full h-full bg-gray-100 flex items-center justify-center">
-                                    <BedDouble className="w-12 h-12 text-gray-300" />
-                                  </div>
+                        {/* Room Details */}
+                        <div className="flex-1 p-4">
+                          <div className="flex justify-between items-start mb-2">
+                            <div>
+                              <h3 className="font-semibold text-gray-900 text-lg">{selectedRoom.name}</h3>
+                              <div className="flex flex-wrap gap-3 text-sm text-gray-500 mt-1">
+                                {(selectedRoom.bed_count || selectedRoom.bed_type) && (
+                                  <span className="flex items-center gap-1">
+                                    <BedDouble size={14} />
+                                    {selectedRoom.bed_count || 1}x {selectedRoom.bed_type || 'Bed'}
+                                  </span>
                                 )}
-                              </div>
-
-                              {/* Room Details */}
-                              <div className="flex-1 p-4">
-                                <div className="flex justify-between items-start mb-2">
-                                  <div>
-                                    <h3 className="font-semibold text-gray-900">{room.name}</h3>
-                                    <p className="text-sm text-gray-500">
-                                      {room.bed_count}x {room.bed_type} · Max {room.max_guests}{' '}
-                                      guests
-                                      {room.room_size_sqm && ` · ${room.room_size_sqm} m²`}
-                                    </p>
-                                  </div>
-                                  {isSelected && (
-                                    <div className="w-6 h-6 bg-black rounded-full flex items-center justify-center">
-                                      <Check size={14} className="text-white" />
-                                    </div>
-                                  )}
-                                </div>
-
-                                {room.description && (
-                                  <p className="text-sm text-gray-600 mb-3 line-clamp-2">
-                                    {room.description}
-                                  </p>
+                                <span className="flex items-center gap-1">
+                                  <Users size={14} />
+                                  Max {selectedRoom.max_guests} guests
+                                </span>
+                                {selectedRoom.room_size_sqm && (
+                                  <span className="flex items-center gap-1">
+                                    <Maximize size={14} />
+                                    {selectedRoom.room_size_sqm} m²
+                                  </span>
                                 )}
-
-                                {/* Amenities */}
-                                {room.amenities.length > 0 && (
-                                  <div className="flex flex-wrap gap-2 mb-3">
-                                    {room.amenities.slice(0, 5).map((amenity, i) => (
-                                      <span
-                                        key={i}
-                                        className="inline-flex items-center gap-1 text-xs text-gray-600 bg-gray-100 px-2 py-1 rounded"
-                                      >
-                                        {amenityIcons[amenity.toLowerCase()] || <Check size={12} />}
-                                        {amenity}
-                                      </span>
-                                    ))}
-                                    {room.amenities.length > 5 && (
-                                      <span className="text-xs text-gray-500">
-                                        +{room.amenities.length - 5} more
-                                      </span>
-                                    )}
-                                  </div>
-                                )}
-
-                                {/* Price & Availability */}
-                                <div className="flex items-center justify-between mt-2 pt-2 border-t">
-                                  <div>
-                                    {avail && !isAvailable && (
-                                      <span className="text-sm text-red-600">
-                                        {!avail.meets_min_stay
-                                          ? `Min ${avail.min_stay_nights} nights`
-                                          : !avail.meets_max_stay
-                                          ? `Max ${avail.max_stay_nights} nights`
-                                          : avail.available_units === 0
-                                          ? 'Not available'
-                                          : 'Not available'}
-                                      </span>
-                                    )}
-                                    {isAvailable && guests > room.max_guests && (
-                                      <span className="text-sm text-orange-600">
-                                        Max {room.max_guests} guests
-                                      </span>
-                                    )}
-                                  </div>
-                                  <div className="text-right">
-                                    <p className="text-lg font-bold text-gray-900">
-                                      {formatCurrency(room.base_price_per_night, room.currency)}
-                                    </p>
-                                    <p className="text-xs text-gray-500">per night</p>
-                                  </div>
-                                </div>
                               </div>
                             </div>
+                            <div className="text-right">
+                              <p className="text-lg font-bold text-gray-900">
+                                {formatCurrency(selectedRoom.base_price_per_night, selectedRoom.currency)}
+                              </p>
+                              <p className="text-xs text-gray-500">per night</p>
+                            </div>
                           </div>
-                        )
-                      })
-                    )}
-                  </div>
-                </div>
+
+                          {selectedRoom.description && (
+                            <p className="text-sm text-gray-600 mt-2 line-clamp-2">
+                              {selectedRoom.description}
+                            </p>
+                          )}
+
+                          {/* Amenities */}
+                          {selectedRoom.amenities && selectedRoom.amenities.length > 0 && (
+                            <div className="flex flex-wrap gap-2 mt-3">
+                              {selectedRoom.amenities.slice(0, 6).map((amenity, i) => (
+                                <span
+                                  key={i}
+                                  className="inline-flex items-center gap-1 text-xs text-gray-600 bg-gray-100 px-2 py-1 rounded"
+                                >
+                                  {amenityIcons[amenity.toLowerCase()] || <Check size={12} />}
+                                  {amenity}
+                                </span>
+                              ))}
+                              {selectedRoom.amenities.length > 6 && (
+                                <span className="text-xs text-gray-500 self-center">
+                                  +{selectedRoom.amenities.length - 6} more
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Guest Selection */}
+                    <div className="bg-white rounded-xl shadow-sm border p-4">
+                      <h3 className="text-sm font-medium text-gray-700 mb-3 flex items-center gap-2">
+                        <Users size={16} />
+                        Number of Guests
+                      </h3>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs text-gray-500 mb-1">Adults</label>
+                          <select
+                            value={adults}
+                            onChange={(e) => setAdults(parseInt(e.target.value))}
+                            className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-black focus:border-transparent"
+                          >
+                            {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
+                              <option key={n} value={n} disabled={n > selectedRoom.max_guests}>
+                                {n} {n === 1 ? 'Adult' : 'Adults'}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs text-gray-500 mb-1">Children</label>
+                          <select
+                            value={children}
+                            onChange={(e) => setChildren(parseInt(e.target.value))}
+                            className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-black focus:border-transparent"
+                          >
+                            {[0, 1, 2, 3, 4, 5, 6].map((n) => (
+                              <option key={n} value={n} disabled={adults + n > selectedRoom.max_guests}>
+                                {n} {n === 1 ? 'Child' : 'Children'}
+                              </option>
+                            ))}
+                          </select>
+                          {selectedRoom.child_price_per_night !== undefined && selectedRoom.child_price_per_night !== null && (
+                            <p className="text-xs text-gray-500 mt-1">
+                              {selectedRoom.child_price_per_night === 0
+                                ? 'Children stay free'
+                                : `${formatCurrency(selectedRoom.child_price_per_night, selectedRoom.currency)}/night per child`}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      {guests > selectedRoom.max_guests && (
+                        <p className="text-sm text-red-500 mt-2">
+                          This room allows maximum {selectedRoom.max_guests} guests
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Availability Calendar */}
+                    <div className="bg-white rounded-xl shadow-sm border p-4">
+                      <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                        <Calendar size={20} />
+                        Select Your Dates
+                      </h3>
+
+                      {/* Date Picker Fields */}
+                      <div className="grid grid-cols-2 gap-4 mb-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Check-in
+                          </label>
+                          <input
+                            type="date"
+                            value={checkIn}
+                            onChange={(e) => handleCheckInInputChange(e.target.value)}
+                            min={new Date().toISOString().split('T')[0]}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Check-out
+                          </label>
+                          <input
+                            type="date"
+                            value={checkOut}
+                            onChange={(e) => handleCheckOutInputChange(e.target.value)}
+                            min={checkIn || new Date().toISOString().split('T')[0]}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Calendar View */}
+                      <BookingCalendar
+                        checkIn={checkIn}
+                        checkOut={checkOut}
+                        onCheckInChange={setCheckIn}
+                        onCheckOutChange={setCheckOut}
+                        unavailableDates={unavailableDates}
+                        seasonalDates={seasonalDates}
+                        minStayNights={selectedRoom.min_stay_nights}
+                        maxStayNights={selectedRoom.max_stay_nights}
+                        navigateToMonth={navigateToMonth}
+                      />
+                    </div>
+                  </>
+                )}
               </div>
             )}
 
@@ -922,7 +1040,10 @@ export default function Book() {
                         <p className="text-sm text-gray-500">
                           {selectedRoom?.bed_count}x {selectedRoom?.bed_type}
                         </p>
-                        <p className="text-sm text-gray-500">{guests} guests</p>
+                        <p className="text-sm text-gray-500">
+                          {adults} {adults === 1 ? 'Adult' : 'Adults'}
+                          {children > 0 && `, ${children} ${children === 1 ? 'Child' : 'Children'}`}
+                        </p>
                       </div>
                     </div>
 
@@ -994,11 +1115,30 @@ export default function Book() {
                   <div className="space-y-3 pb-4 border-b">
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-600">
-                        {selectedRoom.name} x {pricing.night_count}{' '}
+                        {selectedRoom.name} ({adults} {adults === 1 ? 'adult' : 'adults'}) x {pricing.night_count}{' '}
                         {pricing.night_count === 1 ? 'night' : 'nights'}
                       </span>
                       <span>{formatCurrency(pricing.subtotal, pricing.currency)}</span>
                     </div>
+
+                    {children > 0 && getChildrenTotal() > 0 && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-600">
+                          {children} {children === 1 ? 'child' : 'children'} x {pricing.night_count}{' '}
+                          {pricing.night_count === 1 ? 'night' : 'nights'}
+                        </span>
+                        <span>{formatCurrency(getChildrenTotal(), pricing.currency)}</span>
+                      </div>
+                    )}
+
+                    {children > 0 && selectedRoom.child_price_per_night === 0 && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-600 italic">
+                          {children} {children === 1 ? 'child' : 'children'} (free)
+                        </span>
+                        <span className="text-green-600">Free</span>
+                      </div>
+                    )}
 
                     {selectedAddons.map((addon) => (
                       <div key={addon.id} className="flex justify-between text-sm">
@@ -1019,8 +1159,14 @@ export default function Book() {
 
                   <p className="text-xs text-gray-500 mt-2">Taxes and fees may apply</p>
                 </>
+              ) : selectedRoom ? (
+                <div className="text-center py-8">
+                  <Calendar className="w-10 h-10 mx-auto mb-3 text-gray-300" />
+                  <p className="text-gray-500 text-sm">Select your check-in and check-out dates to see the total cost</p>
+                </div>
               ) : (
                 <div className="text-center py-8">
+                  <BedDouble className="w-10 h-10 mx-auto mb-3 text-gray-300" />
                   <p className="text-gray-500 text-sm">Select a room to see pricing</p>
                 </div>
               )}
@@ -1030,7 +1176,7 @@ export default function Book() {
                 {step < 4 ? (
                   <button
                     onClick={handleNext}
-                    disabled={step === 1 && !selectedRoom}
+                    disabled={step === 1 && (!selectedRoom || !checkIn || !checkOut)}
                     className="w-full py-3 bg-black text-white rounded-lg font-medium hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                   >
                     Continue

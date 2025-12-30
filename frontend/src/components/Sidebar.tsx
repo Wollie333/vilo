@@ -7,7 +7,9 @@ import {
   Plus,
   Globe,
   Settings,
-  BedDouble
+  BedDouble,
+  Users,
+  Headphones
 } from 'lucide-react'
 
 const navigation = [
@@ -17,7 +19,9 @@ const navigation = [
   { name: 'Bookings', href: '/dashboard/bookings', icon: Calendar },
   { name: 'Calendar', href: '/dashboard/calendar', icon: CalendarDays },
   { name: 'Reviews', href: '/dashboard/reviews', icon: Star },
-  { name: 'Website', href: '/', icon: Globe },
+  { name: 'Customers', href: '/dashboard/customers', icon: Users },
+  { name: 'Support', href: '/dashboard/support', icon: Headphones },
+  { name: 'Website', href: '/dashboard/website', icon: Globe },
 ]
 
 export default function Sidebar() {

@@ -101,3 +101,5 @@ In Supabase Dashboard:
 - For testing, you might need to temporarily adjust the policies
 - Check the `x-tenant-id` header is being sent in API requests
 
+
+

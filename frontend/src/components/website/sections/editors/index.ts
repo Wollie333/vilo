@@ -1,0 +1,5 @@
+export { default as ItemsEditor } from './ItemsEditor'
+export { default as HeroEditor } from './HeroEditor'
+export { default as TestimonialsEditor } from './TestimonialsEditor'
+export { default as CTAEditor } from './CTAEditor'
+export { default as GalleryEditor } from './GalleryEditor'

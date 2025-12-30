@@ -122,7 +122,34 @@ Hard rules:
 
 ---
 
-## 12) Current Task
+## 12) Database Schema Safety (NON-NEGOTIABLE)
+
+Before creating, editing, or changing any database schema:
+
+1. **Analyze existing schema and data first**
+   - Review current tables, columns, and relationships
+   - Check for existing data that could be affected
+
+2. **Ensure backward compatibility**
+   - New changes must work seamlessly with existing data
+   - Never delete or rename columns that contain live data without migration
+
+3. **Rollback plan required**
+   - Document how to revert changes if something breaks
+   - Keep backup of schema before modifications
+
+4. **Test before applying**
+   - Verify new schema works with existing data
+   - Test on a copy if possible
+
+5. **Migration files mandatory**
+   - All schema changes must have corresponding migration files
+   - Include both "up" (apply) and "down" (rollback) operations
+   - Save in `backend/migrations/` with timestamp prefix
+
+---
+
+## 13) Current Task
 Current focus: **Dashboard foundation (theme + layout)**
 
 Definition of done:

@@ -27,14 +27,14 @@ interface PaymentConfirmStepProps {
   guestEmail: string
   guestPhone: string
   notes: string
-  status: 'pending' | 'confirmed' | 'cancelled' | 'completed'
+  status: 'pending' | 'confirmed' | 'checked_in' | 'checked_out' | 'cancelled' | 'completed'
   paymentStatus: 'pending' | 'paid' | 'partial' | 'refunded'
   totalAmount: number
   currency: string
   overrideRules: boolean
   selectedAddons: SelectedAddon[]
   guests?: number
-  onStatusChange: (status: 'pending' | 'confirmed' | 'cancelled' | 'completed') => void
+  onStatusChange: (status: 'pending' | 'confirmed' | 'checked_in' | 'checked_out' | 'cancelled' | 'completed') => void
   onPaymentStatusChange: (status: 'pending' | 'paid' | 'partial' | 'refunded') => void
   onTotalAmountChange: (amount: number) => void
   onCurrencyChange: (currency: string) => void

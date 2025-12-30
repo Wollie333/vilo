@@ -10,3 +10,5 @@ if (!supabaseUrl || !supabaseAnonKey) {
 // Create Supabase client for frontend (uses anon key)
 export const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
+
+

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Loader2, Calendar, TrendingUp, Users, CreditCard, Eye } from 'lucide-react'
 import Card from '../components/Card'
 import { bookingsApi, roomsApi, Booking, Room } from '../services/api'
+import { useAuth } from '../contexts/AuthContext'
 
 interface DashboardStats {
   totalBookings: number
@@ -20,6 +21,7 @@ interface DashboardStats {
 
 export default function Dashboard() {
   const navigate = useNavigate()
+  const { tenant, loading: authLoading, tenantLoading } = useAuth()
   const [loading, setLoading] = useState(true)
   const [stats, setStats] = useState<DashboardStats>({
     totalBookings: 0,
@@ -37,8 +39,14 @@ export default function Dashboard() {
   const [rooms, setRooms] = useState<Room[]>([])
 
   useEffect(() => {
-    loadDashboardData()
-  }, [])
+    // Wait for auth and tenant to be ready before loading data
+    if (!authLoading && !tenantLoading && tenant) {
+      loadDashboardData()
+    } else if (!authLoading && !tenantLoading && !tenant) {
+      // No tenant available, stop loading
+      setLoading(false)
+    }
+  }, [authLoading, tenantLoading, tenant])
 
   const loadDashboardData = async () => {
     try {
@@ -164,12 +172,22 @@ export default function Dashboard() {
     }
   }
 
-  if (loading) {
+  if (loading || authLoading || tenantLoading) {
     return (
       <div style={{ backgroundColor: 'var(--bg-card)' }} className="p-8 min-h-full flex items-center justify-center">
         <div className="text-center">
           <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4 text-gray-400" />
           <p style={{ color: 'var(--text-muted)' }}>Loading dashboard...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (!tenant) {
+    return (
+      <div style={{ backgroundColor: 'var(--bg-card)' }} className="p-8 min-h-full flex items-center justify-center">
+        <div className="text-center">
+          <p style={{ color: 'var(--text-muted)' }}>No workspace found. Please set up your property first.</p>
         </div>
       </div>
     )

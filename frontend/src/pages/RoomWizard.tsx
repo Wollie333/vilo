@@ -2,10 +2,11 @@ import { useState, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, ArrowRight, Check, Save } from 'lucide-react'
 import Button from '../components/Button'
+import { scrollToTop } from '../components/ScrollToTop'
 import RoomDetailsStep from '../components/room-wizard/RoomDetailsStep'
 import PricingStep from '../components/room-wizard/PricingStep'
 import AddonsStep from '../components/room-wizard/AddonsStep'
-import { roomsApi, RoomImages, SeasonalRate } from '../services/api'
+import { roomsApi, RoomImages, SeasonalRate, BedConfiguration, PricingMode } from '../services/api'
 import { useNotification } from '../contexts/NotificationContext'
 
 const STEPS = [
@@ -33,13 +34,24 @@ export interface RoomFormData {
   name: string
   description: string
   room_code: string
-  bed_type: string
-  bed_count: number
+  // Bed configurations
+  beds: BedConfiguration[]
+  bed_type?: string // Legacy - kept for backwards compatibility
+  bed_count?: number // Legacy
   room_size_sqm?: number
   max_guests: number
+  max_adults?: number
+  max_children?: number
   amenities: string[]
+  extra_options: string[] // Extra room features like "Balcony", "Sea View", "Kitchenette"
   images: RoomImages
+  // Pricing configuration
+  pricing_mode: PricingMode // per_unit, per_person, per_person_sharing
   base_price_per_night: number
+  additional_person_rate?: number // For per_person_sharing mode
+  child_price_per_night?: number
+  child_free_until_age?: number // Children younger than this age stay free (e.g., 2 = 0-1 years free)
+  child_age_limit?: number // Max age considered a child (e.g., 12 = 0-11 are children, 12+ are adults)
   currency: string
   min_stay_nights: number
   max_stay_nights?: number
@@ -64,13 +76,22 @@ export default function RoomWizard() {
     name: '',
     description: '',
     room_code: generateRoomCode(),
-    bed_type: 'Double',
-    bed_count: 1,
+    beds: [{ id: crypto.randomUUID(), bed_type: 'Double', quantity: 1, sleeps: 2 }],
+    bed_type: 'Double', // Legacy
+    bed_count: 1, // Legacy
     room_size_sqm: undefined,
     max_guests: 2,
+    max_adults: undefined,
+    max_children: undefined,
     amenities: [],
+    extra_options: [],
     images: DEFAULT_IMAGES,
+    pricing_mode: 'per_unit', // Default: flat rate per room
     base_price_per_night: 0,
+    additional_person_rate: undefined,
+    child_price_per_night: undefined,
+    child_free_until_age: undefined,
+    child_age_limit: 12, // Default: children are 0-11 years
     currency: 'ZAR',
     min_stay_nights: 1,
     max_stay_nights: undefined,
@@ -90,17 +111,39 @@ export default function RoomWizard() {
     try {
       setIsLoading(true)
       const room = await roomsApi.getById(roomId)
+
+      // Parse beds - handle both new format and legacy
+      let beds = room.beds
+      if (!beds || beds.length === 0) {
+        // Convert legacy bed_type/bed_count to new format
+        beds = [{
+          id: crypto.randomUUID(),
+          bed_type: room.bed_type || 'Double',
+          quantity: room.bed_count || 1,
+          sleeps: 2, // Default sleeps
+        }]
+      }
+
       setFormData({
         name: room.name,
         description: room.description || '',
         room_code: room.room_code || '',
-        bed_type: room.bed_type,
-        bed_count: room.bed_count,
+        beds: beds,
+        bed_type: room.bed_type, // Legacy
+        bed_count: room.bed_count, // Legacy
         room_size_sqm: room.room_size_sqm,
         max_guests: room.max_guests,
+        max_adults: room.max_adults,
+        max_children: room.max_children,
         amenities: room.amenities,
+        extra_options: room.extra_options || [],
         images: room.images || DEFAULT_IMAGES,
+        pricing_mode: room.pricing_mode || 'per_unit',
         base_price_per_night: room.base_price_per_night,
+        additional_person_rate: room.additional_person_rate,
+        child_price_per_night: room.child_price_per_night,
+        child_free_until_age: room.child_free_until_age,
+        child_age_limit: room.child_age_limit ?? 12,
         currency: room.currency,
         min_stay_nights: room.min_stay_nights || 1,
         max_stay_nights: room.max_stay_nights,
@@ -134,6 +177,7 @@ export default function RoomWizard() {
         setRoomId(newRoom.id!)
         showSuccess('Room Created', 'Room details saved successfully.')
         setCurrentStep(2)
+        scrollToTop()
       } catch (error) {
         console.error('Failed to create room:', error)
         showError('Save Failed', 'Could not save room details.')
@@ -147,6 +191,7 @@ export default function RoomWizard() {
         await roomsApi.update(roomId, formData)
         showSuccess('Room Updated', 'Room details saved successfully.')
         setCurrentStep(2)
+        scrollToTop()
       } catch (error) {
         console.error('Failed to update room:', error)
         showError('Save Failed', 'Could not save room details.')
@@ -155,11 +200,13 @@ export default function RoomWizard() {
       }
     } else {
       setCurrentStep((prev) => Math.min(prev + 1, STEPS.length))
+      scrollToTop()
     }
   }
 
   const handleBack = () => {
     setCurrentStep((prev) => Math.max(prev - 1, 1))
+    scrollToTop()
   }
 
   const handleFinish = () => {
@@ -173,7 +220,7 @@ export default function RoomWizard() {
 
   const canProceed = () => {
     if (currentStep === 1) {
-      return formData.name && formData.bed_type && formData.base_price_per_night >= 0
+      return formData.name && formData.beds.length > 0 && formData.base_price_per_night >= 0
     }
     return true
   }
@@ -275,13 +322,23 @@ export default function RoomWizard() {
           {currentStep === 2 && roomId && (
             <PricingStep
               roomId={roomId}
+              pricingMode={formData.pricing_mode}
               basePrice={formData.base_price_per_night}
+              additionalPersonRate={formData.additional_person_rate}
+              childPricePerNight={formData.child_price_per_night}
+              childFreeUntilAge={formData.child_free_until_age}
+              childAgeLimit={formData.child_age_limit}
               currency={formData.currency}
               minStayNights={formData.min_stay_nights}
               maxStayNights={formData.max_stay_nights}
               seasonalRates={seasonalRates}
               onRatesChange={setSeasonalRates}
+              onPricingModeChange={(mode) => updateFormData({ pricing_mode: mode })}
               onBasePriceChange={(price) => updateFormData({ base_price_per_night: price })}
+              onAdditionalPersonRateChange={(rate) => updateFormData({ additional_person_rate: rate })}
+              onChildPriceChange={(price) => updateFormData({ child_price_per_night: price })}
+              onChildFreeUntilAgeChange={(age) => updateFormData({ child_free_until_age: age })}
+              onChildAgeLimitChange={(age) => updateFormData({ child_age_limit: age })}
               onCurrencyChange={(currency) => updateFormData({ currency })}
               onMinStayChange={(min) => updateFormData({ min_stay_nights: min })}
               onMaxStayChange={(max) => updateFormData({ max_stay_nights: max })}

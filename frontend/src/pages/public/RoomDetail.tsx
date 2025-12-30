@@ -2,17 +2,28 @@ import { useState, useEffect, useRef } from 'react'
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   BedDouble, Users, Maximize, Check, ArrowLeft, ChevronLeft, ChevronRight,
-  Calendar, Phone, Mail
+  Calendar, Phone, Mail, MessageSquare, User
 } from 'lucide-react'
-import { roomsApi, Room } from '../../services/api'
+import { Room, publicReviewsApi, publicRoomsApi, PublicReview, ReviewStats } from '../../services/api'
 import { useAuth } from '../../contexts/AuthContext'
+import StarRating from '../../components/StarRating'
 
-// Hook for scroll-triggered animations
+// Hook for scroll-triggered animations - starts visible to prevent blank content
 function useInView(threshold = 0.1) {
   const ref = useRef<HTMLDivElement>(null)
-  const [isInView, setIsInView] = useState(false)
+  // Start visible by default to prevent blank content if IntersectionObserver fails
+  const [isInView, setIsInView] = useState(true)
 
   useEffect(() => {
+    const element = ref.current
+    if (!element) return
+
+    // Reset to false initially for animation, only if element is below viewport
+    const rect = element.getBoundingClientRect()
+    if (rect.top > window.innerHeight) {
+      setIsInView(false)
+    }
+
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (entry.isIntersecting) {
@@ -22,9 +33,7 @@ function useInView(threshold = 0.1) {
       { threshold }
     )
 
-    if (ref.current) {
-      observer.observe(ref.current)
-    }
+    observer.observe(element)
 
     return () => observer.disconnect()
   }, [threshold])
@@ -32,111 +41,44 @@ function useInView(threshold = 0.1) {
   return { ref, isInView }
 }
 
-// Placeholder room data based on ID
-const getPlaceholderRoom = (roomId: string): Room => {
-  const rooms: Record<string, Room> = {
-    '1': {
-      id: '1',
-      name: 'Deluxe Double Room',
-      description: 'A spacious and elegantly furnished room featuring a comfortable double bed, modern amenities, and a relaxing atmosphere perfect for couples or solo travelers seeking comfort. The room includes a private balcony with garden views, a modern en-suite bathroom with a walk-in shower, and a comfortable seating area. Enjoy complimentary WiFi, a flat-screen TV with streaming services, and a mini-bar stocked with refreshments.',
-      room_code: 'DDR-101',
-      bed_type: 'Double',
-      bed_count: 1,
-      room_size_sqm: 28,
-      max_guests: 2,
-      amenities: ['Free WiFi', 'Air Conditioning', 'Flat-screen TV', 'Ensuite Bathroom', 'Mini Bar', 'Work Desk', 'Tea/Coffee Maker', 'Hair Dryer', 'Safe', 'Iron & Ironing Board', 'Daily Housekeeping', 'Room Service'],
-      images: { featured: null, gallery: [] },
-      base_price_per_night: 1500,
-      currency: 'ZAR',
-      min_stay_nights: 1,
-      inventory_mode: 'single_unit',
-      total_units: 1,
-      is_active: true,
-    },
-    '2': {
-      id: '2',
-      name: 'Family Suite',
-      description: 'Our spacious family suite is perfect for families traveling with children. Features two king beds, a separate living area, and plenty of space for everyone to relax. The suite includes a fully equipped kitchenette, a large bathroom with both shower and bathtub, and a private balcony overlooking the garden.',
-      room_code: 'FS-201',
-      bed_type: 'King',
-      bed_count: 2,
-      room_size_sqm: 45,
-      max_guests: 4,
-      amenities: ['Free WiFi', 'Air Conditioning', 'Flat-screen TV', 'Ensuite Bathroom', 'Mini Kitchen', 'Balcony', 'Sofa Bed', 'Safe', 'Hair Dryer', 'Iron & Ironing Board', 'Daily Housekeeping', 'Room Service'],
-      images: { featured: null, gallery: [] },
-      base_price_per_night: 2800,
-      currency: 'ZAR',
-      min_stay_nights: 1,
-      inventory_mode: 'room_type',
-      total_units: 3,
-      is_active: true,
-    },
-    '3': {
-      id: '3',
-      name: 'Standard Single Room',
-      description: 'A cozy and comfortable room ideal for solo travelers. Features all essential amenities in a compact, well-designed space. Perfect for business travelers or those looking for an affordable yet comfortable stay.',
-      room_code: 'SSR-001',
-      bed_type: 'Single',
-      bed_count: 1,
-      room_size_sqm: 18,
-      max_guests: 1,
-      amenities: ['Free WiFi', 'Air Conditioning', 'Flat-screen TV', 'Ensuite Bathroom', 'Work Desk', 'Hair Dryer', 'Daily Housekeeping'],
-      images: { featured: null, gallery: [] },
-      base_price_per_night: 850,
-      currency: 'ZAR',
-      min_stay_nights: 1,
-      inventory_mode: 'room_type',
-      total_units: 5,
-      is_active: true,
-    },
-    '4': {
-      id: '4',
-      name: 'Executive Suite',
-      description: 'Our premium executive suite offers luxury accommodation with a separate bedroom, living room, and work area. Perfect for business travelers who need extra space and comfort. Features include a jacuzzi bath, premium toiletries, and complimentary minibar.',
-      room_code: 'ES-301',
-      bed_type: 'King',
-      bed_count: 1,
-      room_size_sqm: 55,
-      max_guests: 2,
-      amenities: ['Free WiFi', 'Air Conditioning', 'Smart TV', 'Ensuite Bathroom', 'Jacuzzi', 'Mini Bar', 'Work Station', 'Lounge Area', 'Nespresso Machine', 'Bathrobes', 'Premium Toiletries', 'Daily Housekeeping', 'Room Service', 'Turndown Service'],
-      images: { featured: null, gallery: [] },
-      base_price_per_night: 3500,
-      currency: 'ZAR',
-      min_stay_nights: 1,
-      inventory_mode: 'single_unit',
-      total_units: 1,
-      is_active: true,
-    },
-  }
-
-  return rooms[roomId] || rooms['1']
-}
-
 export default function RoomDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const { tenant } = useAuth()
-  const [room, setRoom] = useState<Room | null>(id ? getPlaceholderRoom(id) : null)
+  const [room, setRoom] = useState<Room | null>(null)
   const [currentImageIndex, setCurrentImageIndex] = useState(0)
+  const [reviews, setReviews] = useState<PublicReview[]>([])
+  const [reviewStats, setReviewStats] = useState<ReviewStats | null>(null)
+  const [loadingReviews, setLoadingReviews] = useState(false)
+  const [loadingRoom, setLoadingRoom] = useState(true)
+
+  // Get tenant ID from URL param or auth context
+  const tenantId = searchParams.get('property') || tenant?.id || ''
 
   // Get pre-filled values from search params
   const prefilledGuests = searchParams.get('guests') || '2'
+
+  // Check if the ID looks like a UUID or a room_code
+  const isUUID = (str: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str)
+  const roomCode = id && !isUUID(id) ? id : null
 
   const heroSection = useInView()
   const detailsSection = useInView(0.05)
   const amenitiesSection = useInView()
   const bookingSection = useInView()
+  const reviewsSection = useInView()
 
   // Handle Book Now click - redirect to booking page
   const handleBookNow = () => {
     // Build query params for booking page
     const params = new URLSearchParams()
-    if (tenant?.id) {
-      params.set('property', tenant.id)
+    if (tenantId) {
+      params.set('property', tenantId)
     }
-    if (id) {
-      params.set('room', id)
+    // Use the room's actual UUID for booking
+    if (room?.id) {
+      params.set('room', room.id)
     }
     if (prefilledGuests) {
       params.set('guests', prefilledGuests)
@@ -144,13 +86,10 @@ export default function RoomDetail() {
     navigate(`/book?${params.toString()}`)
   }
 
-  // Update room when id changes
+  // Load room when id changes
   useEffect(() => {
-    if (id) {
-      setRoom(getPlaceholderRoom(id))
-    }
     loadRoom()
-  }, [id])
+  }, [id, tenantId])
 
   const loadRoom = async () => {
     if (!id) {
@@ -158,24 +97,77 @@ export default function RoomDetail() {
       return
     }
 
-    // Already initialized with placeholder data, try to get real data from API
+    setLoadingRoom(true)
     try {
-      const data = await roomsApi.getById(id)
-      if (data) {
+      let data: Room | null = null
+
+      // If it looks like a room_code (not a UUID), use the public API by code
+      if (roomCode) {
+        data = await publicRoomsApi.getByCode(roomCode, tenantId || undefined)
+      } else {
+        // It's a UUID, use the public API by ID
+        data = await publicRoomsApi.getById(id)
+      }
+
+      if (data && data.name) {
         setRoom(data)
+      } else {
+        setRoom(null)
       }
     } catch (error) {
-      console.error('Failed to load room from API, using placeholder data:', error)
-      // Keep using placeholder data (already set as initial state)
+      console.error('Failed to load room:', error)
+      setRoom(null)
+    } finally {
+      setLoadingRoom(false)
     }
   }
 
-  const formatCurrency = (amount: number, currency: string) => {
+  // Load reviews for this room
+  const loadReviews = async () => {
+    if (!tenantId || !room) return
+
+    setLoadingReviews(true)
+    try {
+      let reviewsData: PublicReview[] = []
+      let statsData: ReviewStats = { total_reviews: 0, average_rating: 0 }
+
+      // Use room_code if available, otherwise use room UUID
+      if (room.room_code) {
+        [reviewsData, statsData] = await Promise.all([
+          publicReviewsApi.getRoomReviewsByCode(tenantId, room.room_code),
+          publicReviewsApi.getRoomStatsByCode(tenantId, room.room_code)
+        ])
+      } else if (room.id) {
+        [reviewsData, statsData] = await Promise.all([
+          publicReviewsApi.getRoomReviews(tenantId, room.id),
+          publicReviewsApi.getRoomStats(tenantId, room.id)
+        ])
+      }
+
+      setReviews(reviewsData)
+      setReviewStats(statsData)
+    } catch (error) {
+      console.error('Failed to load reviews:', error)
+    } finally {
+      setLoadingReviews(false)
+    }
+  }
+
+  // Load reviews when tenant and room are available
+  useEffect(() => {
+    if (tenantId && room) {
+      loadReviews()
+    }
+  }, [tenantId, room?.id])
+
+  const formatCurrency = (amount: number | undefined | null, currency: string | undefined | null) => {
+    const safeAmount = amount ?? 0
+    const safeCurrency = currency || 'ZAR'
     return new Intl.NumberFormat('en-ZA', {
       style: 'currency',
-      currency: currency,
+      currency: safeCurrency,
       minimumFractionDigits: 0,
-    }).format(amount)
+    }).format(safeAmount)
   }
 
   // Get all images (featured + gallery)
@@ -192,13 +184,25 @@ export default function RoomDetail() {
     setCurrentImageIndex((prev) => (prev - 1 + Math.max(1, allImages.length)) % Math.max(1, allImages.length))
   }
 
-  if (!room) {
+  // Show loading state
+  if (loadingRoom) {
+    return (
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <div className="text-center px-4">
+          <div className="animate-spin w-12 h-12 border-4 border-gray-200 border-t-gray-900 rounded-full mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading room details...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (!room || !room.name) {
     return (
       <div className="min-h-screen bg-white flex items-center justify-center">
         <div className="text-center px-4">
           <BedDouble size={48} className="mx-auto text-gray-300 mb-4" />
           <h2 className="text-xl font-bold text-gray-900 mb-2">Room Not Found</h2>
-          <p className="text-gray-600 mb-4">The room you're looking for doesn't exist.</p>
+          <p className="text-gray-600 mb-4">The room you're looking for doesn't exist or couldn't be loaded.</p>
           <Link
             to="/accommodation"
             className="inline-flex items-center text-gray-900 font-medium hover:underline"
@@ -284,13 +288,15 @@ export default function RoomDetail() {
 
               {/* Quick Info */}
               <div className="flex flex-wrap gap-4 sm:gap-6 text-sm sm:text-base text-gray-600 mb-6 pb-6 border-b border-gray-200">
-                <span className="flex items-center gap-2">
-                  <BedDouble size={18} className="text-gray-400" />
-                  {room.bed_count}x {room.bed_type} bed
-                </span>
+                {(room.bed_count || room.bed_type) && (
+                  <span className="flex items-center gap-2">
+                    <BedDouble size={18} className="text-gray-400" />
+                    {room.bed_count || 1}x {room.bed_type || 'Bed'}
+                  </span>
+                )}
                 <span className="flex items-center gap-2">
                   <Users size={18} className="text-gray-400" />
-                  Up to {room.max_guests} guests
+                  Up to {room.max_guests || 2} guests
                 </span>
                 {room.room_size_sqm && (
                   <span className="flex items-center gap-2">
@@ -309,20 +315,95 @@ export default function RoomDetail() {
               </div>
 
               {/* Amenities */}
-              <div ref={amenitiesSection.ref} className={`transition-all duration-700 ${amenitiesSection.isInView ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
-                <h2 className="text-lg sm:text-xl font-semibold text-gray-900 mb-4">Amenities</h2>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                  {room.amenities.map((amenity, index) => (
-                    <div
-                      key={index}
-                      className="flex items-center gap-2 text-sm sm:text-base text-gray-700"
-                    >
-                      <Check size={16} className="text-green-600 flex-shrink-0" />
-                      {amenity}
-                    </div>
-                  ))}
+              {room.amenities && room.amenities.length > 0 && (
+                <div ref={amenitiesSection.ref} className={`transition-all duration-700 ${amenitiesSection.isInView ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
+                  <h2 className="text-lg sm:text-xl font-semibold text-gray-900 mb-4">Amenities</h2>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    {room.amenities.map((amenity, index) => (
+                      <div
+                        key={index}
+                        className="flex items-center gap-2 text-sm sm:text-base text-gray-700"
+                      >
+                        <Check size={16} className="text-green-600 flex-shrink-0" />
+                        {amenity}
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
+
+              {/* Reviews Section */}
+              {(reviews.length > 0 || reviewStats?.total_reviews) && (
+                <div ref={reviewsSection.ref} className={`mt-8 pt-8 border-t border-gray-200 transition-all duration-700 ${reviewsSection.isInView ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
+                  <div className="flex items-center justify-between mb-6">
+                    <div>
+                      <h2 className="text-lg sm:text-xl font-semibold text-gray-900">Guest Reviews</h2>
+                      {reviewStats && reviewStats.total_reviews > 0 && (
+                        <div className="flex items-center gap-2 mt-1">
+                          <StarRating rating={reviewStats.average_rating} size="sm" />
+                          <span className="text-gray-700 font-medium">{reviewStats.average_rating.toFixed(1)}</span>
+                          <span className="text-gray-500 text-sm">({reviewStats.total_reviews} {reviewStats.total_reviews === 1 ? 'review' : 'reviews'})</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {loadingReviews ? (
+                    <div className="text-center py-8">
+                      <div className="animate-spin w-8 h-8 border-2 border-gray-300 border-t-gray-900 rounded-full mx-auto"></div>
+                    </div>
+                  ) : reviews.length === 0 ? (
+                    <div className="text-center py-8 text-gray-500">
+                      <MessageSquare size={32} className="mx-auto mb-2 opacity-50" />
+                      <p>No reviews yet for this room.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-6">
+                      {reviews.slice(0, 5).map((review) => (
+                        <div key={review.id} className="pb-6 border-b border-gray-100 last:border-0">
+                          <div className="flex items-start gap-3">
+                            <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center flex-shrink-0">
+                              <User size={20} className="text-gray-400" />
+                            </div>
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="font-medium text-gray-900">{review.guest_name}</span>
+                                <StarRating rating={review.rating} size="sm" />
+                              </div>
+                              <p className="text-xs text-gray-500 mb-2">
+                                {new Date(review.created_at).toLocaleDateString('en-US', {
+                                  month: 'long',
+                                  year: 'numeric'
+                                })}
+                              </p>
+                              {review.title && (
+                                <p className="font-medium text-gray-900 mb-1">"{review.title}"</p>
+                              )}
+                              {review.content && (
+                                <p className="text-gray-600 text-sm leading-relaxed">{review.content}</p>
+                              )}
+                              {review.owner_response && (
+                                <div className="mt-3 p-3 bg-gray-50 rounded-lg border-l-4 border-gray-300">
+                                  <div className="flex items-center gap-1 mb-1">
+                                    <MessageSquare size={12} className="text-gray-500" />
+                                    <span className="text-xs font-medium text-gray-600">Response from property</span>
+                                  </div>
+                                  <p className="text-sm text-gray-600">{review.owner_response}</p>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                      {reviews.length > 5 && (
+                        <p className="text-center text-sm text-gray-500">
+                          Showing 5 of {reviews.length} reviews
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 

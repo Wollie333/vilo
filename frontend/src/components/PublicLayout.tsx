@@ -1,13 +1,18 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom'
-import { Menu, X, Phone, Mail, MapPin } from 'lucide-react'
+import { Menu, X, Phone, Mail, MapPin, Loader2 } from 'lucide-react'
 import { useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
+import { useTenant } from '../contexts/TenantContext'
 
 export default function PublicLayout() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const location = useLocation()
   const navigate = useNavigate()
-  const { tenant } = useAuth()
+  const { tenant: authTenant } = useAuth()
+
+  // Try TenantContext first (for subdomain/query param), fall back to AuthContext (admin preview)
+  const { tenant: publicTenant, loading: tenantLoading, error: tenantError, isMainSite } = useTenant()
+  const tenant = publicTenant || authTenant
 
   const handleBookNow = () => {
     const params = new URLSearchParams()
@@ -20,10 +25,38 @@ export default function PublicLayout() {
   const navLinks = [
     { path: '/', label: 'Home' },
     { path: '/accommodation', label: 'Accommodation' },
+    { path: '/reviews', label: 'Reviews' },
     { path: '/contact', label: 'Contact' },
   ]
 
   const isActive = (path: string) => location.pathname === path
+
+  // Show loading while fetching tenant
+  if (tenantLoading && !isMainSite) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-white">
+        <Loader2 className="animate-spin text-gray-400" size={40} />
+      </div>
+    )
+  }
+
+  // Show error if tenant not found (and not main site)
+  if (tenantError && !isMainSite && !tenant) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-white">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">Property Not Found</h1>
+          <p className="text-gray-600 mb-4">{tenantError}</p>
+          <a href="https://vilo.io" className="text-blue-600 hover:underline">
+            Go to Vilo.io
+          </a>
+        </div>
+      </div>
+    )
+  }
+
+  // Get tenant name for display
+  const businessName = tenant?.business_name || 'Vilo Guest House'
 
   return (
     <div className="min-h-screen flex flex-col bg-white">
@@ -33,8 +66,11 @@ export default function PublicLayout() {
           <div className="flex justify-between items-center h-20">
             {/* Logo */}
             <Link to="/" className="flex items-center">
-              <span className="text-2xl font-bold text-gray-900">Vilo</span>
-              <span className="text-2xl font-light text-gray-500 ml-1">Guest House</span>
+              {tenant?.logo_url ? (
+                <img src={tenant.logo_url} alt={businessName} className="h-10 w-auto" />
+              ) : (
+                <span className="text-2xl font-bold text-gray-900">{businessName}</span>
+              )}
             </Link>
 
             {/* Desktop Navigation */}
@@ -114,12 +150,14 @@ export default function PublicLayout() {
             {/* Brand */}
             <div className="col-span-1 md:col-span-2">
               <div className="flex items-center mb-4">
-                <span className="text-2xl font-bold text-white">Vilo</span>
-                <span className="text-2xl font-light text-gray-400 ml-1">Guest House</span>
+                {tenant?.logo_url ? (
+                  <img src={tenant.logo_url} alt={businessName} className="h-10 w-auto brightness-0 invert" />
+                ) : (
+                  <span className="text-2xl font-bold text-white">{businessName}</span>
+                )}
               </div>
               <p className="text-gray-400 text-sm leading-relaxed max-w-md">
-                Experience comfort and hospitality at its finest. Our guest house offers a
-                peaceful retreat with modern amenities and personalized service.
+                {tenant?.business_description || 'Experience comfort and hospitality at its finest. Our guest house offers a peaceful retreat with modern amenities and personalized service.'}
               </p>
             </div>
 
@@ -148,28 +186,37 @@ export default function PublicLayout() {
                 Contact Us
               </h3>
               <ul className="space-y-3">
-                <li className="flex items-start gap-3 text-gray-400 text-sm">
-                  <MapPin size={16} className="mt-0.5 flex-shrink-0" />
-                  <span>123 Guest House Street<br />Pretoria, South Africa</span>
-                </li>
-                <li className="flex items-center gap-3 text-gray-400 text-sm">
-                  <Phone size={16} className="flex-shrink-0" />
-                  <a href="tel:+27123456789" className="hover:text-white transition-colors">
-                    +27 12 345 6789
-                  </a>
-                </li>
-                <li className="flex items-center gap-3 text-gray-400 text-sm">
-                  <Mail size={16} className="flex-shrink-0" />
-                  <a href="mailto:info@viloguesthouse.com" className="hover:text-white transition-colors">
-                    info@viloguesthouse.com
-                  </a>
-                </li>
+                {(tenant?.address_line1 || tenant?.city) && (
+                  <li className="flex items-start gap-3 text-gray-400 text-sm">
+                    <MapPin size={16} className="mt-0.5 flex-shrink-0" />
+                    <span>
+                      {tenant.address_line1 && <>{tenant.address_line1}<br /></>}
+                      {[tenant.city, tenant.state_province, tenant.country].filter(Boolean).join(', ')}
+                    </span>
+                  </li>
+                )}
+                {tenant?.business_phone && (
+                  <li className="flex items-center gap-3 text-gray-400 text-sm">
+                    <Phone size={16} className="flex-shrink-0" />
+                    <a href={`tel:${tenant.business_phone}`} className="hover:text-white transition-colors">
+                      {tenant.business_phone}
+                    </a>
+                  </li>
+                )}
+                {tenant?.business_email && (
+                  <li className="flex items-center gap-3 text-gray-400 text-sm">
+                    <Mail size={16} className="flex-shrink-0" />
+                    <a href={`mailto:${tenant.business_email}`} className="hover:text-white transition-colors">
+                      {tenant.business_email}
+                    </a>
+                  </li>
+                )}
               </ul>
             </div>
           </div>
 
           <div className="border-t border-gray-800 mt-10 pt-8 text-center text-gray-500 text-sm">
-            <p>&copy; {new Date().getFullYear()} Vilo Guest House. All rights reserved.</p>
+            <p>&copy; {new Date().getFullYear()} {businessName}. All rights reserved.</p>
           </div>
         </div>
       </footer>

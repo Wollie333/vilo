@@ -18,7 +18,23 @@
       "Bash(grep:*)",
       "Bash(taskkill //F //PID 4732)",
       "Bash(taskkill //F //PID 8396)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git config:*)",
+      "Bash(git push:*)",
+      "Bash(npx tsc:*)",
+      "Bash(taskkill //F //PID 1960)",
+      "Bash(taskkill //F //PID 21960)",
+      "Bash(taskkill //F //PID 3984)",
+      "Bash(taskkill:*)",
+      "Bash(ping:*)",
+      "Bash(printf:*)",
+      "Bash(node:*)",
+      "WebSearch",
+      "WebFetch(domain:surecart.com)",
+      "WebFetch(domain:litextension.com)",
+      "WebFetch(domain:wpastra.com)",
+      "Bash(git checkout:*)"
     ]
   }
 }

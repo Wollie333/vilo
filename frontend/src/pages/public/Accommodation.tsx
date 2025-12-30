@@ -1,15 +1,25 @@
 import { useState, useEffect, useRef } from 'react'
 import { Link, useSearchParams, useNavigate } from 'react-router-dom'
-import { BedDouble, Users, Maximize, Check, ChevronDown, ChevronUp, Calendar, X, UserCheck, Search } from 'lucide-react'
-import { roomsApi, Room } from '../../services/api'
+import { BedDouble, Users, Maximize, Check, ChevronDown, ChevronUp, Calendar, X, UserCheck, Search, Star } from 'lucide-react'
+import { roomsApi, Room, publicReviewsApi, ReviewStats } from '../../services/api'
 import { useAuth } from '../../contexts/AuthContext'
 
-// Hook for scroll-triggered animations
+// Hook for scroll-triggered animations - starts visible to prevent blank content
 function useInView(threshold = 0.1) {
   const ref = useRef<HTMLDivElement>(null)
-  const [isInView, setIsInView] = useState(false)
+  // Start visible by default to prevent blank content if IntersectionObserver fails
+  const [isInView, setIsInView] = useState(true)
 
   useEffect(() => {
+    const element = ref.current
+    if (!element) return
+
+    // Reset to false initially for animation, only if element is below viewport
+    const rect = element.getBoundingClientRect()
+    if (rect.top > window.innerHeight) {
+      setIsInView(false)
+    }
+
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (entry.isIntersecting) {
@@ -19,9 +29,7 @@ function useInView(threshold = 0.1) {
       { threshold }
     )
 
-    if (ref.current) {
-      observer.observe(ref.current)
-    }
+    observer.observe(element)
 
     return () => observer.disconnect()
   }, [threshold])
@@ -29,100 +37,37 @@ function useInView(threshold = 0.1) {
   return { ref, isInView }
 }
 
-// Placeholder rooms data
-const PLACEHOLDER_ROOMS: Room[] = [
-  {
-    id: '1',
-    name: 'Deluxe Double Room',
-    description: 'A spacious and elegantly furnished room featuring a comfortable double bed, modern amenities, and a relaxing atmosphere perfect for couples or solo travelers seeking comfort.',
-    room_code: 'DDR-101',
-    bed_type: 'Double',
-    bed_count: 1,
-    room_size_sqm: 28,
-    max_guests: 2,
-    amenities: ['Free WiFi', 'Air Conditioning', 'Flat-screen TV', 'Ensuite Bathroom', 'Mini Bar', 'Work Desk', 'Tea/Coffee Maker'],
-    images: { featured: null, gallery: [] },
-    base_price_per_night: 1500,
-    currency: 'ZAR',
-    min_stay_nights: 1,
-    inventory_mode: 'single_unit',
-    total_units: 1,
-    is_active: true,
-  },
-  {
-    id: '2',
-    name: 'Family Suite',
-    description: 'Our spacious family suite is perfect for families traveling with children. Features two king beds, a separate living area, and plenty of space for everyone to relax.',
-    room_code: 'FS-201',
-    bed_type: 'King',
-    bed_count: 2,
-    room_size_sqm: 45,
-    max_guests: 4,
-    amenities: ['Free WiFi', 'Air Conditioning', 'Flat-screen TV', 'Ensuite Bathroom', 'Mini Kitchen', 'Balcony', 'Sofa Bed', 'Safe'],
-    images: { featured: null, gallery: [] },
-    base_price_per_night: 2800,
-    currency: 'ZAR',
-    min_stay_nights: 1,
-    inventory_mode: 'room_type',
-    total_units: 3,
-    is_active: true,
-  },
-  {
-    id: '3',
-    name: 'Standard Single Room',
-    description: 'A cozy and comfortable room ideal for solo travelers. Features all essential amenities in a compact, well-designed space.',
-    room_code: 'SSR-001',
-    bed_type: 'Single',
-    bed_count: 1,
-    room_size_sqm: 18,
-    max_guests: 1,
-    amenities: ['Free WiFi', 'Air Conditioning', 'Flat-screen TV', 'Ensuite Bathroom', 'Work Desk'],
-    images: { featured: null, gallery: [] },
-    base_price_per_night: 850,
-    currency: 'ZAR',
-    min_stay_nights: 1,
-    inventory_mode: 'room_type',
-    total_units: 5,
-    is_active: true,
-  },
-  {
-    id: '4',
-    name: 'Executive Suite',
-    description: 'Our premium executive suite offers luxury accommodation with a separate bedroom, living room, and work area. Perfect for business travelers who need extra space and comfort.',
-    room_code: 'ES-301',
-    bed_type: 'King',
-    bed_count: 1,
-    room_size_sqm: 55,
-    max_guests: 2,
-    amenities: ['Free WiFi', 'Air Conditioning', 'Smart TV', 'Ensuite Bathroom', 'Jacuzzi', 'Mini Bar', 'Work Station', 'Lounge Area', 'Nespresso Machine', 'Bathrobes'],
-    images: { featured: null, gallery: [] },
-    base_price_per_night: 3500,
-    currency: 'ZAR',
-    min_stay_nights: 1,
-    inventory_mode: 'single_unit',
-    total_units: 1,
-    is_active: true,
-  },
-]
-
 export default function Accommodation() {
   const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
   const { tenant } = useAuth()
-  const [rooms, setRooms] = useState<Room[]>(PLACEHOLDER_ROOMS)
+  const [rooms, setRooms] = useState<Room[]>([])
   const [expandedRoom, setExpandedRoom] = useState<string | null>(null)
+  const [roomStats, setRoomStats] = useState<Record<string, ReviewStats>>({})
+
+  // Get tenant ID from URL param or auth context
+  const tenantId = searchParams.get('property') || tenant?.id || ''
 
   // Handle book room click - redirect to booking page
-  const handleBookRoom = (roomId: string) => {
+  const handleBookRoom = (room: Room) => {
     const params = new URLSearchParams()
-    if (tenant?.id) {
-      params.set('property', tenant.id)
+    if (tenantId) {
+      params.set('property', tenantId)
     }
-    params.set('room', roomId)
+    if (room.id) {
+      params.set('room', room.id)
+    }
     if (searchGuests) {
       params.set('guests', searchGuests)
     }
     navigate(`/book?${params.toString()}`)
+  }
+
+  // Get room link - use room_code if available, otherwise UUID
+  const getRoomLink = (room: Room) => {
+    const identifier = room.room_code || room.id
+    const queryString = hasSearchParams ? `?${searchParams.toString()}` : ''
+    return `/accommodation/${identifier}${queryString}`
   }
 
   // Get search parameters
@@ -142,8 +87,42 @@ export default function Accommodation() {
   const bookingSection = useInView()
 
   useEffect(() => {
-    loadRooms()
-  }, [])
+    if (tenantId) {
+      loadRooms()
+    }
+  }, [tenantId])
+
+  // Load room stats when rooms and tenantId are available
+  useEffect(() => {
+    if (tenantId && rooms.length > 0) {
+      loadRoomStats()
+    }
+  }, [tenantId, rooms])
+
+  const loadRoomStats = async () => {
+    if (!tenantId) return
+
+    const stats: Record<string, ReviewStats> = {}
+
+    // Load stats for each room in parallel
+    await Promise.all(
+      rooms.map(async (room) => {
+        try {
+          if (room.room_code) {
+            const roomStat = await publicReviewsApi.getRoomStatsByCode(tenantId, room.room_code)
+            stats[room.id || room.room_code] = roomStat
+          } else if (room.id) {
+            const roomStat = await publicReviewsApi.getRoomStats(tenantId, room.id)
+            stats[room.id] = roomStat
+          }
+        } catch (error) {
+          // Silently ignore errors for individual rooms
+        }
+      })
+    )
+
+    setRoomStats(stats)
+  }
 
   // Filter rooms based on guest capacity
   const filteredRooms = guests
@@ -194,21 +173,21 @@ export default function Accommodation() {
   const loadRooms = async () => {
     try {
       const data = await roomsApi.getAll({ is_active: true })
-      if (data && data.length > 0) {
-        setRooms(data)
-      }
+      setRooms(data || [])
     } catch (error) {
-      console.error('Failed to load rooms from API, using placeholder data:', error)
-      // Keep using placeholder data (already set as initial state)
+      console.error('Failed to load rooms:', error)
+      setRooms([])
     }
   }
 
-  const formatCurrency = (amount: number, currency: string) => {
+  const formatCurrency = (amount: number | undefined | null, currency: string | undefined | null) => {
+    const safeAmount = amount ?? 0
+    const safeCurrency = currency || 'ZAR'
     return new Intl.NumberFormat('en-ZA', {
       style: 'currency',
-      currency: currency,
+      currency: safeCurrency,
       minimumFractionDigits: 0,
-    }).format(amount)
+    }).format(safeAmount)
   }
 
   const toggleRoom = (roomId: string) => {
@@ -379,22 +358,38 @@ export default function Accommodation() {
                     <div className="flex-1 p-4 sm:p-6">
                       <div className="flex flex-col gap-4">
                         <div className="flex-1">
-                          <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-2">
-                            {room.name}
-                          </h2>
+                          <div className="flex items-start justify-between gap-2 mb-2">
+                            <h2 className="text-xl sm:text-2xl font-bold text-gray-900">
+                              {room.name}
+                            </h2>
+                            {/* Star Rating */}
+                            {roomStats[room.id || '']?.total_reviews > 0 && (
+                              <div className="flex items-center gap-1 flex-shrink-0">
+                                <Star size={16} className="fill-yellow-400 text-yellow-400" />
+                                <span className="text-sm font-medium text-gray-900">
+                                  {roomStats[room.id || ''].average_rating.toFixed(1)}
+                                </span>
+                                <span className="text-xs text-gray-500">
+                                  ({roomStats[room.id || ''].total_reviews})
+                                </span>
+                              </div>
+                            )}
+                          </div>
                           <p className="text-gray-600 mb-4 line-clamp-2 text-sm sm:text-base">
                             {room.description}
                           </p>
 
                           {/* Room Features */}
                           <div className="flex flex-wrap gap-3 sm:gap-4 text-xs sm:text-sm text-gray-600 mb-4">
-                            <span className="flex items-center gap-1.5">
-                              <BedDouble size={16} className="text-gray-400" />
-                              {room.bed_count}x {room.bed_type}
-                            </span>
+                            {(room.bed_count || room.bed_type) && (
+                              <span className="flex items-center gap-1.5">
+                                <BedDouble size={16} className="text-gray-400" />
+                                {room.bed_count || 1}x {room.bed_type || 'Bed'}
+                              </span>
+                            )}
                             <span className="flex items-center gap-1.5">
                               <Users size={16} className="text-gray-400" />
-                              Max {room.max_guests} guests
+                              Max {room.max_guests || 2} guests
                             </span>
                             {room.room_size_sqm && (
                               <span className="flex items-center gap-1.5">
@@ -405,22 +400,24 @@ export default function Accommodation() {
                           </div>
 
                           {/* Amenities Preview */}
-                          <div className="flex flex-wrap gap-1.5 sm:gap-2 mb-4">
-                            {room.amenities.slice(0, 4).map((amenity, i) => (
-                              <span
-                                key={i}
-                                className="inline-flex items-center gap-1 px-2 py-1 bg-gray-100 text-gray-700 text-xs rounded-full transition-colors hover:bg-gray-200"
-                              >
-                                <Check size={10} className="sm:w-3 sm:h-3" />
-                                {amenity}
-                              </span>
-                            ))}
-                            {room.amenities.length > 4 && (
-                              <span className="px-2 py-1 text-gray-500 text-xs">
-                                +{room.amenities.length - 4} more
-                              </span>
-                            )}
-                          </div>
+                          {room.amenities && room.amenities.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5 sm:gap-2 mb-4">
+                              {room.amenities.slice(0, 4).map((amenity, i) => (
+                                <span
+                                  key={i}
+                                  className="inline-flex items-center gap-1 px-2 py-1 bg-gray-100 text-gray-700 text-xs rounded-full transition-colors hover:bg-gray-200"
+                                >
+                                  <Check size={10} className="sm:w-3 sm:h-3" />
+                                  {amenity}
+                                </span>
+                              ))}
+                              {room.amenities.length > 4 && (
+                                <span className="px-2 py-1 text-gray-500 text-xs">
+                                  +{room.amenities.length - 4} more
+                                </span>
+                              )}
+                            </div>
+                          )}
                         </div>
 
                         {/* Price and Book - Mobile stacked, Desktop side by side */}
@@ -433,13 +430,13 @@ export default function Accommodation() {
                           </div>
                           <div className="flex gap-2">
                             <Link
-                              to={`/accommodation/${room.id}${hasSearchParams ? `?${searchParams.toString()}` : ''}`}
+                              to={getRoomLink(room)}
                               className="inline-flex items-center justify-center border border-gray-300 text-gray-700 px-4 sm:px-5 py-2.5 rounded-md text-sm font-medium hover:bg-gray-50 transition-all duration-300 hover:scale-105 active:scale-95 whitespace-nowrap"
                             >
                               View Details
                             </Link>
                             <button
-                              onClick={() => handleBookRoom(room.id!)}
+                              onClick={() => handleBookRoom(room)}
                               className="inline-flex items-center justify-center bg-gray-900 text-white px-5 sm:px-6 py-2.5 rounded-md text-sm font-medium hover:bg-gray-800 transition-all duration-300 hover:scale-105 active:scale-95 whitespace-nowrap"
                             >
                               Book Now
@@ -448,45 +445,49 @@ export default function Accommodation() {
                         </div>
                       </div>
 
-                      {/* Expand/Collapse Amenities */}
-                      <button
-                        onClick={() => toggleRoom(room.id!)}
-                        className="flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900 mt-3 transition-colors"
-                      >
-                        {expandedRoom === room.id ? (
-                          <>
-                            <ChevronUp size={16} className="transition-transform" />
-                            Show less
-                          </>
-                        ) : (
-                          <>
-                            <ChevronDown size={16} className="transition-transform" />
-                            View all amenities
-                          </>
-                        )}
-                      </button>
+                      {/* Expand/Collapse Amenities - only show if room has amenities */}
+                      {room.amenities && room.amenities.length > 0 && (
+                        <>
+                          <button
+                            onClick={() => toggleRoom(room.id!)}
+                            className="flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900 mt-3 transition-colors"
+                          >
+                            {expandedRoom === room.id ? (
+                              <>
+                                <ChevronUp size={16} className="transition-transform" />
+                                Show less
+                              </>
+                            ) : (
+                              <>
+                                <ChevronDown size={16} className="transition-transform" />
+                                View all amenities
+                              </>
+                            )}
+                          </button>
 
-                      {/* Expanded Amenities */}
-                      <div
-                        className={`overflow-hidden transition-all duration-300 ${
-                          expandedRoom === room.id ? 'max-h-96 opacity-100 mt-4' : 'max-h-0 opacity-0'
-                        }`}
-                      >
-                        <div className="pt-4 border-t border-gray-100">
-                          <h3 className="font-medium text-gray-900 mb-3 text-sm sm:text-base">All Amenities</h3>
-                          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
-                            {room.amenities.map((amenity, i) => (
-                              <span
-                                key={i}
-                                className="flex items-center gap-2 text-xs sm:text-sm text-gray-700"
-                              >
-                                <Check size={14} className="text-green-600 flex-shrink-0" />
-                                {amenity}
-                              </span>
-                            ))}
+                          {/* Expanded Amenities */}
+                          <div
+                            className={`overflow-hidden transition-all duration-300 ${
+                              expandedRoom === room.id ? 'max-h-96 opacity-100 mt-4' : 'max-h-0 opacity-0'
+                            }`}
+                          >
+                            <div className="pt-4 border-t border-gray-100">
+                              <h3 className="font-medium text-gray-900 mb-3 text-sm sm:text-base">All Amenities</h3>
+                              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+                                {room.amenities.map((amenity, i) => (
+                                  <span
+                                    key={i}
+                                    className="flex items-center gap-2 text-xs sm:text-sm text-gray-700"
+                                  >
+                                    <Check size={14} className="text-green-600 flex-shrink-0" />
+                                    {amenity}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
                           </div>
-                        </div>
-                      </div>
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>
