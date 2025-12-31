@@ -47,18 +47,18 @@ export default function CustomerVerify() {
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8 text-center">
           {status === 'verifying' && (
             <>
-              <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <Loader className="w-8 h-8 text-gray-600 animate-spin" />
+              <div className="w-16 h-16 bg-accent-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Loader className="w-8 h-8 text-accent-600 animate-spin" />
               </div>
               <h1 className="text-2xl font-bold text-gray-900 mb-2">Verifying...</h1>
-              <p className="text-gray-600">Please wait while we verify your login link.</p>
+              <p className="text-gray-500">Please wait while we verify your login link.</p>
             </>
           )}
 
           {status === 'success' && (
             <>
-              <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <CheckCircle className="w-8 h-8 text-green-600" />
+              <div className="w-16 h-16 bg-accent-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <CheckCircle className="w-8 h-8 text-accent-600" />
               </div>
               <h1 className="text-2xl font-bold text-gray-900 mb-2">Success!</h1>
               <p className="text-gray-600">You're now logged in. Redirecting to your portal...</p>
@@ -74,7 +74,7 @@ export default function CustomerVerify() {
               <p className="text-gray-600 mb-6">{error}</p>
               <Link
                 to="/portal/login"
-                className="inline-block bg-gray-900 text-white py-2 px-6 rounded-md hover:bg-gray-800 transition-colors"
+                className="inline-block bg-accent-600 text-white py-2.5 px-6 rounded-lg hover:bg-accent-700 transition-colors font-medium"
               >
                 Back to Login
               </Link>

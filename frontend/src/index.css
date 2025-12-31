@@ -11,17 +11,11 @@
   --text-primary: #111827;
   --text-secondary: #4b5563;
   --text-muted: #6b7280;
-}
-
-:root.dark {
-  --bg-primary: #111827;
-  --bg-secondary: #1f2937;
-  --bg-tertiary: #374151;
-  --bg-card: #1f2937;
-  --border-color: #374151;
-  --text-primary: #f9fafb;
-  --text-secondary: #d1d5db;
-  --text-muted: #9ca3af;
+  /* Brand colors - Green (#047857) */
+  --accent: #047857;
+  --accent-hover: #065F46;
+  --accent-light: #D1FAE5;
+  --accent-dark: #064E3B;
 }
 
 html {
@@ -96,5 +90,39 @@ body {
 .theme-text-muted {
   color: var(--text-muted);
 }
+
+/* Accent color utilities using CSS variables */
+.theme-accent {
+  color: var(--accent);
+}
+
+.theme-bg-accent {
+  background-color: var(--accent);
+}
+
+.theme-bg-accent-hover:hover {
+  background-color: var(--accent-hover);
+}
+
+.theme-border-accent {
+  border-color: var(--accent);
+}
+
+/* Primary button style using accent */
+.btn-primary {
+  background-color: var(--accent);
+  color: white;
+  transition: background-color 0.2s;
+}
+
+.btn-primary:hover {
+  background-color: var(--accent-hover);
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 
 

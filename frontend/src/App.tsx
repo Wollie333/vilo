@@ -2,10 +2,8 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import ScrollToTop from './components/ScrollToTop'
 import { AuthProvider } from './contexts/AuthContext'
 import { CustomerAuthProvider } from './contexts/CustomerAuthContext'
-import { TenantProvider } from './contexts/TenantContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import CustomerProtectedRoute from './components/CustomerProtectedRoute'
-import MainSiteRoute from './components/MainSiteRoute'
 // Admin pages
 import Dashboard from './pages/Dashboard'
 import Rooms from './pages/Rooms'
@@ -18,36 +16,23 @@ import BookingDetail from './pages/BookingDetail'
 import Calendar from './pages/Calendar'
 import Reviews from './pages/Reviews'
 import Settings from './pages/Settings'
+import BusinessDetails from './pages/business/BusinessDetails'
+import BusinessDirectory from './pages/business/BusinessDirectory'
+import PaymentIntegration from './pages/business/PaymentIntegration'
+import IntegrationsSettings from './pages/settings/IntegrationsSettings'
 import Customers from './pages/Customers'
 import CustomerDetail from './pages/CustomerDetail'
 import Support from './pages/Support'
-// Website CMS pages
-import WebsiteSettings from './pages/website/WebsiteSettings'
-import PageSettings from './pages/website/PageSettings'
-import BlogManager from './pages/website/BlogManager'
-import BlogEditor from './pages/website/BlogEditor'
-import SiteKit from './pages/website/SiteKit'
-import MenuSettings from './pages/website/MenuSettings'
-import PageBuilder from './pages/website/PageBuilder'
-import MediaManager from './pages/website/MediaManager'
-import SEODashboard from './pages/website/SEODashboard'
 import Layout from './components/Layout'
 import Login from './pages/Login'
 import Payment from './pages/Payment'
 import PaymentCallback from './pages/PaymentCallback'
 // Public pages
-import PublicLayout from './components/PublicLayout'
-import Home from './pages/public/Home'
-import Accommodation from './pages/public/Accommodation'
-import RoomDetail from './pages/public/RoomDetail'
-import Contact from './pages/public/Contact'
 import Book from './pages/public/Book'
 import LeaveReview from './pages/public/LeaveReview'
-import PublicReviews from './pages/public/Reviews'
-import PublicBlog from './pages/public/Blog'
-import Directory from './pages/public/Directory'
 import JoinTeam from './pages/JoinTeam'
 import Pricing from './pages/Pricing'
+import HostSignup from './pages/HostSignup'
 // Customer Portal pages
 import CustomerLayout from './components/CustomerLayout'
 import CustomerLogin from './pages/portal/CustomerLogin'
@@ -60,27 +45,54 @@ import CustomerReviews from './pages/portal/CustomerReviews'
 import CustomerSupport from './pages/portal/CustomerSupport'
 import CustomerSupportThread from './pages/portal/CustomerSupportThread'
 import CustomerProfile from './pages/portal/CustomerProfile'
+// Discovery pages
+import DiscoveryLayout from './components/discovery/DiscoveryLayout'
+import DiscoveryHome from './pages/discovery/DiscoveryHome'
+import SearchResults from './pages/discovery/SearchResults'
+import PropertyDetail from './pages/discovery/PropertyDetail'
+import PropertyRedirect from './components/PropertyRedirect'
+import DestinationPage from './pages/discovery/DestinationPage'
+import CategoryPage from './pages/discovery/CategoryPage'
+import ProvincePage from './pages/discovery/ProvincePage'
+import Checkout from './pages/discovery/Checkout'
+import BookingConfirmation from './pages/discovery/BookingConfirmation'
+import LandingPage from './pages/landing/LandingPage'
+// Legal pages
+import EarningsDisclaimer from './pages/legal/EarningsDisclaimer'
+import TermsAndConditions from './pages/legal/TermsAndConditions'
+import PrivacyPolicy from './pages/legal/PrivacyPolicy'
 
 function App() {
   return (
     <AuthProvider>
       <CustomerAuthProvider>
-        <TenantProvider>
-          <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-            <ScrollToTop />
-            <Routes>
-              {/* Public routes - MainSiteRoute shows landing on vilo.io, tenant site on subdomains */}
-              <Route element={<MainSiteRoute />}>
-                <Route element={<PublicLayout />}>
-                  <Route index element={<Home />} />
-                  <Route path="accommodation" element={<Accommodation />} />
-                  <Route path="accommodation/:id" element={<RoomDetail />} />
-                  <Route path="reviews" element={<PublicReviews />} />
-                  <Route path="blog" element={<PublicBlog />} />
-                  <Route path="blog/:slug" element={<PublicBlog />} />
-                  <Route path="contact" element={<Contact />} />
-                </Route>
-              </Route>
+        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+          <ScrollToTop />
+          <Routes>
+            {/* Discovery Platform (public) */}
+            <Route path="/" element={<DiscoveryLayout />}>
+              <Route index element={<DiscoveryHome />} />
+              <Route path="search" element={<SearchResults />} />
+              <Route path="accommodation/:slug" element={<PropertyDetail />} />
+              {/* Legacy routes - redirect to new SEO-friendly URLs */}
+              <Route path="property/:slug" element={<PropertyRedirect />} />
+              <Route path="property/:slug/book" element={<PropertyRedirect />} />
+              <Route path="destinations/:region" element={<DestinationPage />} />
+              {/* Category and Province browse pages */}
+              <Route path="categories/:slug" element={<CategoryPage />} />
+              <Route path="provinces/:provinceSlug" element={<ProvincePage />} />
+              {/* Legal pages */}
+              <Route path="earnings-disclaimer" element={<EarningsDisclaimer />} />
+              <Route path="terms" element={<TermsAndConditions />} />
+              <Route path="privacy" element={<PrivacyPolicy />} />
+            </Route>
+
+            {/* Checkout flow (outside layout for full-screen experience) */}
+            <Route path="/accommodation/:slug/book" element={<Checkout />} />
+            <Route path="/booking/confirmed/:bookingId" element={<BookingConfirmation />} />
+
+            {/* SaaS marketing page for property owners */}
+            <Route path="/for-hosts" element={<LandingPage />} />
 
             {/* Public booking route (outside layout for full-screen experience) */}
             <Route path="/book" element={<Book />} />
@@ -94,8 +106,8 @@ function App() {
             {/* Pricing page (public) */}
             <Route path="/pricing" element={<Pricing />} />
 
-            {/* Directory page (public) - lists all properties */}
-            <Route path="/directory" element={<Directory />} />
+            {/* Host signup wizard */}
+            <Route path="/signup" element={<HostSignup />} />
 
             {/* Auth routes */}
             <Route path="/login" element={<Login />} />
@@ -142,21 +154,13 @@ function App() {
               <Route path="customers/:email" element={<CustomerDetail />} />
               <Route path="support" element={<Support />} />
               <Route path="settings" element={<Settings />} />
-              {/* Website CMS routes */}
-              <Route path="website" element={<WebsiteSettings />} />
-              <Route path="website/site-kit" element={<SiteKit />} />
-              <Route path="website/menus" element={<MenuSettings />} />
-              <Route path="website/pages/:pageType" element={<PageSettings />} />
-              <Route path="website/builder/:pageType" element={<PageBuilder />} />
-              <Route path="website/blog" element={<BlogManager />} />
-              <Route path="website/blog/new" element={<BlogEditor />} />
-              <Route path="website/blog/:id/edit" element={<BlogEditor />} />
-              <Route path="website/media" element={<MediaManager />} />
-              <Route path="website/seo" element={<SEODashboard />} />
+              <Route path="business/details" element={<BusinessDetails />} />
+              <Route path="business/directory" element={<BusinessDirectory />} />
+              <Route path="business/payments" element={<PaymentIntegration />} />
+              <Route path="settings/integrations" element={<IntegrationsSettings />} />
             </Route>
-            </Routes>
-          </BrowserRouter>
-        </TenantProvider>
+          </Routes>
+        </BrowserRouter>
       </CustomerAuthProvider>
     </AuthProvider>
   )

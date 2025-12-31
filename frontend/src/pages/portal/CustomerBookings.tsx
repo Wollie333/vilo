@@ -5,7 +5,7 @@ import { portalApi, CustomerBooking } from '../../services/portalApi'
 
 const statusColors: Record<string, string> = {
   pending: 'bg-yellow-100 text-yellow-700 border-yellow-200',
-  confirmed: 'bg-green-100 text-green-700 border-green-200',
+  confirmed: 'bg-accent-100 text-accent-700 border-accent-200',
   checked_in: 'bg-blue-100 text-blue-700 border-blue-200',
   checked_out: 'bg-purple-100 text-purple-700 border-purple-200',
   cancelled: 'bg-red-100 text-red-700 border-red-200',
@@ -23,7 +23,7 @@ const statusLabels: Record<string, string> = {
 
 const paymentStatusColors: Record<string, string> = {
   pending: 'bg-yellow-50 text-yellow-700',
-  paid: 'bg-green-50 text-green-700',
+  paid: 'bg-accent-50 text-accent-700',
   partial: 'bg-blue-50 text-blue-700',
   refunded: 'bg-red-50 text-red-700',
 }
@@ -72,13 +72,15 @@ export default function CustomerBookings() {
     return `${nights} night${nights !== 1 ? 's' : ''}`
   }
 
-  const formatCurrency = (amount: number, currency: string = 'ZAR') => {
+  const formatCurrency = (amount: number | string | null | undefined, currency: string = 'ZAR') => {
+    const numAmount = typeof amount === 'string' ? parseFloat(amount) : (amount ?? 0)
+    if (isNaN(numAmount)) return 'R0'
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
-      currency: currency,
+      currency: currency || 'ZAR',
       minimumFractionDigits: 0,
       maximumFractionDigits: 0,
-    }).format(amount)
+    }).format(numAmount)
   }
 
   const getRoomImage = (booking: CustomerBooking): string | null => {
@@ -112,10 +114,10 @@ export default function CustomerBookings() {
 
   if (loading) {
     return (
-      <div className="p-8">
+      <div className="p-8 bg-gray-50 min-h-full">
         <div className="flex items-center justify-center h-64">
           <div className="text-center">
-            <div className="w-8 h-8 border-2 border-gray-300 border-t-gray-900 rounded-full animate-spin mx-auto mb-4" />
+            <div className="w-8 h-8 border-2 border-accent-200 border-t-accent-600 rounded-full animate-spin mx-auto mb-4" />
             <p className="text-gray-500">Loading bookings...</p>
           </div>
         </div>
@@ -151,7 +153,7 @@ export default function CustomerBookings() {
                 onClick={() => setFilter(f)}
                 className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
                   filter === f
-                    ? 'bg-gray-900 text-white'
+                    ? 'bg-accent-600 text-white'
                     : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
                 }`}
               >
@@ -249,7 +251,7 @@ export default function CustomerBookings() {
                             </Link>
                             <Link
                               to={`/portal/bookings/${booking.id}`}
-                              className="flex items-center gap-1.5 px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors"
+                              className="flex items-center gap-1.5 px-4 py-2 bg-accent-600 text-white text-sm font-medium rounded-lg hover:bg-accent-700 transition-colors"
                             >
                               <Eye size={16} />
                               View Details

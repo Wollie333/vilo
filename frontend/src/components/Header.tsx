@@ -1,15 +1,12 @@
 import { useState, useRef, useEffect } from 'react'
-import { Search, ChevronLeft, ChevronRight, HelpCircle, ChevronDown, LogOut, Sun, Moon, ExternalLink } from 'lucide-react'
+import { Search, ChevronLeft, ChevronRight, HelpCircle, ChevronDown, LogOut } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 
 export default function Header() {
   const navigate = useNavigate()
-  const { user, signOut, tenant } = useAuth()
+  const { user, signOut } = useAuth()
   const [dropdownOpen, setDropdownOpen] = useState(false)
-  const [isDark, setIsDark] = useState(() => {
-    return localStorage.getItem('theme') === 'dark'
-  })
   const dropdownRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -21,20 +18,6 @@ export default function Header() {
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
-
-  useEffect(() => {
-    if (isDark) {
-      document.documentElement.classList.add('dark')
-      localStorage.setItem('theme', 'dark')
-    } else {
-      document.documentElement.classList.remove('dark')
-      localStorage.setItem('theme', 'light')
-    }
-  }, [isDark])
-
-  const toggleTheme = () => {
-    setIsDark(!isDark)
-  }
 
   const handleSignOut = async () => {
     await signOut()
@@ -60,10 +43,10 @@ export default function Header() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-1">
-            <button style={{ backgroundColor: isDark ? '#374151' : '#f3f4f6' }} className="p-1.5 rounded transition-colors">
+            <button className="p-1.5 rounded transition-colors bg-gray-100 hover:bg-gray-200">
               <ChevronLeft size={18} style={{ color: 'var(--text-secondary)' }} />
             </button>
-            <button style={{ backgroundColor: isDark ? '#374151' : '#f3f4f6' }} className="p-1.5 rounded transition-colors">
+            <button className="p-1.5 rounded transition-colors bg-gray-100 hover:bg-gray-200">
               <ChevronRight size={18} style={{ color: 'var(--text-secondary)' }} />
             </button>
           </div>
@@ -85,31 +68,6 @@ export default function Header() {
           </div>
         </div>
         <div className="flex items-center gap-4">
-          {(tenant?.custom_domain || tenant?.slug) && (
-            <a
-              href={tenant.custom_domain ? `https://${tenant.custom_domain}` : `https://${tenant.slug}.vilo.io`}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{ backgroundColor: isDark ? '#374151' : '#f3f4f6' }}
-              className="flex items-center gap-2 px-3 py-2 rounded-lg transition-colors hover:opacity-80"
-              title="View your website"
-            >
-              <ExternalLink size={18} style={{ color: 'var(--text-secondary)' }} />
-              <span style={{ color: 'var(--text-secondary)' }} className="text-sm font-medium">View Site</span>
-            </a>
-          )}
-          <button
-            onClick={toggleTheme}
-            style={{ backgroundColor: isDark ? '#374151' : '#f3f4f6' }}
-            className="p-2 rounded-lg transition-colors"
-            title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-          >
-            {isDark ? (
-              <Sun size={20} className="text-yellow-500" />
-            ) : (
-              <Moon size={20} className="text-gray-600" />
-            )}
-          </button>
           <button
             style={{ color: 'var(--text-secondary)' }}
             className="flex items-center gap-2 hover:opacity-80 px-3 py-1.5 rounded-md transition-colors"
@@ -149,7 +107,7 @@ export default function Header() {
                 </div>
                 <button
                   onClick={handleSignOut}
-                  className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                  className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-500 hover:bg-red-50 transition-colors"
                 >
                   <LogOut size={16} />
                   Sign out

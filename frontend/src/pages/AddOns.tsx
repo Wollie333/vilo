@@ -5,6 +5,7 @@ import Button from '../components/Button'
 import ConfirmModal from '../components/ConfirmModal'
 import { addonsApi, AddOn } from '../services/api'
 import { useNotification } from '../contexts/NotificationContext'
+import { useAuth } from '../contexts/AuthContext'
 
 const addonTypeLabels = {
   service: 'Service',
@@ -21,6 +22,7 @@ const pricingTypeLabels = {
 
 export default function AddOns() {
   const navigate = useNavigate()
+  const { tenant, tenantLoading } = useAuth()
   const [addons, setAddons] = useState<AddOn[]>([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
@@ -39,8 +41,13 @@ export default function AddOns() {
   const { showSuccess, showError } = useNotification()
 
   useEffect(() => {
-    loadAddons()
-  }, [])
+    // Wait for tenant to be loaded before fetching addons
+    if (!tenantLoading && tenant) {
+      loadAddons()
+    } else if (!tenantLoading && !tenant) {
+      setLoading(false)
+    }
+  }, [tenant, tenantLoading])
 
   const loadAddons = async () => {
     try {
@@ -145,7 +152,7 @@ export default function AddOns() {
               borderColor: 'var(--border-color)',
               color: 'var(--text-primary)'
             }}
-            className="w-full pl-10 pr-4 py-2 border rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400"
+            className="w-full pl-10 pr-4 py-2.5 border rounded-xl focus:outline-none focus:ring-2 focus:ring-accent-500 shadow-sm"
           />
         </div>
         <select
@@ -156,7 +163,7 @@ export default function AddOns() {
             borderColor: 'var(--border-color)',
             color: 'var(--text-primary)'
           }}
-          className="px-4 py-2 border rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400"
+          className="px-4 py-2.5 border rounded-xl focus:outline-none focus:ring-2 focus:ring-accent-500 shadow-sm"
         >
           <option value="all">All Types</option>
           <option value="service">Services</option>
@@ -171,7 +178,7 @@ export default function AddOns() {
             borderColor: 'var(--border-color)',
             color: 'var(--text-primary)'
           }}
-          className="px-4 py-2 border rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400"
+          className="px-4 py-2.5 border rounded-xl focus:outline-none focus:ring-2 focus:ring-accent-500 shadow-sm"
         >
           <option value="all">All Status</option>
           <option value="active">Active Only</option>
@@ -269,7 +276,7 @@ export default function AddOns() {
                       onClick={() => handleToggleClick(addon)}
                       disabled={togglingId === addon.id}
                       className={`flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded-full transition-colors ${
-                        addon.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+                        addon.is_active ? 'bg-accent-100 text-accent-700' : 'bg-gray-100 text-gray-500'
                       }`}
                     >
                       {addon.is_active ? <><ToggleRight size={14} /> Active</> : <><ToggleLeft size={14} /> Inactive</>}

@@ -137,10 +137,10 @@ export default function TimelineView({
           style={{ minWidth: ROOM_LABEL_WIDTH + daysCount * DAY_WIDTH }}
         >
           {/* Header row with day labels */}
-          <div className="flex border-b border-gray-200 dark:border-gray-700 sticky top-0 bg-white dark:bg-gray-800 z-10">
+          <div className="flex border-b border-gray-200 sticky top-0 bg-white z-10">
             {/* Room label header */}
             <div
-              className="flex-shrink-0 px-4 py-3 font-medium text-gray-700 dark:text-gray-300 border-r border-gray-200 dark:border-gray-700"
+              className="flex-shrink-0 px-4 py-3 font-medium text-gray-700 border-r border-gray-200"
               style={{ width: ROOM_LABEL_WIDTH }}
             >
               Rooms
@@ -151,24 +151,24 @@ export default function TimelineView({
               {days.map((day, index) => (
                 <div
                   key={index}
-                  className={`flex-shrink-0 px-2 py-2 text-center border-r border-gray-200 dark:border-gray-700 ${
+                  className={`flex-shrink-0 px-2 py-2 text-center border-r border-gray-200 ${
                     isToday(day)
-                      ? 'bg-blue-50 dark:bg-blue-900/20'
+                      ? 'bg-blue-50'
                       : ''
                   }`}
                   style={{ width: DAY_WIDTH }}
                 >
-                  <div className="text-xs text-gray-500 dark:text-gray-400">
+                  <div className="text-xs text-gray-500">
                     {format(day, 'EEE')}
                   </div>
                   <div className={`text-sm font-medium ${
                     isToday(day)
-                      ? 'text-blue-600 dark:text-blue-400'
-                      : 'text-gray-900 dark:text-white'
+                      ? 'text-blue-600'
+                      : 'text-gray-900'
                   }`}>
                     {format(day, 'd')}
                   </div>
-                  <div className="text-xs text-gray-500 dark:text-gray-400">
+                  <div className="text-xs text-gray-500">
                     {format(day, 'MMM')}
                   </div>
                 </div>
@@ -196,7 +196,7 @@ export default function TimelineView({
 
           {/* Empty state */}
           {rooms.length === 0 && (
-            <div className="flex items-center justify-center h-48 text-gray-500 dark:text-gray-400">
+            <div className="flex items-center justify-center h-48 text-gray-500">
               No rooms to display
             </div>
           )}

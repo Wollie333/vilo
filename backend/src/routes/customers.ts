@@ -341,18 +341,7 @@ router.get('/:email', requireAuth, async (req: Request, res: Response) => {
     // Get all bookings for this customer at this tenant
     const { data: bookings, error } = await supabase
       .from('bookings')
-      .select(`
-        *,
-        reviews (
-          id,
-          rating,
-          title,
-          content,
-          owner_response,
-          status,
-          created_at
-        )
-      `)
+      .select('*')
       .eq('tenant_id', tenantId)
       .ilike('guest_email', email)
       .order('check_in', { ascending: false })
@@ -365,6 +354,38 @@ router.get('/:email', requireAuth, async (req: Request, res: Response) => {
     if (!bookings || bookings.length === 0) {
       return res.status(404).json({ error: 'Customer not found' })
     }
+
+    // Get booking IDs for review lookup
+    const bookingIds = bookings.map(b => b.id)
+
+    // Fetch reviews separately to avoid nested query issues
+    const { data: allReviews, error: reviewsError } = await supabase
+      .from('reviews')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .in('booking_id', bookingIds)
+      .order('created_at', { ascending: false })
+
+    if (reviewsError) {
+      console.error('Error fetching reviews:', reviewsError)
+    }
+
+    // Map reviews to bookings
+    const reviewsByBookingId = new Map()
+    if (allReviews) {
+      for (const review of allReviews) {
+        if (!reviewsByBookingId.has(review.booking_id)) {
+          reviewsByBookingId.set(review.booking_id, [])
+        }
+        reviewsByBookingId.get(review.booking_id).push(review)
+      }
+    }
+
+    // Add reviews to each booking
+    const enrichedBookings = bookings.map(booking => ({
+      ...booking,
+      reviews: reviewsByBookingId.get(booking.id) || []
+    }))
 
     // Get customer record if exists
     const { data: customer } = await supabase
@@ -382,30 +403,44 @@ router.get('/:email', requireAuth, async (req: Request, res: Response) => {
       .order('created_at', { ascending: false })
 
     // Calculate stats
-    const totalSpent = bookings.reduce((sum, b) => sum + (b.total_amount || 0), 0)
-    const avgRating = bookings
+    const totalSpent = enrichedBookings.reduce((sum, b) => sum + (b.total_amount || 0), 0)
+    const bookingsWithReviewsCount = enrichedBookings.filter(b => b.reviews && b.reviews.length > 0)
+    const avgRating = bookingsWithReviewsCount.length > 0
+      ? bookingsWithReviewsCount.reduce((sum, b) => sum + (b.reviews[0]?.rating || 0), 0) / bookingsWithReviewsCount.length
+      : null
+
+    // Extract all reviews with booking info
+    const reviews = enrichedBookings
       .filter(b => b.reviews && b.reviews.length > 0)
-      .reduce((sum, b) => sum + (b.reviews[0]?.rating || 0), 0) /
-      bookings.filter(b => b.reviews && b.reviews.length > 0).length || null
+      .flatMap(b => b.reviews.map((review: any) => ({
+        ...review,
+        booking_id: b.id,
+        room_name: b.room_name,
+        check_in: b.check_in,
+        check_out: b.check_out
+      })))
+      .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
 
     res.json({
       customer: {
         email,
-        name: customer?.name || bookings[0].guest_name,
-        phone: customer?.phone || bookings[0].guest_phone,
+        name: customer?.name || enrichedBookings[0].guest_name,
+        phone: customer?.phone || enrichedBookings[0].guest_phone,
         customerId: customer?.id || null,
         hasPortalAccess: !!customer?.last_login_at,
         lastLoginAt: customer?.last_login_at || null
       },
       stats: {
-        totalBookings: bookings.length,
+        totalBookings: enrichedBookings.length,
         totalSpent,
-        currency: bookings[0].currency || 'ZAR',
-        firstStay: bookings[bookings.length - 1].check_in,
-        lastStay: bookings[0].check_in,
-        averageRating: avgRating
+        currency: enrichedBookings[0].currency || 'ZAR',
+        firstStay: enrichedBookings[enrichedBookings.length - 1].check_in,
+        lastStay: enrichedBookings[0].check_in,
+        averageRating: avgRating,
+        totalReviews: reviews.length
       },
-      bookings,
+      bookings: enrichedBookings,
+      reviews,
       supportTickets: supportTickets || []
     })
   } catch (error) {

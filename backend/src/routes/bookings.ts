@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import { supabase } from '../lib/supabase.js'
+import { generateInvoice, getInvoiceByBookingId } from '../services/invoiceService.js'
 
 const router = Router()
 
@@ -7,23 +8,30 @@ const router = Router()
 router.get('/', async (req, res) => {
   try {
     if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-      return res.status(503).json({ 
+      return res.status(503).json({
         error: 'Database not configured',
         message: 'Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in your .env file'
       })
     }
 
     const tenantId = req.headers['x-tenant-id'] as string
-    
+    const { source } = req.query // FOB: optional source filter
+
     if (!tenantId) {
       return res.status(400).json({ error: 'Tenant ID required' })
     }
 
-    const { data, error } = await supabase
+    let query = supabase
       .from('bookings')
       .select('*')
       .eq('tenant_id', tenantId)
-      .order('created_at', { ascending: false })
+
+    // FOB: filter by source if provided
+    if (source && typeof source === 'string') {
+      query = query.eq('source', source)
+    }
+
+    const { data, error } = await query.order('created_at', { ascending: false })
 
     if (error) {
       console.error('Error fetching bookings:', error)
@@ -84,7 +92,12 @@ router.post('/', async (req, res) => {
       currency = 'ZAR',
       notes,
       status = 'pending',
-      payment_status = 'pending'
+      payment_status = 'pending',
+      // FOB integration fields
+      source = 'manual',
+      external_id,
+      external_url,
+      synced_at
     } = req.body
 
     if (!tenantId) {
@@ -110,7 +123,12 @@ router.post('/', async (req, res) => {
         currency,
         notes,
         status,
-        payment_status
+        payment_status,
+        // FOB integration fields
+        source,
+        external_id,
+        external_url,
+        synced_at
       })
       .select()
       .single()
@@ -138,6 +156,16 @@ router.put('/:id', async (req, res) => {
       return res.status(400).json({ error: 'Tenant ID required' })
     }
 
+    // Get current booking state to check payment_status change
+    const { data: existingBooking } = await supabase
+      .from('bookings')
+      .select('payment_status')
+      .eq('id', id)
+      .eq('tenant_id', tenantId)
+      .single()
+
+    const previousPaymentStatus = existingBooking?.payment_status
+
     // Remove tenant_id from update data (cannot be changed)
     delete updateData.tenant_id
     delete updateData.id
@@ -157,6 +185,23 @@ router.put('/:id', async (req, res) => {
       }
       console.error('Error updating booking:', error)
       return res.status(500).json({ error: 'Failed to update booking' })
+    }
+
+    // Auto-generate invoice when payment_status changes to 'paid'
+    if (
+      updateData.payment_status === 'paid' &&
+      previousPaymentStatus !== 'paid'
+    ) {
+      try {
+        const existingInvoice = await getInvoiceByBookingId(id, tenantId)
+        if (!existingInvoice) {
+          const invoice = await generateInvoice(id, tenantId)
+          console.log(`Auto-generated invoice ${invoice.invoice_number} for booking ${id}`)
+        }
+      } catch (invoiceError) {
+        // Log error but don't fail the booking update
+        console.error('Failed to auto-generate invoice:', invoiceError)
+      }
     }
 
     res.json(data)

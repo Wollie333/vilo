@@ -53,7 +53,7 @@ export default function MonthView({
         {WEEKDAY_LABELS.map((label) => (
           <div
             key={label}
-            className="text-center text-sm font-medium text-gray-500 dark:text-gray-400 py-2"
+            className="text-center text-sm font-medium text-gray-500 py-2"
           >
             {label}
           </div>
@@ -61,9 +61,12 @@ export default function MonthView({
       </div>
 
       {/* Calendar grid */}
-      <div className="grid grid-cols-7 gap-px bg-gray-200 dark:bg-gray-700 rounded-lg overflow-hidden">
+      <div className="grid grid-cols-7 gap-px bg-gray-200 rounded-lg overflow-hidden">
         {calendarDays.map((day, index) => {
-          const dayBookings = getBookingsForDate(bookings, day)
+          // Get bookings for this day, excluding cancelled ones for cleaner display
+          const dayBookings = getBookingsForDate(bookings, day).filter(
+            b => b.status !== 'cancelled'
+          )
           const isCurrentMonth = isSameMonth(day, currentDate)
           const isCurrentDay = isToday(day)
           const isSelected = selectedDay && isSameDay(day, selectedDay)
@@ -81,12 +84,12 @@ export default function MonthView({
               className={`
                 min-h-[100px] p-2 cursor-pointer transition-colors
                 ${isCurrentMonth
-                  ? 'bg-white dark:bg-gray-800'
-                  : 'bg-gray-50 dark:bg-gray-900/50'
+                  ? 'bg-white'
+                  : 'bg-gray-50'
                 }
                 ${isSelected
                   ? 'ring-2 ring-inset ring-blue-500'
-                  : 'hover:bg-gray-50 dark:hover:bg-gray-700/50'
+                  : 'hover:bg-gray-50'
                 }
               `}
             >
@@ -96,8 +99,8 @@ export default function MonthView({
                 ${isCurrentDay
                   ? 'w-7 h-7 flex items-center justify-center rounded-full bg-blue-600 text-white'
                   : isCurrentMonth
-                  ? 'text-gray-900 dark:text-white'
-                  : 'text-gray-400 dark:text-gray-600'
+                  ? 'text-gray-900'
+                  : 'text-gray-400'
                 }
               `}>
                 {format(day, 'd')}
@@ -129,7 +132,7 @@ export default function MonthView({
 
                   {/* Show "+X more" if more bookings */}
                   {dayBookings.length > 2 && (
-                    <div className="text-xs text-gray-500 dark:text-gray-400 px-1">
+                    <div className="text-xs text-gray-500 px-1">
                       +{dayBookings.length - 2} more
                     </div>
                   )}
@@ -139,7 +142,7 @@ export default function MonthView({
               {/* Empty state for days with no bookings */}
               {dayBookings.length === 0 && isCurrentMonth && (
                 <div className="h-full flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
-                  <span className="text-xs text-gray-400 dark:text-gray-500">
+                  <span className="text-xs text-gray-400">
                     Click to book
                   </span>
                 </div>

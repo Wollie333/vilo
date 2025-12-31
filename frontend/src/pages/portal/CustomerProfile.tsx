@@ -73,11 +73,11 @@ export default function CustomerProfile() {
   }
 
   return (
-    <div className="p-8 bg-white min-h-full">
+    <div className="p-8 bg-gray-50 min-h-full">
       <div className="max-w-2xl">
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">Profile</h1>
-          <p className="text-gray-600">Manage your account settings</p>
+          <p className="text-gray-500">Manage your account settings</p>
         </div>
 
         {/* Profile Info */}
@@ -169,7 +169,7 @@ export default function CustomerProfile() {
           </h2>
 
           {customer?.hasPassword ? (
-            <div className="flex items-center gap-3 text-green-600">
+            <div className="flex items-center gap-3 text-accent-600">
               <Check size={18} />
               <span className="text-sm">Password is set. You can log in with email and password.</span>
             </div>

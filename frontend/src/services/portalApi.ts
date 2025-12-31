@@ -86,15 +86,29 @@ export interface CustomerBooking {
   canModifyAddons?: boolean
 }
 
+export interface ReviewImage {
+  url: string
+  path: string
+  hidden?: boolean
+}
+
 export interface CustomerReview {
   id: string
   rating: number
+  // Category ratings (1-5)
+  rating_cleanliness?: number
+  rating_service?: number
+  rating_location?: number
+  rating_value?: number
+  rating_safety?: number
   title: string | null
   content: string | null
   owner_response: string | null
   owner_response_at: string | null
   status: string
   created_at: string
+  // Review images (max 4)
+  images?: ReviewImage[]
   booking: {
     id: string
     roomName: string
@@ -144,6 +158,17 @@ export interface Property {
   business_phone: string | null
 }
 
+export interface RoomImage {
+  url: string
+  path: string
+  caption?: string
+}
+
+export interface RoomImages {
+  featured: RoomImage | null
+  gallery: RoomImage[]
+}
+
 export interface Room {
   id: string
   tenant_id: string
@@ -154,7 +179,7 @@ export interface Room {
   base_price: number
   pricing: any
   amenities: string[]
-  images: string[]
+  images: RoomImages
   is_active: boolean
   isAvailable?: boolean
 }
@@ -185,6 +210,22 @@ export interface CreateBookingData {
     price: number
     quantity: number
   }>
+}
+
+export interface Invoice {
+  id: string
+  tenant_id: string
+  booking_id: string
+  invoice_number: string
+  invoice_data: any
+  pdf_url: string | null
+  pdf_path: string | null
+  sent_via_email_at: string | null
+  sent_via_whatsapp_at: string | null
+  email_recipient: string | null
+  generated_at: string
+  created_at: string
+  updated_at: string
 }
 
 // Portal API
@@ -298,6 +339,18 @@ export const portalApi = {
     return response.json()
   },
 
+  cancelBooking: async (id: string): Promise<{ success: boolean; booking: CustomerBooking }> => {
+    const response = await fetch(`${API_BASE_URL}/portal/bookings/${id}/cancel`, {
+      method: 'POST',
+      headers: getHeaders(),
+    })
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || 'Failed to cancel booking')
+    }
+    return response.json()
+  },
+
   // Reviews
   getReviews: async (): Promise<CustomerReview[]> => {
     const response = await fetch(`${API_BASE_URL}/portal/reviews`, {
@@ -328,6 +381,19 @@ export const portalApi = {
     })
     if (!response.ok) {
       throw new Error('Review not found')
+    }
+    return response.json()
+  },
+
+  updateReview: async (id: string, data: { rating: number; title?: string; content?: string }): Promise<CustomerReview> => {
+    const response = await fetch(`${API_BASE_URL}/portal/reviews/${id}`, {
+      method: 'PUT',
+      headers: getHeaders(),
+      body: JSON.stringify(data),
+    })
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || 'Failed to update review')
     }
     return response.json()
   },
@@ -429,6 +495,24 @@ export const portalApi = {
     return response.json()
   },
 
+  // Room pricing with seasonal rates
+  getRoomPricing: async (tenantId: string, roomId: string, checkIn: string, checkOut: string): Promise<{
+    room_name: string
+    nights: Array<{ date: string; price: number; rate_name: string | null }>
+    subtotal: number
+    currency: string
+    night_count: number
+  }> => {
+    const url = `${API_BASE_URL}/portal/properties/${tenantId}/rooms/${roomId}/pricing?checkIn=${checkIn}&checkOut=${checkOut}`
+    const response = await fetch(url, {
+      headers: getHeaders(),
+    })
+    if (!response.ok) {
+      throw new Error('Failed to fetch room pricing')
+    }
+    return response.json()
+  },
+
   // Add-ons for a property
   getPropertyAddons: async (tenantId: string): Promise<AddOn[]> => {
     const response = await fetch(`${API_BASE_URL}/portal/properties/${tenantId}/addons`, {
@@ -452,5 +536,29 @@ export const portalApi = {
       throw new Error(error.error || 'Failed to create booking')
     }
     return response.json()
+  },
+
+  // Invoices
+  getInvoice: async (bookingId: string): Promise<Invoice> => {
+    const response = await fetch(`${API_BASE_URL}/portal/bookings/${bookingId}/invoice`, {
+      headers: getHeaders(),
+    })
+    if (!response.ok) {
+      if (response.status === 404) {
+        throw new Error('No invoice available')
+      }
+      throw new Error('Failed to fetch invoice')
+    }
+    return response.json()
+  },
+
+  downloadInvoice: async (bookingId: string): Promise<Blob> => {
+    const response = await fetch(`${API_BASE_URL}/portal/bookings/${bookingId}/invoice/download`, {
+      headers: getHeaders(),
+    })
+    if (!response.ok) {
+      throw new Error('Failed to download invoice')
+    }
+    return response.blob()
   },
 }

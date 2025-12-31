@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Plus, Edit2, Trash2, Calendar, Users, Building2, UserPlus } from 'lucide-react'
 import Button from '../Button'
+import DatePickerModal from '../DatePickerModal'
 import { SeasonalRate, roomsApi, PricingMode } from '../../services/api'
 import { useNotification } from '../../contexts/NotificationContext'
 
@@ -417,13 +418,13 @@ export default function PricingStep({
           <ul className="text-sm text-gray-600 space-y-1">
             <li>• Adults ({childAgeLimit ?? 12}+ years): <span className="font-medium">{formatCurrency(basePrice)}/night</span></li>
             {childFreeUntilAge && (
-              <li>• Infants/Toddlers (0-{childFreeUntilAge - 1} years): <span className="font-medium text-green-600">Free</span></li>
+              <li>• Infants/Toddlers (0-{childFreeUntilAge - 1} years): <span className="font-medium text-accent-600">Free</span></li>
             )}
             <li>
               • Children ({childFreeUntilAge ?? 0}-{(childAgeLimit ?? 12) - 1} years):{' '}
               <span className="font-medium">
                 {childPricePerNight === 0
-                  ? <span className="text-green-600">Free</span>
+                  ? <span className="text-accent-600">Free</span>
                   : childPricePerNight
                     ? `${formatCurrency(childPricePerNight)}/night`
                     : `${formatCurrency(basePrice)}/night (same as adult)`}
@@ -510,29 +511,19 @@ export default function PricingStep({
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
                 />
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Start Date *
-                </label>
-                <input
-                  type="date"
-                  value={rateForm.start_date}
-                  onChange={(e) => setRateForm((prev) => ({ ...prev, start_date: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  End Date *
-                </label>
-                <input
-                  type="date"
-                  value={rateForm.end_date}
-                  onChange={(e) => setRateForm((prev) => ({ ...prev, end_date: e.target.value }))}
-                  min={rateForm.start_date}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
-                />
-              </div>
+              <DatePickerModal
+                value={rateForm.start_date}
+                onChange={(date) => setRateForm((prev) => ({ ...prev, start_date: date }))}
+                label="Start Date *"
+                placeholder="Select start date"
+              />
+              <DatePickerModal
+                value={rateForm.end_date}
+                onChange={(date) => setRateForm((prev) => ({ ...prev, end_date: date }))}
+                label="End Date *"
+                placeholder="Select end date"
+                minDate={rateForm.start_date}
+              />
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Price per Night ({currency}) *
@@ -631,7 +622,7 @@ export default function PricingStep({
                           rate.price_per_night > basePrice
                             ? 'text-red-600'
                             : rate.price_per_night < basePrice
-                            ? 'text-green-600'
+                            ? 'text-accent-600'
                             : 'text-gray-900'
                         }`}
                       >

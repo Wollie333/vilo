@@ -20,11 +20,11 @@ interface ToastProps {
 const typeConfig = {
   success: {
     icon: CheckCircle,
-    bgColor: 'bg-green-50',
-    borderColor: 'border-green-200',
-    iconColor: 'text-green-500',
-    titleColor: 'text-green-800',
-    textColor: 'text-green-700',
+    bgColor: 'bg-accent-50',
+    borderColor: 'border-accent-200',
+    iconColor: 'text-accent-500',
+    titleColor: 'text-accent-800',
+    textColor: 'text-accent-700',
   },
   error: {
     icon: AlertCircle,

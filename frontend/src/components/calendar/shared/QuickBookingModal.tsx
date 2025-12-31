@@ -1,5 +1,8 @@
 import { useState, useEffect } from 'react'
-import { X, Loader2, Calendar, User, Mail, BedDouble } from 'lucide-react'
+import { X, Loader2, User, Mail, BedDouble } from 'lucide-react'
+import TermsAcceptance from '../../../components/TermsAcceptance'
+import GuestSelector, { GuestData, createDefaultGuestData } from '../../../components/GuestSelector'
+import DateRangePicker from '../../../components/DateRangePicker'
 import { format, addDays } from 'date-fns'
 import type { Booking, Room } from '../../../services/api'
 
@@ -30,6 +33,8 @@ export default function QuickBookingModal({
     check_in: initialDate || format(new Date(), 'yyyy-MM-dd'),
     check_out: initialDate ? format(addDays(new Date(initialDate), 1), 'yyyy-MM-dd') : format(addDays(new Date(), 1), 'yyyy-MM-dd'),
   })
+  const [guestData, setGuestData] = useState<GuestData>(createDefaultGuestData())
+  const [termsAccepted, setTermsAccepted] = useState(false)
 
   // Reset form when modal opens with new initial values
   useEffect(() => {
@@ -42,6 +47,8 @@ export default function QuickBookingModal({
         check_in: initialDate || format(new Date(), 'yyyy-MM-dd'),
         check_out: initialDate ? format(addDays(new Date(initialDate), 1), 'yyyy-MM-dd') : format(addDays(new Date(), 1), 'yyyy-MM-dd'),
       })
+      setGuestData(createDefaultGuestData())
+      setTermsAccepted(false)
     }
   }, [isOpen, initialRoomId, initialDate, rooms])
 
@@ -62,6 +69,14 @@ export default function QuickBookingModal({
     if (!formData.room_id) return
     if (nights <= 0) return
 
+    // Build notes JSON with guest data
+    const notesData = {
+      guests: guestData.adults + guestData.children,
+      adults: guestData.adults,
+      children: guestData.children,
+      children_ages: guestData.childrenAges
+    }
+
     await onSubmit({
       guest_name: formData.guest_name.trim(),
       guest_email: formData.guest_email.trim() || undefined,
@@ -74,6 +89,7 @@ export default function QuickBookingModal({
       payment_status: 'pending',
       total_amount: estimatedTotal,
       currency: selectedRoom?.currency || 'ZAR',
+      notes: JSON.stringify(notesData),
     })
   }
 
@@ -88,16 +104,16 @@ export default function QuickBookingModal({
       />
 
       {/* Modal */}
-      <div className="relative bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-md mx-4">
+      <div className="relative bg-white rounded-lg shadow-xl w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+        <div className="sticky top-0 bg-gradient-to-r from-accent-600 to-accent-500 px-6 py-5 flex items-center justify-between rounded-t-lg z-10">
+          <h2 className="text-lg font-semibold text-white">
             Quick Booking
           </h2>
           <button
             onClick={onClose}
             disabled={isSubmitting}
-            className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 disabled:opacity-50"
+            className="p-1.5 text-white/80 hover:text-white hover:bg-white/10 rounded-lg transition-colors disabled:opacity-50"
           >
             <X className="w-5 h-5" />
           </button>
@@ -107,7 +123,7 @@ export default function QuickBookingModal({
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           {/* Guest Name */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            <label className="block text-sm font-medium text-gray-700 mb-1">
               Guest Name *
             </label>
             <div className="relative">
@@ -117,7 +133,7 @@ export default function QuickBookingModal({
                 value={formData.guest_name}
                 onChange={(e) => setFormData({ ...formData, guest_name: e.target.value })}
                 placeholder="Enter guest name"
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 required
               />
             </div>
@@ -125,7 +141,7 @@ export default function QuickBookingModal({
 
           {/* Guest Email */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            <label className="block text-sm font-medium text-gray-700 mb-1">
               Email
             </label>
             <div className="relative">
@@ -135,14 +151,28 @@ export default function QuickBookingModal({
                 value={formData.guest_email}
                 onChange={(e) => setFormData({ ...formData, guest_email: e.target.value })}
                 placeholder="guest@example.com"
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
           </div>
 
+          {/* Number of Guests */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Guests
+            </label>
+            <GuestSelector
+              value={guestData}
+              onChange={setGuestData}
+              mode="compact"
+              showLabels={false}
+              size="md"
+            />
+          </div>
+
           {/* Room Selection */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            <label className="block text-sm font-medium text-gray-700 mb-1">
               Room *
             </label>
             <div className="relative">
@@ -150,7 +180,7 @@ export default function QuickBookingModal({
               <select
                 value={formData.room_id}
                 onChange={(e) => setFormData({ ...formData, room_id: e.target.value })}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent appearance-none"
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent appearance-none"
                 required
               >
                 <option value="">Select a room</option>
@@ -167,68 +197,48 @@ export default function QuickBookingModal({
           </div>
 
           {/* Dates */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Check-in *
-              </label>
-              <div className="relative">
-                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                <input
-                  type="date"
-                  value={formData.check_in}
-                  onChange={(e) => {
-                    const newCheckIn = e.target.value
-                    const newCheckOut = formData.check_out <= newCheckIn
-                      ? format(addDays(new Date(newCheckIn), 1), 'yyyy-MM-dd')
-                      : formData.check_out
-                    setFormData({
-                      ...formData,
-                      check_in: newCheckIn,
-                      check_out: newCheckOut,
-                    })
-                  }}
-                  min={format(new Date(), 'yyyy-MM-dd')}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  required
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Check-out *
-              </label>
-              <div className="relative">
-                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                <input
-                  type="date"
-                  value={formData.check_out}
-                  onChange={(e) => setFormData({ ...formData, check_out: e.target.value })}
-                  min={format(addDays(new Date(formData.check_in), 1), 'yyyy-MM-dd')}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  required
-                />
-              </div>
-            </div>
-          </div>
+          <DateRangePicker
+            startDate={formData.check_in}
+            endDate={formData.check_out}
+            onStartDateChange={(date) => {
+              const newCheckOut = formData.check_out <= date
+                ? format(addDays(new Date(date), 1), 'yyyy-MM-dd')
+                : formData.check_out
+              setFormData({
+                ...formData,
+                check_in: date,
+                check_out: newCheckOut,
+              })
+            }}
+            onEndDateChange={(date) => setFormData({ ...formData, check_out: date })}
+            minDate={format(new Date(), 'yyyy-MM-dd')}
+            startLabel="Check-in"
+            endLabel="Check-out"
+            compact
+          />
 
           {/* Summary */}
           {selectedRoom && nights > 0 && (
-            <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-4 space-y-2">
+            <div className="bg-gray-50 rounded-lg p-4 space-y-2">
               <div className="flex justify-between text-sm">
-                <span className="text-gray-600 dark:text-gray-400">
+                <span className="text-gray-600">
                   {nights} {nights === 1 ? 'night' : 'nights'} x {new Intl.NumberFormat('en-ZA', {
                     style: 'currency',
                     currency: selectedRoom.currency || 'ZAR',
                   }).format(selectedRoom.base_price_per_night)}
                 </span>
               </div>
-              <div className="flex justify-between pt-2 border-t border-gray-200 dark:border-gray-700">
-                <span className="font-medium text-gray-900 dark:text-white">
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-600">
+                  {guestData.adults} {guestData.adults === 1 ? 'adult' : 'adults'}
+                  {guestData.children > 0 && `, ${guestData.children} ${guestData.children === 1 ? 'child' : 'children'}`}
+                </span>
+              </div>
+              <div className="flex justify-between pt-2 border-t border-gray-200">
+                <span className="font-medium text-gray-900">
                   Estimated Total
                 </span>
-                <span className="font-medium text-gray-900 dark:text-white">
+                <span className="font-medium text-gray-900">
                   {new Intl.NumberFormat('en-ZA', {
                     style: 'currency',
                     currency: selectedRoom.currency || 'ZAR',
@@ -238,20 +248,27 @@ export default function QuickBookingModal({
             </div>
           )}
 
+          {/* Terms Acceptance */}
+          <TermsAcceptance
+            accepted={termsAccepted}
+            onChange={setTermsAccepted}
+            size="sm"
+          />
+
           {/* Actions */}
           <div className="flex gap-3 pt-4">
             <button
               type="button"
               onClick={onClose}
               disabled={isSubmitting}
-              className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
+              className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50"
             >
               Cancel
             </button>
             <button
               type="submit"
-              disabled={isSubmitting || !formData.guest_name || !formData.room_id || nights <= 0}
-              className="flex-1 px-4 py-2 bg-black dark:bg-white text-white dark:text-black rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2"
+              disabled={isSubmitting || !formData.guest_name || !formData.room_id || nights <= 0 || !termsAccepted}
+              className="flex-1 px-4 py-2.5 bg-accent-500 hover:bg-accent-600 text-white rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center gap-2 font-medium"
             >
               {isSubmitting ? (
                 <>

@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Save, Package, DollarSign, Settings, Image as ImageIcon } from 'lucide-react'
-import Button from '../components/Button'
 import AddOnImageUpload from '../components/AddOnImageUpload'
 import { addonsApi, roomsApi, AddOnImage, Room } from '../services/api'
 import { useNotification } from '../contexts/NotificationContext'
@@ -173,34 +172,40 @@ export default function AddOnWizard() {
   return (
     <div style={{ backgroundColor: 'var(--bg-secondary)' }} className="min-h-full transition-colors">
       {/* Header */}
-      <div style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-color)' }} className="border-b">
-        <div className="max-w-4xl mx-auto px-6 py-4">
+      <div className="bg-gradient-to-r from-accent-600 to-accent-500 shadow-lg">
+        <div className="max-w-4xl mx-auto px-6 py-5">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
               <button
                 onClick={handleCancel}
-                style={{ color: 'var(--text-muted)' }}
-                className="p-2 hover:opacity-70 rounded-lg transition-colors"
+                className="p-2 text-white/80 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
               >
                 <ArrowLeft size={20} />
               </button>
               <div>
-                <h1 style={{ color: 'var(--text-primary)' }} className="text-xl font-bold">
+                <h1 className="text-xl font-bold text-white">
                   {isEditing ? 'Edit Add-on' : 'Create New Add-on'}
                 </h1>
-                <p style={{ color: 'var(--text-muted)' }} className="text-sm">
+                <p className="text-sm text-white/70">
                   {formData.addon_code && `Code: ${formData.addon_code}`}
                 </p>
               </div>
             </div>
             <div className="flex items-center gap-3">
-              <Button variant="outline" onClick={handleCancel}>
+              <button
+                onClick={handleCancel}
+                className="px-4 py-2 text-sm font-medium text-white border border-white/30 rounded-lg hover:bg-white/10 transition-colors"
+              >
                 Cancel
-              </Button>
-              <Button onClick={handleSave} disabled={isSaving}>
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={isSaving}
+                className="px-4 py-2 text-sm font-medium bg-white text-accent-700 rounded-lg hover:bg-white/90 transition-colors disabled:opacity-50 flex items-center"
+              >
                 <Save size={16} className="mr-2" />
                 {isSaving ? 'Saving...' : isEditing ? 'Update Add-on' : 'Create Add-on'}
-              </Button>
+              </button>
             </div>
           </div>
         </div>
@@ -443,11 +448,25 @@ export default function AddOnWizard() {
                               type="checkbox"
                               checked={formData.available_for_rooms.includes(room.id!)}
                               onChange={() => handleRoomToggle(room.id!)}
-                              className="w-4 h-4 rounded"
+                              className="w-4 h-4 rounded flex-shrink-0"
                             />
-                            <div>
-                              <div style={{ color: 'var(--text-primary)' }} className="text-sm font-medium">{room.name}</div>
-                              <div style={{ color: 'var(--text-muted)' }} className="text-xs">
+                            {room.images?.featured?.url ? (
+                              <img
+                                src={room.images.featured.url}
+                                alt={room.name}
+                                className="w-10 h-10 rounded-lg object-cover flex-shrink-0"
+                              />
+                            ) : (
+                              <div
+                                style={{ backgroundColor: 'var(--bg-tertiary)' }}
+                                className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
+                              >
+                                <ImageIcon style={{ color: 'var(--text-muted)' }} size={16} />
+                              </div>
+                            )}
+                            <div className="min-w-0 flex-1">
+                              <div style={{ color: 'var(--text-primary)' }} className="text-sm font-medium truncate">{room.name}</div>
+                              <div style={{ color: 'var(--text-muted)' }} className="text-xs truncate">
                                 {room.room_code} • {formatCurrency(room.base_price_per_night, room.currency)}/night
                               </div>
                             </div>

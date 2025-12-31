@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { MessageCircle, Plus, Building2 } from 'lucide-react'
 import Button from '../../components/Button'
+import TermsAcceptance from '../../components/TermsAcceptance'
 import { portalApi, SupportTicket, Property, CustomerBooking } from '../../services/portalApi'
 import { useNotification } from '../../contexts/NotificationContext'
 
@@ -9,7 +10,7 @@ const statusColors: Record<string, string> = {
   new: 'bg-blue-100 text-blue-700',
   open: 'bg-yellow-100 text-yellow-700',
   pending: 'bg-orange-100 text-orange-700',
-  resolved: 'bg-green-100 text-green-700',
+  resolved: 'bg-accent-100 text-accent-700',
   closed: 'bg-gray-100 text-gray-700',
 }
 
@@ -28,6 +29,7 @@ export default function CustomerSupport() {
   const [selectedBooking, setSelectedBooking] = useState(searchParams.get('booking') || '')
   const [subject, setSubject] = useState('')
   const [message, setMessage] = useState('')
+  const [termsAccepted, setTermsAccepted] = useState(false)
 
   useEffect(() => {
     loadData()
@@ -87,6 +89,7 @@ export default function CustomerSupport() {
       setSubject('')
       setMessage('')
       setSelectedBooking('')
+      setTermsAccepted(false)
       await loadData()
     } catch (error: any) {
       showError('Error', error.message || 'Failed to create ticket')
@@ -101,10 +104,10 @@ export default function CustomerSupport() {
 
   if (loading) {
     return (
-      <div className="p-8">
+      <div className="p-8 bg-gray-50 min-h-full">
         <div className="flex items-center justify-center h-64">
           <div className="text-center">
-            <div className="w-8 h-8 border-2 border-gray-300 border-t-gray-900 rounded-full animate-spin mx-auto mb-4" />
+            <div className="w-8 h-8 border-2 border-accent-200 border-t-accent-600 rounded-full animate-spin mx-auto mb-4" />
             <p className="text-gray-500">Loading support tickets...</p>
           </div>
         </div>
@@ -113,11 +116,11 @@ export default function CustomerSupport() {
   }
 
   return (
-    <div className="p-8 bg-white min-h-full">
+    <div className="p-8 bg-gray-50 min-h-full">
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-3xl font-bold text-gray-900 mb-2">Support</h1>
-          <p className="text-gray-600">Get help with your bookings</p>
+          <p className="text-gray-500">Get help with your bookings</p>
         </div>
         {!showNewForm && (
           <Button onClick={() => setShowNewForm(true)}>
@@ -206,8 +209,16 @@ export default function CustomerSupport() {
               />
             </div>
 
+            {/* Terms Acceptance */}
+            <div className="mb-4">
+              <TermsAcceptance
+                accepted={termsAccepted}
+                onChange={setTermsAccepted}
+              />
+            </div>
+
             <div className="flex gap-3">
-              <Button type="submit" disabled={submitting}>
+              <Button type="submit" disabled={submitting || !termsAccepted}>
                 {submitting ? 'Submitting...' : 'Submit Request'}
               </Button>
               <Button

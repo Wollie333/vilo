@@ -1,18 +1,22 @@
 import { useState, useRef } from 'react'
-import { Upload, X, Star, Image as ImageIcon } from 'lucide-react'
+import { Upload, X, Star, Image as ImageIcon, Loader2 } from 'lucide-react'
 import { RoomImage, RoomImages } from '../services/api'
+import { supabase } from '../lib/supabase'
 
 interface RoomImageUploadProps {
   value: RoomImages
   onChange: (images: RoomImages) => void
+  tenantId: string
 }
 
 const MAX_GALLERY_IMAGES = 10
 const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5MB
+const STORAGE_BUCKET = 'gallery-images' // Use existing bucket (same as property gallery)
 
-export default function RoomImageUpload({ value, onChange }: RoomImageUploadProps) {
+export default function RoomImageUpload({ value, onChange, tenantId }: RoomImageUploadProps) {
   const [dragOver, setDragOver] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [uploading, setUploading] = useState(false)
   const featuredInputRef = useRef<HTMLInputElement>(null)
   const galleryInputRef = useRef<HTMLInputElement>(null)
 
@@ -26,17 +30,34 @@ export default function RoomImageUpload({ value, onChange }: RoomImageUploadProp
     return null
   }
 
-  const fileToImageObject = (file: File): Promise<RoomImage> => {
-    return new Promise((resolve) => {
-      const reader = new FileReader()
-      reader.onload = () => {
-        resolve({
-          url: reader.result as string,
-          path: `temp/${Date.now()}-${file.name}`,
-        })
-      }
-      reader.readAsDataURL(file)
-    })
+  const uploadToStorage = async (file: File): Promise<RoomImage> => {
+    // Generate unique filename with rooms subfolder
+    const fileExt = file.name.split('.').pop()?.toLowerCase() || 'jpg'
+    const fileName = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}.${fileExt}`
+    const filePath = `${tenantId}/rooms/${fileName}`
+
+    // Upload to Supabase storage
+    const { error: uploadError } = await supabase.storage
+      .from(STORAGE_BUCKET)
+      .upload(filePath, file, {
+        cacheControl: '3600',
+        upsert: false
+      })
+
+    if (uploadError) {
+      console.error('Upload error:', uploadError)
+      throw new Error(uploadError.message || 'Failed to upload image')
+    }
+
+    // Get public URL
+    const { data: { publicUrl } } = supabase.storage
+      .from(STORAGE_BUCKET)
+      .getPublicUrl(filePath)
+
+    return {
+      url: publicUrl,
+      path: filePath,
+    }
   }
 
   const handleFeaturedUpload = async (file: File) => {
@@ -46,8 +67,16 @@ export default function RoomImageUpload({ value, onChange }: RoomImageUploadProp
       return
     }
     setError(null)
-    const image = await fileToImageObject(file)
-    onChange({ ...value, featured: image })
+    setUploading(true)
+
+    try {
+      const image = await uploadToStorage(file)
+      onChange({ ...value, featured: image })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to upload image')
+    } finally {
+      setUploading(false)
+    }
   }
 
   const handleGalleryUpload = async (files: FileList) => {
@@ -63,20 +92,28 @@ export default function RoomImageUpload({ value, onChange }: RoomImageUploadProp
     const errors: string[] = []
     const newImages: RoomImage[] = []
 
+    setUploading(true)
+    setError(null)
+
     for (const file of filesToProcess) {
       const validationError = validateFile(file)
       if (validationError) {
         errors.push(`${file.name}: ${validationError}`)
         continue
       }
-      const image = await fileToImageObject(file)
-      newImages.push(image)
+
+      try {
+        const image = await uploadToStorage(file)
+        newImages.push(image)
+      } catch (err) {
+        errors.push(`${file.name}: ${err instanceof Error ? err.message : 'Upload failed'}`)
+      }
     }
+
+    setUploading(false)
 
     if (errors.length > 0) {
       setError(errors.join(', '))
-    } else {
-      setError(null)
     }
 
     if (newImages.length > 0) {
@@ -84,11 +121,24 @@ export default function RoomImageUpload({ value, onChange }: RoomImageUploadProp
     }
   }
 
-  const removeFeatured = () => {
+  const removeFeatured = async () => {
+    // Optionally delete from storage
+    if (value.featured?.path) {
+      await supabase.storage
+        .from(STORAGE_BUCKET)
+        .remove([value.featured.path])
+    }
     onChange({ ...value, featured: null })
   }
 
-  const removeGalleryImage = (index: number) => {
+  const removeGalleryImage = async (index: number) => {
+    const imageToRemove = value.gallery[index]
+    // Optionally delete from storage
+    if (imageToRemove?.path) {
+      await supabase.storage
+        .from(STORAGE_BUCKET)
+        .remove([imageToRemove.path])
+    }
     const newGallery = [...value.gallery]
     newGallery.splice(index, 1)
     onChange({ ...value, gallery: newGallery })
@@ -120,6 +170,12 @@ export default function RoomImageUpload({ value, onChange }: RoomImageUploadProp
     }
   }
 
+  // Helper to get image URL (handles both old base64 and new URL format)
+  const getImageUrl = (image: RoomImage | null): string => {
+    if (!image) return ''
+    return image.url
+  }
+
   return (
     <div className="space-y-4">
       {error && (
@@ -136,7 +192,7 @@ export default function RoomImageUpload({ value, onChange }: RoomImageUploadProp
         {value.featured ? (
           <div className="relative inline-block">
             <img
-              src={value.featured.url}
+              src={getImageUrl(value.featured)}
               alt="Featured"
               className="w-48 h-32 object-cover rounded-lg border-2 border-black"
             />
@@ -156,13 +212,19 @@ export default function RoomImageUpload({ value, onChange }: RoomImageUploadProp
             onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
             onDragLeave={() => setDragOver(false)}
             onDrop={(e) => handleDrop(e, 'featured')}
-            onClick={() => featuredInputRef.current?.click()}
+            onClick={() => !uploading && featuredInputRef.current?.click()}
             className={`w-48 h-32 border-2 border-dashed rounded-lg flex flex-col items-center justify-center cursor-pointer transition-colors ${
               dragOver ? 'border-black bg-gray-50' : 'border-gray-300 hover:border-gray-400'
-            }`}
+            } ${uploading ? 'opacity-50 cursor-wait' : ''}`}
           >
-            <Upload className="w-6 h-6 text-gray-400 mb-2" />
-            <span className="text-sm text-gray-500">Upload featured</span>
+            {uploading ? (
+              <Loader2 className="w-6 h-6 text-gray-400 animate-spin" />
+            ) : (
+              <>
+                <Upload className="w-6 h-6 text-gray-400 mb-2" />
+                <span className="text-sm text-gray-500">Upload featured</span>
+              </>
+            )}
           </div>
         )}
         <input
@@ -173,6 +235,7 @@ export default function RoomImageUpload({ value, onChange }: RoomImageUploadProp
           onChange={(e) => {
             if (e.target.files?.[0]) {
               handleFeaturedUpload(e.target.files[0])
+              e.target.value = ''
             }
           }}
         />
@@ -185,9 +248,9 @@ export default function RoomImageUpload({ value, onChange }: RoomImageUploadProp
         </label>
         <div className="flex flex-wrap gap-3">
           {value.gallery.map((image, index) => (
-            <div key={image.path} className="relative group">
+            <div key={image.path || index} className="relative group">
               <img
-                src={image.url}
+                src={getImageUrl(image)}
                 alt={`Gallery ${index + 1}`}
                 className="w-24 h-24 object-cover rounded-lg border border-gray-200"
               />
@@ -217,13 +280,19 @@ export default function RoomImageUpload({ value, onChange }: RoomImageUploadProp
               onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
               onDragLeave={() => setDragOver(false)}
               onDrop={(e) => handleDrop(e, 'gallery')}
-              onClick={() => galleryInputRef.current?.click()}
+              onClick={() => !uploading && galleryInputRef.current?.click()}
               className={`w-24 h-24 border-2 border-dashed rounded-lg flex flex-col items-center justify-center cursor-pointer transition-colors ${
                 dragOver ? 'border-black bg-gray-50' : 'border-gray-300 hover:border-gray-400'
-              }`}
+              } ${uploading ? 'opacity-50 cursor-wait' : ''}`}
             >
-              <ImageIcon className="w-5 h-5 text-gray-400 mb-1" />
-              <span className="text-xs text-gray-500">Add</span>
+              {uploading ? (
+                <Loader2 className="w-5 h-5 text-gray-400 animate-spin" />
+              ) : (
+                <>
+                  <ImageIcon className="w-5 h-5 text-gray-400 mb-1" />
+                  <span className="text-xs text-gray-500">Add</span>
+                </>
+              )}
             </div>
           )}
         </div>
@@ -236,6 +305,7 @@ export default function RoomImageUpload({ value, onChange }: RoomImageUploadProp
           onChange={(e) => {
             if (e.target.files) {
               handleGalleryUpload(e.target.files)
+              e.target.value = ''
             }
           }}
         />

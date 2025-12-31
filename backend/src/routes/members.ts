@@ -37,11 +37,15 @@ async function verifyAuthWithRole(authHeader: string | undefined): Promise<AuthR
     }
 
     // Get user's membership - first check if they're an owner
-    const { data: ownerTenant } = await supabase
+    const { data: ownerTenant, error: ownerError } = await supabase
       .from('tenants')
       .select('id, name, max_team_members, business_name')
       .eq('owner_user_id', user.id)
       .single()
+
+    console.log('verifyAuthWithRole - user.id:', user.id)
+    console.log('verifyAuthWithRole - ownerTenant:', ownerTenant)
+    console.log('verifyAuthWithRole - ownerError:', ownerError)
 
     if (ownerTenant) {
       return {

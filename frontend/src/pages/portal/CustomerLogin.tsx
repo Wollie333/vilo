@@ -59,8 +59,8 @@ export default function CustomerLogin() {
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
         <div className="w-full max-w-md">
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8 text-center">
-            <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <CheckCircle className="w-8 h-8 text-green-600" />
+            <div className="w-16 h-16 bg-accent-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <CheckCircle className="w-8 h-8 text-accent-600" />
             </div>
             <h1 className="text-2xl font-bold text-gray-900 mb-2">Check your email</h1>
             <p className="text-gray-600 mb-6">
@@ -103,7 +103,7 @@ export default function CustomerLogin() {
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="w-12 h-12 bg-black rounded-lg flex items-center justify-center mx-auto mb-4">
+          <div className="w-12 h-12 bg-emerald-500 rounded-lg flex items-center justify-center mx-auto mb-4">
             <span className="text-white font-bold text-xl">V</span>
           </div>
           <h1 className="text-2xl font-bold text-gray-900">Customer Portal</h1>
@@ -118,7 +118,7 @@ export default function CustomerLogin() {
               onClick={() => setMode('magic')}
               className={`flex-1 pb-3 text-sm font-medium border-b-2 transition-colors ${
                 mode === 'magic'
-                  ? 'border-gray-900 text-gray-900'
+                  ? 'border-accent-600 text-accent-700'
                   : 'border-transparent text-gray-500 hover:text-gray-700'
               }`}
             >
@@ -128,7 +128,7 @@ export default function CustomerLogin() {
               onClick={() => setMode('password')}
               className={`flex-1 pb-3 text-sm font-medium border-b-2 transition-colors ${
                 mode === 'password'
-                  ? 'border-gray-900 text-gray-900'
+                  ? 'border-accent-600 text-accent-700'
                   : 'border-transparent text-gray-500 hover:text-gray-700'
               }`}
             >
@@ -155,7 +155,7 @@ export default function CustomerLogin() {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="Enter your booking email"
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
+                    className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-accent-500 focus:border-accent-500"
                     required
                   />
                 </div>
@@ -167,7 +167,7 @@ export default function CustomerLogin() {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full bg-gray-900 text-white py-2 px-4 rounded-md hover:bg-gray-800 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                className="w-full bg-accent-600 text-white py-2.5 px-4 rounded-lg hover:bg-accent-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2 font-medium"
               >
                 {loading ? 'Sending...' : 'Send Login Link'}
                 {!loading && <ArrowRight size={18} />}
@@ -186,7 +186,7 @@ export default function CustomerLogin() {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="Enter your email"
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
+                    className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-accent-500 focus:border-accent-500"
                     required
                   />
                 </div>
@@ -203,7 +203,7 @@ export default function CustomerLogin() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="Enter your password"
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
+                    className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-accent-500 focus:border-accent-500"
                     required
                   />
                 </div>
@@ -215,7 +215,7 @@ export default function CustomerLogin() {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full bg-gray-900 text-white py-2 px-4 rounded-md hover:bg-gray-800 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                className="w-full bg-accent-600 text-white py-2.5 px-4 rounded-lg hover:bg-accent-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2 font-medium"
               >
                 {loading ? 'Signing in...' : 'Sign In'}
                 {!loading && <ArrowRight size={18} />}

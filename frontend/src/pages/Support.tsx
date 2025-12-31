@@ -15,12 +15,13 @@ import {
 import Button from '../components/Button'
 import { supportApi, SupportTicket, TeamMember } from '../services/api'
 import { useNotification } from '../contexts/NotificationContext'
+import { useAuth } from '../contexts/AuthContext'
 
 const statusColors: Record<string, string> = {
   new: 'bg-blue-100 text-blue-700',
   open: 'bg-yellow-100 text-yellow-700',
   pending: 'bg-orange-100 text-orange-700',
-  resolved: 'bg-green-100 text-green-700',
+  resolved: 'bg-accent-100 text-accent-700',
   closed: 'bg-gray-100 text-gray-700',
 }
 
@@ -39,6 +40,7 @@ const sourceConfig = {
 
 export default function Support() {
   const { showSuccess, showError } = useNotification()
+  const { tenant, tenantLoading } = useAuth()
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   // Ticket list state
@@ -59,9 +61,14 @@ export default function Support() {
   const [sending, setSending] = useState(false)
 
   useEffect(() => {
-    loadTickets()
-    loadTeamMembers()
-  }, [sourceFilter, statusFilter, assignedFilter])
+    // Wait for tenant to be loaded before fetching tickets
+    if (!tenantLoading && tenant) {
+      loadTickets()
+      loadTeamMembers()
+    } else if (!tenantLoading && !tenant) {
+      setLoading(false)
+    }
+  }, [tenantLoading, tenant, sourceFilter, statusFilter, assignedFilter])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })

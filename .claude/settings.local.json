@@ -34,7 +34,18 @@
       "WebFetch(domain:surecart.com)",
       "WebFetch(domain:litextension.com)",
       "WebFetch(domain:wpastra.com)",
-      "Bash(git checkout:*)"
+      "Bash(git checkout:*)",
+      "WebFetch(domain:lekkerslaap.co.za)",
+      "WebFetch(domain:www.lekkeslaap.co.za)",
+      "Bash(timeout 10 npm run dev)",
+      "Bash(find:*)",
+      "Bash(git grep:*)",
+      "Bash(npx tsx:*)",
+      "Bash(timeout /t 2 /nobreak)",
+      "Bash(del:*)",
+      "Bash(git log:*)",
+      "Bash(timeout 15 npm run dev:*)",
+      "WebFetch(domain:localhost)"
     ]
   }
 }

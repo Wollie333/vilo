@@ -26,6 +26,7 @@ interface RoomFormProps {
   onClose: () => void
   onSubmit: (room: Omit<Room, 'id' | 'created_at' | 'updated_at'>) => Promise<void>
   isSubmitting?: boolean
+  tenantId: string
 }
 
 // Generate a unique room code: RM-XXXXXX (6 alphanumeric chars)
@@ -38,7 +39,7 @@ const generateRoomCode = (): string => {
   return code
 }
 
-export default function RoomForm({ room, isOpen, onClose, onSubmit, isSubmitting = false }: RoomFormProps) {
+export default function RoomForm({ room, isOpen, onClose, onSubmit, isSubmitting = false, tenantId }: RoomFormProps) {
   const [formData, setFormData] = useState<Omit<Room, 'id' | 'created_at' | 'updated_at'>>({
     name: '',
     description: '',
@@ -123,13 +124,13 @@ export default function RoomForm({ room, isOpen, onClose, onSubmit, isSubmitting
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-lg max-w-3xl w-full max-h-[90vh] overflow-y-auto">
-        <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between z-10">
-          <h2 className="text-2xl font-bold text-gray-900">
+        <div className="sticky top-0 bg-gradient-to-r from-accent-600 to-accent-500 px-6 py-5 flex items-center justify-between z-10 rounded-t-lg">
+          <h2 className="text-2xl font-bold text-white">
             {room ? 'Edit Room' : 'Add New Room'}
           </h2>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
+            className="p-1.5 text-white/80 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
           >
             <X size={24} />
           </button>
@@ -264,6 +265,7 @@ export default function RoomForm({ room, isOpen, onClose, onSubmit, isSubmitting
             <RoomImageUpload
               value={formData.images}
               onChange={(images) => setFormData((prev) => ({ ...prev, images }))}
+              tenantId={tenantId}
             />
           </div>
 

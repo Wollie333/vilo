@@ -56,7 +56,7 @@ export default function CustomerDashboard() {
       case 'pending':
         return { label: 'Pending', color: 'text-yellow-700', bg: 'bg-yellow-100', icon: Clock }
       case 'confirmed':
-        return { label: 'Confirmed', color: 'text-green-700', bg: 'bg-green-100', icon: CheckCircle }
+        return { label: 'Confirmed', color: 'text-accent-700', bg: 'bg-accent-100', icon: CheckCircle }
       case 'checked_in':
         return { label: 'Checked In', color: 'text-blue-700', bg: 'bg-blue-100', icon: CheckCircle }
       case 'checked_out':
@@ -72,10 +72,10 @@ export default function CustomerDashboard() {
 
   if (loading) {
     return (
-      <div className="p-8">
+      <div className="p-8 bg-gray-50 min-h-full">
         <div className="flex items-center justify-center h-64">
           <div className="text-center">
-            <div className="w-8 h-8 border-2 border-gray-300 border-t-gray-900 rounded-full animate-spin mx-auto mb-4" />
+            <div className="w-8 h-8 border-2 border-accent-200 border-t-accent-600 rounded-full animate-spin mx-auto mb-4" />
             <p className="text-gray-500">Loading...</p>
           </div>
         </div>
@@ -84,10 +84,10 @@ export default function CustomerDashboard() {
   }
 
   return (
-    <div className="p-8 bg-white min-h-full">
+    <div className="p-8 bg-gray-50 min-h-full">
       <div className="max-w-2xl">
         <h1 className="text-3xl font-bold text-gray-900 mb-2">My Booking</h1>
-        <p className="text-gray-600 mb-8">View your reservation details</p>
+        <p className="text-gray-500 mb-8">View your reservation details</p>
 
         {/* Current/Upcoming Booking */}
         {currentBooking ? (

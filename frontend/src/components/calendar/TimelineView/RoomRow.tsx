@@ -42,22 +42,22 @@ export default function RoomRow({
   return (
     <div
       ref={setNodeRef}
-      className={`flex border-b border-gray-200 dark:border-gray-700 relative ${
-        isOver ? 'bg-blue-50 dark:bg-blue-900/10' : ''
+      className={`flex border-b border-gray-200 relative ${
+        isOver ? 'bg-blue-50' : ''
       }`}
       style={{ height: ROW_HEIGHT }}
     >
       {/* Room label */}
       <div
-        className="flex-shrink-0 px-4 py-2 border-r border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 flex items-center"
+        className="flex-shrink-0 px-4 py-2 border-r border-gray-200 bg-gray-50 flex items-center"
         style={{ width: roomLabelWidth }}
       >
         <div className="truncate">
-          <span className="font-medium text-gray-900 dark:text-white text-sm">
+          <span className="font-medium text-gray-900 text-sm">
             {room.name}
           </span>
           {room.total_units > 1 && (
-            <span className="text-xs text-gray-500 dark:text-gray-400 ml-1">
+            <span className="text-xs text-gray-500 ml-1">
               ({room.total_units} units)
             </span>
           )}
@@ -73,14 +73,14 @@ export default function RoomRow({
             <div
               key={index}
               onClick={() => !hasBooking && onCellClick(index)}
-              className={`flex-shrink-0 border-r border-gray-200 dark:border-gray-700 ${
+              className={`flex-shrink-0 border-r border-gray-200 ${
                 isToday(day)
-                  ? 'bg-blue-50 dark:bg-blue-900/10'
+                  ? 'bg-blue-50'
                   : index % 7 === 0 || index % 7 === 6
-                  ? 'bg-gray-50 dark:bg-gray-900/30'
+                  ? 'bg-gray-50'
                   : ''
               } ${
-                !hasBooking ? 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700/50' : ''
+                !hasBooking ? 'cursor-pointer hover:bg-gray-100' : ''
               }`}
               style={{ width: dayWidth, height: '100%' }}
             />

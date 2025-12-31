@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { bookingsApi, roomsApi, type Booking, type Room } from '../services/api'
 import { groupBookingsByRoom, isBookingVisible, getBookingsForDate } from '../utils/calendarUtils'
+import { useAuth } from '../contexts/AuthContext'
 
 interface UseCalendarDataOptions {
   startDate: Date
@@ -20,6 +21,7 @@ interface UseCalendarDataReturn {
 
 export function useCalendarData(options: UseCalendarDataOptions): UseCalendarDataReturn {
   const { startDate, daysCount = 30 } = options
+  const { tenant, tenantLoading } = useAuth()
 
   const [bookings, setBookings] = useState<Booking[]>([])
   const [rooms, setRooms] = useState<Room[]>([])
@@ -46,8 +48,13 @@ export function useCalendarData(options: UseCalendarDataOptions): UseCalendarDat
   }, [])
 
   useEffect(() => {
-    fetchData()
-  }, [fetchData])
+    // Wait for tenant to be loaded before fetching calendar data
+    if (!tenantLoading && tenant) {
+      fetchData()
+    } else if (!tenantLoading && !tenant) {
+      setLoading(false)
+    }
+  }, [fetchData, tenant, tenantLoading])
 
   // Group bookings by room (memoized)
   const bookingsByRoom = useMemo(() => {

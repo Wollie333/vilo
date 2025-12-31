@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { AlertTriangle, Info, Calendar } from 'lucide-react'
 import { Room, roomsApi } from '../../services/api'
+import DateRangePicker from '../DateRangePicker'
 
 interface ValidationWarning {
   type: 'min_stay' | 'max_stay'
@@ -209,34 +210,27 @@ export default function RoomDatesStep({
       {/* Date Selection */}
       <div>
         <h3 className="text-lg font-semibold text-gray-900 mb-4">Select Dates</h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Check-in Date *</label>
-            <input
-              type="date"
-              value={checkIn}
-              onChange={(e) => onCheckInChange(e.target.value)}
-              min={today}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Check-out Date *</label>
-            <input
-              type="date"
-              value={checkOut}
-              onChange={(e) => onCheckOutChange(e.target.value)}
-              min={checkIn || today}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Total Nights</label>
-            <div className="flex items-center gap-2 px-3 py-2 bg-gray-100 rounded-md">
-              <Calendar className="w-4 h-4 text-gray-500" />
-              <span className="font-medium text-gray-900">
-                {nights > 0 ? `${nights} night${nights > 1 ? 's' : ''}` : '-'}
-              </span>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <DateRangePicker
+            startDate={checkIn}
+            endDate={checkOut}
+            onStartDateChange={onCheckInChange}
+            onEndDateChange={onCheckOutChange}
+            minDate={today}
+            startLabel="Check-in"
+            endLabel="Check-out"
+            minStayNights={selectedRoom?.min_stay_nights || 1}
+            maxStayNights={selectedRoom?.max_stay_nights || null}
+          />
+          <div className="flex items-end">
+            <div className="w-full">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Total Nights</label>
+              <div className="flex items-center gap-2 px-4 py-3 bg-gray-100 rounded-xl">
+                <Calendar className="w-5 h-5 text-accent" />
+                <span className="font-semibold text-gray-900">
+                  {nights > 0 ? `${nights} night${nights > 1 ? 's' : ''}` : 'Select dates'}
+                </span>
+              </div>
             </div>
           </div>
         </div>

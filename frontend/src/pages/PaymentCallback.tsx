@@ -83,8 +83,8 @@ export default function PaymentCallback() {
 
         {status === 'success' && (
           <>
-            <div className="inline-flex items-center justify-center w-16 h-16 bg-green-100 rounded-full mb-6">
-              <CheckCircle size={32} className="text-green-600" />
+            <div className="inline-flex items-center justify-center w-16 h-16 bg-accent-100 rounded-full mb-6">
+              <CheckCircle size={32} className="text-accent-600" />
             </div>
             <h1 className="text-2xl font-semibold text-gray-900 mb-2">
               Payment Successful!

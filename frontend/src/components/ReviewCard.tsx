@@ -1,7 +1,9 @@
 import { useState } from 'react'
-import { MessageSquare, Eye, EyeOff, Flag, Trash2, Send, User, Calendar, BedDouble } from 'lucide-react'
+import { MessageSquare, Eye, EyeOff, Flag, Trash2, Send, User, Calendar, BedDouble, ChevronDown, ChevronUp, ImageOff } from 'lucide-react'
 import StarRating from './StarRating'
-import type { Review, PublicReview } from '../services/api'
+import SourceBadge from './SourceBadge'
+import ReviewCategoryRatings, { toCategoryRatings } from './ReviewCategoryRatings'
+import type { Review, PublicReview, ReviewSource, ReviewImage } from '../services/api'
 
 interface ReviewCardProps {
   review: Review | PublicReview
@@ -9,6 +11,7 @@ interface ReviewCardProps {
   onRespond?: (reviewId: string, response: string) => Promise<void>
   onUpdateStatus?: (reviewId: string, status: 'published' | 'hidden' | 'flagged') => Promise<void>
   onDelete?: (reviewId: string) => Promise<void>
+  onUpdateImages?: (reviewId: string, images: ReviewImage[]) => Promise<void>
 }
 
 export default function ReviewCard({
@@ -16,11 +19,14 @@ export default function ReviewCard({
   variant = 'public',
   onRespond,
   onUpdateStatus,
-  onDelete
+  onDelete,
+  onUpdateImages
 }: ReviewCardProps) {
   const [isResponding, setIsResponding] = useState(false)
   const [response, setResponse] = useState((review as Review).owner_response || '')
   const [isSaving, setIsSaving] = useState(false)
+  const [showCategoryRatings, setShowCategoryRatings] = useState(false)
+  const [selectedImage, setSelectedImage] = useState<string | null>(null)
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-US', {
@@ -41,11 +47,30 @@ export default function ReviewCard({
     }
   }
 
+  const handleToggleImageHidden = async (imageIndex: number) => {
+    if (!onUpdateImages || !review.id) return
+    const images = (review as Review).images || []
+    const updatedImages = images.map((img, i) => {
+      if (i === imageIndex) {
+        return { ...img, hidden: !img.hidden }
+      }
+      return img
+    })
+    await onUpdateImages(review.id, updatedImages)
+  }
+
   const adminReview = review as Review
   const isAdmin = variant === 'admin'
 
+  // Get category ratings if available
+  const categoryRatings = toCategoryRatings(review)
+
+  // Get visible images (for public, only non-hidden; for admin, all images)
+  const allImages = (review as Review).images || []
+  const visibleImages = isAdmin ? allImages : allImages.filter(img => !img.hidden)
+
   const statusColors = {
-    published: 'bg-green-100 text-green-700',
+    published: 'bg-accent-100 text-accent-700',
     hidden: 'bg-gray-100 text-gray-700',
     flagged: 'bg-red-100 text-red-700'
   }
@@ -61,7 +86,7 @@ export default function ReviewCard({
           <div>
             <h4 className="font-medium text-gray-900">{review.guest_name}</h4>
             <div className="flex flex-wrap items-center gap-2 mt-1">
-              <StarRating rating={review.rating} size="sm" />
+              <StarRating rating={review.rating} size="sm" showValue />
               {review.bookings && (
                 <>
                   <span className="text-gray-400 text-xs">•</span>
@@ -75,6 +100,14 @@ export default function ReviewCard({
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {isAdmin && adminReview.source && (
+            <SourceBadge
+              source={adminReview.source as ReviewSource}
+              type="review"
+              externalUrl={adminReview.external_url}
+              size="sm"
+            />
+          )}
           {isAdmin && adminReview.status && (
             <span className={`px-2 py-1 text-xs font-medium rounded-full ${statusColors[adminReview.status]}`}>
               {adminReview.status}
@@ -87,12 +120,89 @@ export default function ReviewCard({
         </div>
       </div>
 
+      {/* Category Ratings (collapsible) */}
+      {categoryRatings && (
+        <div className="mb-4">
+          <button
+            onClick={() => setShowCategoryRatings(!showCategoryRatings)}
+            className="flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900 transition-colors"
+          >
+            {showCategoryRatings ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+            <span>{showCategoryRatings ? 'Hide' : 'Show'} category ratings</span>
+          </button>
+          {showCategoryRatings && (
+            <div className="mt-3 p-3 bg-gray-50 rounded-lg">
+              <ReviewCategoryRatings
+                ratings={categoryRatings}
+                size="sm"
+                layout="grid"
+              />
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Review Content */}
       {review.title && (
         <h5 className="font-medium text-gray-900 mb-2">"{review.title}"</h5>
       )}
       {review.content && (
         <p className="text-gray-600 text-sm leading-relaxed">{review.content}</p>
+      )}
+
+      {/* Review Images */}
+      {visibleImages.length > 0 && (
+        <div className="mt-4">
+          <div className="flex flex-wrap gap-2">
+            {visibleImages.map((image, index) => (
+              <div key={image.path || index} className="relative group">
+                <img
+                  src={image.url}
+                  alt={`Review photo ${index + 1}`}
+                  className={`w-20 h-20 object-cover rounded-lg cursor-pointer hover:opacity-90 transition-opacity ${
+                    image.hidden ? 'opacity-50 grayscale' : ''
+                  }`}
+                  onClick={() => setSelectedImage(image.url)}
+                />
+                {isAdmin && onUpdateImages && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleToggleImageHidden(allImages.findIndex(img => img.path === image.path))
+                    }}
+                    className={`absolute top-1 right-1 p-1 rounded-full transition-opacity ${
+                      image.hidden
+                        ? 'bg-gray-800 text-white'
+                        : 'bg-white/80 text-gray-700 opacity-0 group-hover:opacity-100'
+                    }`}
+                    title={image.hidden ? 'Show image' : 'Hide image'}
+                  >
+                    {image.hidden ? <Eye size={12} /> : <ImageOff size={12} />}
+                  </button>
+                )}
+                {image.hidden && isAdmin && (
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <span className="text-xs text-gray-500 bg-white/90 px-1 rounded">Hidden</span>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Image Lightbox */}
+      {selectedImage && (
+        <div
+          className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4"
+          onClick={() => setSelectedImage(null)}
+        >
+          <img
+            src={selectedImage}
+            alt="Review photo"
+            className="max-w-full max-h-full object-contain rounded-lg"
+          />
+        </div>
       )}
 
       {/* Stay Details (Admin) */}

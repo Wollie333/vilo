@@ -17,15 +17,17 @@ import {
   Plus,
   Minus,
   Loader2,
-  AlertCircle
+  AlertCircle,
+  X,
+  Download
 } from 'lucide-react'
 import Button from '../../components/Button'
-import { portalApi, CustomerBooking } from '../../services/portalApi'
+import { portalApi, CustomerBooking, Invoice } from '../../services/portalApi'
 import { useNotification } from '../../contexts/NotificationContext'
 
 const statusOptions = [
   { value: 'pending', label: 'Pending', color: 'bg-yellow-100 text-yellow-700' },
-  { value: 'confirmed', label: 'Confirmed', color: 'bg-green-100 text-green-700' },
+  { value: 'confirmed', label: 'Confirmed', color: 'bg-accent-100 text-accent-700' },
   { value: 'checked_in', label: 'Checked In', color: 'bg-blue-100 text-blue-700' },
   { value: 'checked_out', label: 'Checked Out', color: 'bg-purple-100 text-purple-700' },
   { value: 'cancelled', label: 'Cancelled', color: 'bg-red-100 text-red-700' },
@@ -34,7 +36,7 @@ const statusOptions = [
 
 const paymentStatusOptions = [
   { value: 'pending', label: 'Pending', color: 'bg-gray-100 text-gray-700' },
-  { value: 'paid', label: 'Paid', color: 'bg-green-100 text-green-700' },
+  { value: 'paid', label: 'Paid', color: 'bg-accent-100 text-accent-700' },
   { value: 'partial', label: 'Partial', color: 'bg-blue-100 text-blue-700' },
   { value: 'refunded', label: 'Refunded', color: 'bg-red-100 text-red-700' },
 ]
@@ -75,11 +77,67 @@ export default function CustomerBookingDetail() {
   const [reviewContent, setReviewContent] = useState('')
   const [submittingReview, setSubmittingReview] = useState(false)
 
+  // Cancel booking
+  const [showCancelModal, setShowCancelModal] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
+
+  // Invoice
+  const [invoice, setInvoice] = useState<Invoice | null>(null)
+  const [loadingInvoice, setLoadingInvoice] = useState(false)
+  const [downloadingInvoice, setDownloadingInvoice] = useState(false)
+
   useEffect(() => {
     if (id) {
       loadBooking()
     }
   }, [id])
+
+  // Load invoice when booking is loaded and paid
+  useEffect(() => {
+    if (booking?.id && booking.payment_status === 'paid') {
+      loadInvoice(booking.id)
+    }
+  }, [booking?.id, booking?.payment_status])
+
+  const loadInvoice = async (bookingId: string) => {
+    try {
+      setLoadingInvoice(true)
+      const data = await portalApi.getInvoice(bookingId)
+      setInvoice(data)
+    } catch (error) {
+      // Invoice not found is expected if it hasn't been generated yet
+      console.log('Invoice not available for this booking')
+      setInvoice(null)
+    } finally {
+      setLoadingInvoice(false)
+    }
+  }
+
+  const handleDownloadInvoice = async () => {
+    if (!booking?.id) return
+
+    try {
+      setDownloadingInvoice(true)
+      const blob = await portalApi.downloadInvoice(booking.id)
+
+      // Create download link
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = invoice?.invoice_number ? `${invoice.invoice_number}.pdf` : 'invoice.pdf'
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+
+      showSuccess('Invoice Downloaded', 'Your invoice has been downloaded.')
+    } catch (error) {
+      console.error('Failed to download invoice:', error)
+      showError('Error', 'Failed to download invoice. Please try again.')
+    } finally {
+      setDownloadingInvoice(false)
+    }
+  }
 
   const loadBooking = async () => {
     if (!id) return
@@ -117,11 +175,13 @@ export default function CustomerBookingDetail() {
     })
   }
 
-  const formatCurrency = (amount: number, currency: string = 'ZAR') => {
+  const formatCurrency = (amount: number | string | null | undefined, currency: string = 'ZAR') => {
+    const numAmount = typeof amount === 'string' ? parseFloat(amount) : (amount ?? 0)
+    if (isNaN(numAmount)) return 'R0'
     return new Intl.NumberFormat('en-ZA', {
       style: 'currency',
-      currency: currency,
-    }).format(amount)
+      currency: currency || 'ZAR',
+    }).format(numAmount)
   }
 
   const calculateNights = () => {
@@ -221,12 +281,38 @@ export default function CustomerBookingDetail() {
     }
   }
 
+  // Cancel booking handlers
+  const canCancelBooking = () => {
+    if (!booking) return false
+    // Can only cancel pending or confirmed bookings before check-in
+    if (!['pending', 'confirmed'].includes(booking.status)) return false
+    const checkInDate = new Date(booking.check_in)
+    const now = new Date()
+    return checkInDate > now
+  }
+
+  const handleCancelBooking = async () => {
+    if (!id || !booking) return
+
+    setCancelling(true)
+    try {
+      await portalApi.cancelBooking(id)
+      showSuccess('Booking Cancelled', 'Your reservation has been cancelled.')
+      setShowCancelModal(false)
+      await loadBooking()
+    } catch (error: any) {
+      showError('Error', error.message || 'Failed to cancel booking')
+    } finally {
+      setCancelling(false)
+    }
+  }
+
   if (loading) {
     return (
-      <div className="p-8 bg-white min-h-full flex items-center justify-center">
+      <div className="p-8 bg-gray-50 min-h-full flex items-center justify-center">
         <div className="text-center">
-          <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4 text-gray-400" />
-          <p className="text-gray-600">Loading booking details...</p>
+          <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4 text-accent-500" />
+          <p className="text-gray-500">Loading booking details...</p>
         </div>
       </div>
     )
@@ -234,11 +320,11 @@ export default function CustomerBookingDetail() {
 
   if (!booking) {
     return (
-      <div className="p-8 bg-white min-h-full flex items-center justify-center">
+      <div className="p-8 bg-gray-50 min-h-full flex items-center justify-center">
         <div className="text-center">
           <AlertCircle className="w-12 h-12 mx-auto mb-4 text-red-500" />
-          <h2 className="text-xl font-semibold mb-2">Booking Not Found</h2>
-          <p className="text-gray-600 mb-4">The booking you're looking for doesn't exist.</p>
+          <h2 className="text-xl font-semibold text-gray-900 mb-2">Booking Not Found</h2>
+          <p className="text-gray-500 mb-4">The booking you're looking for doesn't exist.</p>
           <Button onClick={() => navigate('/portal')}>
             <ArrowLeft size={16} className="mr-2" />
             Back to Bookings
@@ -369,9 +455,17 @@ export default function CustomerBookingDetail() {
               <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-gray-500 mb-2">Room</label>
                 <div className="flex items-start gap-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
-                  <div className="w-20 h-20 bg-gray-200 rounded-lg flex items-center justify-center flex-shrink-0">
-                    <BedDouble size={24} className="text-gray-400" />
-                  </div>
+                  {booking.room?.images?.featured?.url ? (
+                    <img
+                      src={booking.room.images.featured.url}
+                      alt={booking.room_name || 'Room'}
+                      className="w-20 h-20 object-cover rounded-lg flex-shrink-0"
+                    />
+                  ) : (
+                    <div className="w-20 h-20 bg-gray-200 rounded-lg flex items-center justify-center flex-shrink-0">
+                      <BedDouble size={24} className="text-gray-400" />
+                    </div>
+                  )}
                   <div className="flex-1 min-w-0">
                     <h4 className="font-semibold text-gray-900">
                       {booking.room_name || 'Unknown Room'}
@@ -411,7 +505,7 @@ export default function CustomerBookingDetail() {
                       </p>
                     </div>
                     <p className="font-medium text-gray-900">
-                      {formatCurrency(addon.total, booking.currency)}
+                      {formatCurrency(parseFloat(String(addon.total)) || 0, booking.currency)}
                     </p>
                   </div>
                 ))}
@@ -420,7 +514,7 @@ export default function CustomerBookingDetail() {
                     <span className="text-gray-500">Add-ons Total</span>
                     <span className="font-semibold text-gray-900">
                       {formatCurrency(
-                        bookingNotes.addons.reduce((sum, a) => sum + a.total, 0),
+                        bookingNotes.addons.reduce((sum, a) => sum + (parseFloat(String(a.total)) || 0), 0),
                         booking.currency
                       )}
                     </span>
@@ -644,7 +738,7 @@ export default function CustomerBookingDetail() {
                 </span>
                 <span className="text-gray-900">
                   {formatCurrency(
-                    booking.total_amount - (bookingNotes.addons?.reduce((s, a) => s + a.total, 0) || 0),
+                    (parseFloat(String(booking.total_amount)) || 0) - (bookingNotes.addons?.reduce((s, a) => s + (parseFloat(String(a.total)) || 0), 0) || 0),
                     booking.currency
                   )}
                 </span>
@@ -655,7 +749,7 @@ export default function CustomerBookingDetail() {
                   <span className="text-gray-500">Add-ons</span>
                   <span className="text-gray-900">
                     {formatCurrency(
-                      bookingNotes.addons.reduce((sum, a) => sum + a.total, 0),
+                      bookingNotes.addons.reduce((sum, a) => sum + (parseFloat(String(a.total)) || 0), 0),
                       booking.currency
                     )}
                   </span>
@@ -670,6 +764,46 @@ export default function CustomerBookingDetail() {
                   </span>
                 </div>
               </div>
+
+              {/* Invoice Download */}
+              {booking.payment_status === 'paid' && (
+                <div className="border-t pt-4 mt-4">
+                  {loadingInvoice ? (
+                    <div className="flex items-center justify-center py-2">
+                      <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
+                      <span className="ml-2 text-sm text-gray-500">Loading invoice...</span>
+                    </div>
+                  ) : invoice ? (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-gray-500">Invoice</span>
+                        <span className="font-mono text-gray-900">{invoice.invoice_number}</span>
+                      </div>
+                      <button
+                        onClick={handleDownloadInvoice}
+                        disabled={downloadingInvoice}
+                        className="w-full flex items-center justify-center gap-2 border border-gray-300 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-50 transition-colors disabled:opacity-50"
+                      >
+                        {downloadingInvoice ? (
+                          <>
+                            <Loader2 size={16} className="animate-spin" />
+                            Downloading...
+                          </>
+                        ) : (
+                          <>
+                            <Download size={16} />
+                            Download Invoice
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-500 text-center">
+                      Invoice will be available once generated by the property.
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
@@ -688,6 +822,23 @@ export default function CustomerBookingDetail() {
             </Link>
           </div>
 
+          {/* Cancel Booking */}
+          {canCancelBooking() && (
+            <div className="bg-white rounded-lg border border-gray-200 p-6">
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">Cancel Booking</h2>
+              <p className="text-gray-600 text-sm mb-4">
+                Need to cancel your reservation? You can cancel before your check-in date.
+              </p>
+              <button
+                onClick={() => setShowCancelModal(true)}
+                className="w-full flex items-center justify-center gap-2 border border-red-600 text-red-600 py-2 px-4 rounded-md hover:bg-red-50 transition-colors"
+              >
+                <X size={16} />
+                Cancel Reservation
+              </button>
+            </div>
+          )}
+
           {/* Booking Meta */}
           <div className="bg-gray-100 rounded-lg p-4 text-sm text-gray-600">
             <p>
@@ -699,6 +850,64 @@ export default function CustomerBookingDetail() {
           </div>
         </div>
       </div>
+
+      {/* Cancel Booking Modal */}
+      {showCancelModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full overflow-hidden">
+            <div className="bg-red-600 px-6 py-4">
+              <h3 className="text-lg font-semibold text-white">Cancel Reservation</h3>
+            </div>
+            <div className="p-6">
+              <div className="flex items-start gap-3 mb-4">
+                <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+                  <AlertCircle className="w-5 h-5 text-red-600" />
+                </div>
+                <div>
+                  <p className="text-gray-900 font-medium">Are you sure you want to cancel this reservation?</p>
+                  <p className="text-sm text-gray-500 mt-1">
+                    <strong>{booking.room_name}</strong> at {booking.tenants?.business_name}
+                  </p>
+                  <p className="text-sm text-gray-500">
+                    {formatDate(booking.check_in)} - {formatDate(booking.check_out)}
+                  </p>
+                </div>
+              </div>
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                <p className="text-sm text-yellow-800">
+                  <strong>Note:</strong> This action cannot be undone. You will need to make a new booking if you change your mind.
+                </p>
+              </div>
+            </div>
+            <div className="px-6 py-4 bg-gray-50 flex gap-3 justify-end">
+              <button
+                onClick={() => setShowCancelModal(false)}
+                disabled={cancelling}
+                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-100 transition-colors disabled:opacity-50"
+              >
+                Keep Reservation
+              </button>
+              <button
+                onClick={handleCancelBooking}
+                disabled={cancelling}
+                className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center gap-2"
+              >
+                {cancelling ? (
+                  <>
+                    <Loader2 size={16} className="animate-spin" />
+                    Cancelling...
+                  </>
+                ) : (
+                  <>
+                    <X size={16} />
+                    Cancel Reservation
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

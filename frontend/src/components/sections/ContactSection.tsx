@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { MapPin, Phone, Mail, Clock, Send, Loader2 } from 'lucide-react'
+import TermsAcceptance from '../TermsAcceptance'
 
 interface ContactSectionProps {
   config: {
@@ -41,6 +42,7 @@ export default function ContactSection({ config, tenant, colors }: ContactSectio
   })
   const [sending, setSending] = useState(false)
   const [sent, setSent] = useState(false)
+  const [termsAccepted, setTermsAccepted] = useState(false)
 
   const primaryColor = colors?.primary || '#1f2937'
 
@@ -52,6 +54,7 @@ export default function ContactSection({ config, tenant, colors }: ContactSectio
     setSending(false)
     setSent(true)
     setFormData({ name: '', email: '', phone: '', subject: '', message: '' })
+    setTermsAccepted(false)
   }
 
   const address = [
@@ -234,9 +237,16 @@ export default function ContactSection({ config, tenant, colors }: ContactSectio
                   />
                 </div>
 
+                {/* Terms Acceptance */}
+                <TermsAcceptance
+                  accepted={termsAccepted}
+                  onChange={setTermsAccepted}
+                  size="sm"
+                />
+
                 <button
                   type="submit"
-                  disabled={sending}
+                  disabled={sending || !termsAccepted}
                   className="w-full py-4 rounded-lg font-semibold text-white flex items-center justify-center gap-2 transition-all hover:opacity-90 disabled:opacity-50"
                   style={{ backgroundColor: primaryColor }}
                 >

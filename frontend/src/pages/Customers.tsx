@@ -1,12 +1,14 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Search, Download, Eye, Users, TrendingUp, DollarSign, Repeat } from 'lucide-react'
 import Button from '../components/Button'
 import { useNotification } from '../contexts/NotificationContext'
+import { useAuth } from '../contexts/AuthContext'
 import { customersApi, CustomerListItem, CustomerStats } from '../services/api'
 
 export default function Customers() {
   const navigate = useNavigate()
+  const { tenant, tenantLoading } = useAuth()
   const [customers, setCustomers] = useState<CustomerListItem[]>([])
   const [stats, setStats] = useState<CustomerStats | null>(null)
   const [loading, setLoading] = useState(true)
@@ -18,14 +20,22 @@ export default function Customers() {
   const [totalPages, setTotalPages] = useState(1)
   const [total, setTotal] = useState(0)
   const { showSuccess, showError } = useNotification()
+  const initialLoadDone = useRef(false)
 
   useEffect(() => {
-    loadCustomers()
-    loadStats()
-  }, [sortField, sortOrder, page])
+    // Wait for tenant to be loaded before fetching customers
+    if (!tenantLoading && tenant) {
+      loadCustomers()
+      loadStats()
+      initialLoadDone.current = true
+    } else if (!tenantLoading && !tenant) {
+      setLoading(false)
+    }
+  }, [tenantLoading, tenant, sortField, sortOrder, page])
 
   useEffect(() => {
-    // Debounce search
+    // Debounce search - only run after initial load
+    if (!initialLoadDone.current || !tenant) return
     const timer = setTimeout(() => {
       setPage(1)
       loadCustomers()
@@ -120,11 +130,11 @@ export default function Customers() {
   )
 
   return (
-    <div className="p-8 bg-white min-h-full">
+    <div className="p-8 bg-gray-50 min-h-full">
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-3xl font-bold text-gray-900 mb-2">Customers</h1>
-          <p className="text-gray-600">View and manage your customer database</p>
+          <p className="text-gray-500">View and manage your customer database</p>
         </div>
         <Button onClick={handleExport} variant="secondary" disabled={exporting}>
           <Download size={18} className="mr-2" />
@@ -134,49 +144,53 @@ export default function Customers() {
 
       {/* Stats Cards */}
       {stats && (
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-          <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-blue-100 rounded-lg">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+          <div className="bg-white rounded-xl p-6 border border-gray-100 shadow-sm hover:shadow-md transition-all">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-500 mb-3">Total Customers</p>
+                <p className="text-3xl font-bold text-gray-900">{stats.totalCustomers}</p>
+              </div>
+              <div className="w-10 h-10 bg-blue-50 rounded-lg flex items-center justify-center">
                 <Users size={20} className="text-blue-600" />
               </div>
+            </div>
+          </div>
+          <div className="bg-white rounded-xl p-6 border border-gray-100 shadow-sm hover:shadow-md transition-all">
+            <div className="flex items-start justify-between">
               <div>
-                <p className="text-sm text-gray-500">Total Customers</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.totalCustomers}</p>
+                <p className="text-sm font-medium text-gray-500 mb-3">Repeat Customers</p>
+                <div className="flex items-baseline gap-2">
+                  <p className="text-3xl font-bold text-gray-900">{stats.repeatCustomers}</p>
+                  <span className="text-sm font-medium text-accent-600 bg-accent-50 px-2 py-0.5 rounded-full">
+                    {stats.repeatRate}%
+                  </span>
+                </div>
+              </div>
+              <div className="w-10 h-10 bg-accent-50 rounded-lg flex items-center justify-center">
+                <Repeat size={20} className="text-accent-600" />
               </div>
             </div>
           </div>
-          <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-green-100 rounded-lg">
-                <Repeat size={20} className="text-green-600" />
-              </div>
+          <div className="bg-white rounded-xl p-6 border border-gray-100 shadow-sm hover:shadow-md transition-all">
+            <div className="flex items-start justify-between">
               <div>
-                <p className="text-sm text-gray-500">Repeat Customers</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.repeatCustomers}</p>
-                <p className="text-xs text-gray-400">{stats.repeatRate}% repeat rate</p>
+                <p className="text-sm font-medium text-gray-500 mb-3">Total Revenue</p>
+                <p className="text-3xl font-bold text-gray-900">{formatCurrency(stats.totalRevenue)}</p>
               </div>
-            </div>
-          </div>
-          <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-purple-100 rounded-lg">
+              <div className="w-10 h-10 bg-purple-50 rounded-lg flex items-center justify-center">
                 <DollarSign size={20} className="text-purple-600" />
               </div>
-              <div>
-                <p className="text-sm text-gray-500">Total Revenue</p>
-                <p className="text-2xl font-bold text-gray-900">{formatCurrency(stats.totalRevenue)}</p>
-              </div>
             </div>
           </div>
-          <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-orange-100 rounded-lg">
-                <TrendingUp size={20} className="text-orange-600" />
-              </div>
+          <div className="bg-white rounded-xl p-6 border border-gray-100 shadow-sm hover:shadow-md transition-all">
+            <div className="flex items-start justify-between">
               <div>
-                <p className="text-sm text-gray-500">Avg Bookings/Customer</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.averageBookingsPerCustomer}</p>
+                <p className="text-sm font-medium text-gray-500 mb-3">Avg Bookings/Customer</p>
+                <p className="text-3xl font-bold text-gray-900">{stats.averageBookingsPerCustomer}</p>
+              </div>
+              <div className="w-10 h-10 bg-orange-50 rounded-lg flex items-center justify-center">
+                <TrendingUp size={20} className="text-orange-600" />
               </div>
             </div>
           </div>
@@ -192,7 +206,7 @@ export default function Customers() {
             placeholder="Search by name, email, or phone..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
+            className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-accent-500 focus:border-accent-500 shadow-sm"
           />
         </div>
         <span className="text-sm text-gray-500">
@@ -201,7 +215,7 @@ export default function Customers() {
       </div>
 
       {/* Customers Table */}
-      <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+      <div className="bg-white border border-gray-100 rounded-xl overflow-hidden shadow-sm">
         <table className="w-full">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
@@ -265,7 +279,7 @@ export default function Customers() {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     {customer.hasPortalAccess ? (
-                      <span className="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-700">
+                      <span className="px-2 py-1 text-xs font-medium rounded-full bg-accent-100 text-accent-700">
                         Active
                       </span>
                     ) : (
@@ -277,7 +291,7 @@ export default function Customers() {
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                     <button
                       onClick={() => handleView(customer.email)}
-                      className="text-gray-600 hover:text-gray-900 p-1"
+                      className="text-gray-400 hover:text-accent-600 p-2 hover:bg-accent-50 rounded-lg transition-colors"
                       title="View Details"
                     >
                       <Eye size={16} />

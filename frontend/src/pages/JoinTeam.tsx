@@ -188,7 +188,7 @@ export default function JoinTeam() {
       case 'general_manager':
         return 'bg-blue-100 text-blue-800'
       case 'accountant':
-        return 'bg-green-100 text-green-800'
+        return 'bg-accent-100 text-accent-800'
       default:
         return 'bg-gray-100 text-gray-800'
     }
@@ -199,8 +199,8 @@ export default function JoinTeam() {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
         <div className="max-w-md w-full bg-white rounded-xl shadow-lg p-8 text-center">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-green-100 rounded-full mb-4">
-            <Check size={32} className="text-green-600" />
+          <div className="inline-flex items-center justify-center w-16 h-16 bg-accent-100 rounded-full mb-4">
+            <Check size={32} className="text-accent-600" />
           </div>
           <h1 className="text-2xl font-bold text-gray-900 mb-2">Welcome to the team!</h1>
           <p className="text-gray-600 mb-4">

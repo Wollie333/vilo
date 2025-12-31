@@ -14,11 +14,11 @@ import usersRouter from './routes/users.js'
 import membersRouter from './routes/members.js'
 import customersRouter from './routes/customers.js'
 import portalRouter from './routes/portal.js'
-import websiteRouter from './routes/website.js'
-import domainsRouter from './routes/domains.js'
-import directoryRouter from './routes/directory.js'
-import mediaRouter from './routes/media.js'
-import { resolveTenantFromHostname } from './middleware/tenantResolver.js'
+import discoveryRouter from './routes/discovery.js'
+import invoicesRouter from './routes/invoices.js'
+import integrationsRouter from './routes/integrations.js'
+import geographyRouter from './routes/geography.js'
+import categoriesRouter from './routes/categories.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -31,9 +31,6 @@ const PORT = process.env.PORT || 3002
 
 app.use(cors())
 app.use(express.json({ limit: '50mb' }))
-
-// Tenant resolution middleware (for subdomain/custom domain routing)
-app.use(resolveTenantFromHostname)
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -81,10 +78,11 @@ app.use('/api/users', usersRouter)
 app.use('/api/members', membersRouter)
 app.use('/api/customers', customersRouter)
 app.use('/api/portal', portalRouter)
-app.use('/api/website', websiteRouter)
-app.use('/api/domains', domainsRouter)
-app.use('/api/directory', directoryRouter)
-app.use('/api/media', mediaRouter)
+app.use('/api/discovery', discoveryRouter)
+app.use('/api/invoices', invoicesRouter)
+app.use('/api/integrations', integrationsRouter)
+app.use('/api/geography', geographyRouter)
+app.use('/api/categories', categoriesRouter)
 
 // In production, serve the built frontend
 if (process.env.NODE_ENV === 'production') {

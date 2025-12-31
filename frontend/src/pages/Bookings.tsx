@@ -3,31 +3,37 @@ import { useNavigate } from 'react-router-dom'
 import { Plus, Search, Edit, Trash2, Eye } from 'lucide-react'
 import Button from '../components/Button'
 import ConfirmModal from '../components/ConfirmModal'
-import { bookingsApi, Booking } from '../services/api'
+import SourceBadge from '../components/SourceBadge'
+import { bookingsApi, Booking, BookingSource, BOOKING_SOURCE_DISPLAY } from '../services/api'
 import { useNotification } from '../contexts/NotificationContext'
+import { useAuth } from '../contexts/AuthContext'
+import { statusColors as themeStatusColors, paymentStatusColors as themePaymentColors } from '../theme/colors'
 
+// Use centralized theme colors
 const statusColors: Record<string, string> = {
-  pending: 'bg-yellow-100 text-yellow-700',
-  confirmed: 'bg-green-100 text-green-700',
-  checked_in: 'bg-blue-100 text-blue-700',
-  checked_out: 'bg-purple-100 text-purple-700',
-  cancelled: 'bg-red-100 text-red-700',
-  completed: 'bg-gray-100 text-gray-700',
+  pending: themeStatusColors.pending.combined,
+  confirmed: themeStatusColors.confirmed.combined,
+  checked_in: themeStatusColors.checked_in.combined,
+  checked_out: themeStatusColors.checked_out.combined,
+  cancelled: themeStatusColors.cancelled.combined,
+  completed: themeStatusColors.completed.combined,
 }
 
 const paymentStatusColors = {
-  pending: 'bg-gray-100 text-gray-700',
-  paid: 'bg-green-100 text-green-700',
-  partial: 'bg-blue-100 text-blue-700',
-  refunded: 'bg-red-100 text-red-700',
+  pending: themePaymentColors.pending.combined,
+  paid: themePaymentColors.paid.combined,
+  partial: themePaymentColors.partial.combined,
+  refunded: themePaymentColors.refunded.combined,
 }
 
 export default function Bookings() {
   const navigate = useNavigate()
+  const { tenant, tenantLoading } = useAuth()
   const [bookings, setBookings] = useState<Booking[]>([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
+  const [sourceFilter, setSourceFilter] = useState<string>('all')
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<{ isOpen: boolean; bookingId: string | null }>({
     isOpen: false,
@@ -36,8 +42,13 @@ export default function Bookings() {
   const { showSuccess, showError } = useNotification()
 
   useEffect(() => {
-    loadBookings()
-  }, [])
+    // Wait for tenant to be loaded before fetching bookings
+    if (!tenantLoading && tenant) {
+      loadBookings()
+    } else if (!tenantLoading && !tenant) {
+      setLoading(false)
+    }
+  }, [tenant, tenantLoading])
 
   const loadBookings = async () => {
     try {
@@ -94,7 +105,8 @@ export default function Bookings() {
       booking.room_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       booking.room_id?.toLowerCase().includes(searchQuery.toLowerCase())
     const matchesStatus = statusFilter === 'all' || booking.status === statusFilter
-    return matchesSearch && matchesStatus
+    const matchesSource = sourceFilter === 'all' || (booking.source || 'manual') === sourceFilter
+    return matchesSearch && matchesStatus && matchesSource
   })
 
   const formatDate = (dateString: string) => {
@@ -114,11 +126,11 @@ export default function Bookings() {
   }
 
   return (
-    <div className="p-8 bg-white min-h-full">
+    <div className="p-8 bg-gray-50 min-h-full">
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-3xl font-bold text-gray-900 mb-2">Bookings</h1>
-          <p className="text-gray-600">Manage all your accommodation bookings</p>
+          <p className="text-gray-500">Manage all your accommodation bookings</p>
         </div>
         <Button onClick={handleCreate}>
           <Plus size={18} className="mr-2" />
@@ -135,13 +147,13 @@ export default function Bookings() {
             placeholder="Search bookings..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
+            className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-accent-500 focus:border-accent-500 shadow-sm"
           />
         </div>
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
-          className="px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
+          className="px-4 py-2.5 border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-accent-500 focus:border-accent-500 shadow-sm"
         >
           <option value="all">All Status</option>
           <option value="pending">Pending</option>
@@ -151,15 +163,28 @@ export default function Bookings() {
           <option value="completed">Completed</option>
           <option value="cancelled">Cancelled</option>
         </select>
+        <select
+          value={sourceFilter}
+          onChange={(e) => setSourceFilter(e.target.value)}
+          className="px-4 py-2.5 border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-accent-500 focus:border-accent-500 shadow-sm"
+        >
+          <option value="all">All Sources</option>
+          {Object.entries(BOOKING_SOURCE_DISPLAY).map(([key, info]) => (
+            <option key={key} value={key}>{info.label}</option>
+          ))}
+        </select>
       </div>
 
       {/* Bookings Table */}
-      <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+      <div className="bg-white border border-gray-100 rounded-xl overflow-hidden shadow-sm">
         <table className="w-full">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Guest
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Source
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Room
@@ -187,13 +212,13 @@ export default function Bookings() {
           <tbody className="bg-white divide-y divide-gray-200">
             {loading ? (
               <tr>
-                <td colSpan={8} className="px-6 py-12 text-center text-gray-500">
+                <td colSpan={9} className="px-6 py-12 text-center text-gray-500">
                   Loading bookings...
                 </td>
               </tr>
             ) : filteredBookings.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-6 py-12 text-center text-gray-500">
+                <td colSpan={9} className="px-6 py-12 text-center text-gray-500">
                   No bookings found
                 </td>
               </tr>
@@ -202,6 +227,14 @@ export default function Bookings() {
                 <tr key={booking.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm font-medium text-gray-900">{booking.guest_name}</div>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <SourceBadge
+                      source={(booking.source || 'manual') as BookingSource}
+                      type="booking"
+                      externalUrl={booking.external_url}
+                      size="sm"
+                    />
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm text-gray-900">{booking.room_name || booking.room_id}</div>

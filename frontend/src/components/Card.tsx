@@ -17,26 +17,25 @@ export type { CardProps }
 
 export default function Card({ title, value, icon, trend, children, className = '' }: CardProps) {
   return (
-    <div
-      style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-color)' }}
-      className={`rounded-lg border p-6 transition-colors ${className}`}
-    >
+    <div className={`bg-white rounded-xl border border-gray-100 p-6 shadow-sm hover:shadow-md transition-all ${className}`}>
       <div className="flex items-start justify-between">
         <div className="flex-1">
           {title && (
-            <h3 style={{ color: 'var(--text-muted)' }} className="text-sm font-medium mb-3">{title}</h3>
+            <h3 className="text-sm font-medium text-gray-500 mb-3">{title}</h3>
           )}
           {value && (
             <div className="flex items-baseline justify-between">
-              <p style={{ color: 'var(--text-primary)' }} className="text-3xl font-bold">{value}</p>
+              <p className="text-3xl font-bold text-gray-900">{value}</p>
               {trend && (
-                <div className={`flex items-center gap-1 text-sm font-medium ${
-                  trend.isPositive ? 'text-green-600' : 'text-red-600'
+                <div className={`flex items-center gap-1 text-sm font-medium px-2 py-1 rounded-full ${
+                  trend.isPositive
+                    ? 'text-accent-700 bg-accent-50'
+                    : 'text-red-700 bg-red-50'
                 }`}>
                   {trend.isPositive ? (
-                    <TrendingUp size={16} />
+                    <TrendingUp size={14} />
                   ) : (
-                    <TrendingDown size={16} />
+                    <TrendingDown size={14} />
                   )}
                   <span>{trend.value}</span>
                 </div>
@@ -45,7 +44,7 @@ export default function Card({ title, value, icon, trend, children, className = 
           )}
         </div>
         {icon && (
-          <div style={{ color: 'var(--text-muted)' }} className="ml-4">
+          <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center text-gray-600 ml-4">
             {icon}
           </div>
         )}
@@ -54,4 +53,3 @@ export default function Card({ title, value, icon, trend, children, className = 
     </div>
   )
 }
-

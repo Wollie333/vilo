@@ -10,7 +10,7 @@ const statusColors: Record<string, string> = {
   new: 'bg-blue-100 text-blue-700',
   open: 'bg-yellow-100 text-yellow-700',
   pending: 'bg-orange-100 text-orange-700',
-  resolved: 'bg-green-100 text-green-700',
+  resolved: 'bg-accent-100 text-accent-700',
   closed: 'bg-gray-100 text-gray-700',
 }
 
@@ -84,10 +84,10 @@ export default function CustomerSupportThread() {
 
   if (loading) {
     return (
-      <div className="p-8">
+      <div className="p-8 bg-gray-50 min-h-full">
         <div className="flex items-center justify-center h-64">
           <div className="text-center">
-            <div className="w-8 h-8 border-2 border-gray-300 border-t-gray-900 rounded-full animate-spin mx-auto mb-4" />
+            <div className="w-8 h-8 border-2 border-accent-200 border-t-accent-600 rounded-full animate-spin mx-auto mb-4" />
             <p className="text-gray-500">Loading ticket...</p>
           </div>
         </div>
@@ -97,10 +97,10 @@ export default function CustomerSupportThread() {
 
   if (!ticket) {
     return (
-      <div className="p-8">
+      <div className="p-8 bg-gray-50 min-h-full">
         <div className="text-center py-12">
           <p className="text-gray-500 mb-4">Ticket not found</p>
-          <Link to="/portal/support" className="text-gray-900 hover:underline">
+          <Link to="/portal/support" className="text-accent-600 hover:underline">
             Back to support
           </Link>
         </div>
@@ -111,7 +111,7 @@ export default function CustomerSupportThread() {
   const isTicketClosed = ticket.status === 'closed'
 
   return (
-    <div className="p-8 bg-white min-h-full flex flex-col">
+    <div className="p-8 bg-gray-50 min-h-full flex flex-col">
       {/* Header */}
       <div className="mb-6">
         <button

@@ -8,6 +8,7 @@ import PricingStep from '../components/room-wizard/PricingStep'
 import AddonsStep from '../components/room-wizard/AddonsStep'
 import { roomsApi, RoomImages, SeasonalRate, BedConfiguration, PricingMode } from '../services/api'
 import { useNotification } from '../contexts/NotificationContext'
+import { useAuth } from '../contexts/AuthContext'
 
 const STEPS = [
   { id: 1, name: 'Room Details', description: 'Basic information and configuration' },
@@ -65,6 +66,7 @@ export default function RoomWizard() {
   const { id } = useParams<{ id: string }>()
   const isEditing = Boolean(id)
   const { showSuccess, showError } = useNotification()
+  const { tenant } = useAuth()
 
   const [currentStep, setCurrentStep] = useState(1)
   const [isLoading, setIsLoading] = useState(false)
@@ -236,28 +238,31 @@ export default function RoomWizard() {
   return (
     <div className="bg-gray-50 min-h-full">
       {/* Header */}
-      <div className="bg-white border-b border-gray-200">
-        <div className="max-w-5xl mx-auto px-6 py-4">
+      <div className="bg-gradient-to-r from-accent-600 to-accent-500 shadow-lg">
+        <div className="max-w-5xl mx-auto px-6 py-5">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
               <button
                 onClick={handleCancel}
-                className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                className="p-2 text-white/80 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
               >
                 <ArrowLeft size={20} />
               </button>
               <div>
-                <h1 className="text-xl font-bold text-gray-900">
+                <h1 className="text-xl font-bold text-white">
                   {isEditing ? 'Edit Room' : 'Create New Room'}
                 </h1>
-                <p className="text-sm text-gray-500">
+                <p className="text-sm text-white/70">
                   {formData.room_code && `Room Code: ${formData.room_code}`}
                 </p>
               </div>
             </div>
-            <Button variant="outline" onClick={handleCancel}>
+            <button
+              onClick={handleCancel}
+              className="px-4 py-2 text-sm font-medium text-white border border-white/30 rounded-lg hover:bg-white/10 transition-colors"
+            >
               Cancel
-            </Button>
+            </button>
           </div>
         </div>
       </div>
@@ -316,8 +321,8 @@ export default function RoomWizard() {
       {/* Step Content */}
       <div className="max-w-5xl mx-auto px-6 py-8">
         <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
-          {currentStep === 1 && (
-            <RoomDetailsStep formData={formData} onChange={updateFormData} />
+          {currentStep === 1 && tenant && (
+            <RoomDetailsStep formData={formData} onChange={updateFormData} tenantId={tenant.id} />
           )}
           {currentStep === 2 && roomId && (
             <PricingStep

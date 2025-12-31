@@ -152,18 +152,18 @@ export default function AddonsStep({ roomId }: AddonsStepProps) {
       {attachedAddons.length > 0 && (
         <div className="mb-6">
           <h4 style={{ color: 'var(--text-secondary)' }} className="text-sm font-medium mb-3 flex items-center gap-2">
-            <Check size={16} className="text-green-600" />
+            <Check size={16} className="text-accent-600" />
             Attached to this room ({attachedAddons.length})
           </h4>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {attachedAddons.map(addon => (
               <div
                 key={addon.id}
-                className="flex items-center justify-between p-4 rounded-lg border-2 border-green-200 bg-green-50"
+                className="flex items-center justify-between p-4 rounded-lg border-2 border-accent-200 bg-accent-50"
               >
                 <div className="flex items-center gap-3 flex-1 min-w-0">
-                  <div className="w-10 h-10 rounded-lg bg-green-100 flex items-center justify-center flex-shrink-0">
-                    <Package className="w-5 h-5 text-green-600" />
+                  <div className="w-10 h-10 rounded-lg bg-accent-100 flex items-center justify-center flex-shrink-0">
+                    <Package className="w-5 h-5 text-accent-600" />
                   </div>
                   <div className="min-w-0">
                     <div className="font-medium text-gray-900 truncate">{addon.name}</div>
@@ -192,7 +192,7 @@ export default function AddonsStep({ roomId }: AddonsStepProps) {
                     </button>
                   )}
                   {(!addon.available_for_rooms || addon.available_for_rooms.length === 0) && (
-                    <span className="text-xs text-green-600 font-medium">All Rooms</span>
+                    <span className="text-xs text-accent-600 font-medium">All Rooms</span>
                   )}
                 </div>
               </div>
@@ -234,7 +234,7 @@ export default function AddonsStep({ roomId }: AddonsStepProps) {
                   <button
                     onClick={() => handleToggleAddon(addon)}
                     disabled={updating === addon.id}
-                    className="p-1.5 text-green-600 hover:bg-green-100 rounded transition-colors disabled:opacity-50"
+                    className="p-1.5 text-accent-600 hover:bg-accent-100 rounded transition-colors disabled:opacity-50"
                     title="Add to this room"
                   >
                     {updating === addon.id ? (

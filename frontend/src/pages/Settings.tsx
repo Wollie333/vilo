@@ -1,10 +1,9 @@
-import { Wrench, UserPlus, Bell, Globe, CreditCard, Loader2, Trash2, Upload, X, ChevronDown, Check, Calendar, AlertCircle, Building2, Eye, EyeOff, Users, Mail, Copy, Shield, MessageCircle, Link2 } from 'lucide-react'
+import { Wrench, UserPlus, Bell, Globe, CreditCard, Loader2, Trash2, Upload, X, ChevronDown, Check, Calendar, AlertCircle, Users, Mail, Copy, Shield, MessageCircle, Link2 } from 'lucide-react'
 import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useNavigate } from 'react-router-dom'
 import FlagIcon from '../components/FlagIcon'
 import { supabase } from '../lib/supabase'
-import DomainSettings from '../components/DomainSettings'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3002/api'
 
@@ -95,7 +94,7 @@ function PhoneInput({
         <button
           type="button"
           onClick={() => setIsOpen(!isOpen)}
-          className="flex items-center gap-2 h-full px-3 py-2 border border-r-0 border-gray-300 rounded-l-lg bg-gray-50 hover:bg-gray-100 focus:outline-none focus:ring-1 focus:ring-gray-400 transition-colors"
+          className="flex items-center gap-2 h-full px-3 py-2 border border-r-0 border-gray-300 rounded-l-lg bg-gray-50 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-accent-500 transition-colors"
         >
           <FlagIcon country={selectedCountry.country} className="w-6 h-4 rounded-sm shadow-sm" />
           <span className="text-sm font-medium text-gray-700">{selectedCountry.code}</span>
@@ -113,7 +112,7 @@ function PhoneInput({
                   setIsOpen(false)
                 }}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 hover:bg-gray-50 transition-colors ${
-                  pc.code === phoneCode ? 'bg-gray-100' : ''
+                  pc.code === phoneCode ? 'bg-accent-50' : ''
                 }`}
               >
                 <FlagIcon country={pc.country} className="w-6 h-4 rounded-sm shadow-sm" />
@@ -129,7 +128,7 @@ function PhoneInput({
         value={phoneNumber}
         onChange={(e) => setPhoneNumber(e.target.value.replace(/[^0-9\s]/g, ''))}
         placeholder={placeholder}
-        className="flex-1 px-3 py-2 border border-gray-300 rounded-r-lg focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
+        className="flex-1 px-3 py-2 border border-gray-300 rounded-r-lg focus:outline-none focus:ring-2 focus:ring-accent-500 focus:border-accent-500"
       />
     </div>
   )
@@ -163,7 +162,6 @@ export default function Settings() {
   const navigate = useNavigate()
   const [activeSection, setActiveSection] = useState('account')
   const [twoStepEnabled, setTwoStepEnabled] = useState(false)
-  const logoInputRef = useRef<HTMLInputElement>(null)
   const avatarInputRef = useRef<HTMLInputElement>(null)
   const [avatarUrl, setAvatarUrl] = useState('')
   const [avatarUploading, setAvatarUploading] = useState(false)
@@ -201,42 +199,6 @@ export default function Settings() {
   const [dateFormat, setDateFormat] = useState('DD/MM/YYYY')
   const [regionLoading, setRegionLoading] = useState(false)
   const [regionMessage, setRegionMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-
-  // Business/General settings state
-  const [businessName, setBusinessName] = useState('')
-  const [businessDescription, setBusinessDescription] = useState('')
-  const [logoUrl, setLogoUrl] = useState('')
-  const [addressLine1, setAddressLine1] = useState('')
-  const [addressLine2, setAddressLine2] = useState('')
-  const [city, setCity] = useState('')
-  const [stateProvince, setStateProvince] = useState('')
-  const [postalCode, setPostalCode] = useState('')
-  const [businessCountry, setBusinessCountry] = useState('South Africa')
-  const [vatNumber, setVatNumber] = useState('')
-  const [businessEmail, setBusinessEmail] = useState('')
-  const [businessPhoneCode, setBusinessPhoneCode] = useState('+27')
-  const [businessPhoneNumber, setBusinessPhoneNumber] = useState('')
-  const [websiteUrl, setWebsiteUrl] = useState('')
-  const [businessLoading, setBusinessLoading] = useState(false)
-  const [businessMessage, setBusinessMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-  const [logoUploading, setLogoUploading] = useState(false)
-
-  // Business Hours state
-  interface DayHours {
-    open: string
-    close: string
-    closed: boolean
-  }
-  const defaultHours: Record<string, DayHours> = {
-    monday: { open: '08:00', close: '17:00', closed: false },
-    tuesday: { open: '08:00', close: '17:00', closed: false },
-    wednesday: { open: '08:00', close: '17:00', closed: false },
-    thursday: { open: '08:00', close: '17:00', closed: false },
-    friday: { open: '08:00', close: '17:00', closed: false },
-    saturday: { open: '09:00', close: '13:00', closed: false },
-    sunday: { open: '09:00', close: '13:00', closed: true },
-  }
-  const [businessHours, setBusinessHours] = useState<Record<string, DayHours>>(defaultHours)
 
   // Billing state
   const [hasActiveSubscription, setHasActiveSubscription] = useState(false)
@@ -298,51 +260,6 @@ export default function Settings() {
   const [generatedCode, setGeneratedCode] = useState<string | null>(null)
   const [showRemoveModal, setShowRemoveModal] = useState(false)
   const [memberToRemove, setMemberToRemove] = useState<TeamMember | null>(null)
-
-  // Payment Apps State
-  // Toggle debounce to prevent accidental double-clicks
-  const lastToggleRef = useRef<{ [key: string]: number }>({})
-  const canToggle = (key: string) => {
-    const now = Date.now()
-    const lastToggle = lastToggleRef.current[key] || 0
-    if (now - lastToggle < 300) return false
-    lastToggleRef.current[key] = now
-    return true
-  }
-
-  // Paystack
-  const [paystackEnabled, setPaystackEnabled] = useState(false)
-  const [paystackMode, setPaystackMode] = useState<'test' | 'live'>('test')
-  const [paystackTestPublicKey, setPaystackTestPublicKey] = useState('')
-  const [paystackTestSecretKey, setPaystackTestSecretKey] = useState('')
-  const [paystackLivePublicKey, setPaystackLivePublicKey] = useState('')
-  const [paystackLiveSecretKey, setPaystackLiveSecretKey] = useState('')
-  const [showPaystackSecretKey, setShowPaystackSecretKey] = useState(false)
-  const [paystackLoading, setPaystackLoading] = useState(false)
-  const [paystackMessage, setPaystackMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-
-  // EFT/Bank Details
-  const [eftEnabled, setEftEnabled] = useState(false)
-  const [eftAccountHolder, setEftAccountHolder] = useState('')
-  const [eftBankName, setEftBankName] = useState('')
-  const [eftAccountNumber, setEftAccountNumber] = useState('')
-  const [eftBranchCode, setEftBranchCode] = useState('')
-  const [eftAccountType, setEftAccountType] = useState<'cheque' | 'savings' | 'current'>('cheque')
-  const [eftSwiftCode, setEftSwiftCode] = useState('')
-  const [eftReferenceInstructions, setEftReferenceInstructions] = useState('')
-  const [eftLoading, setEftLoading] = useState(false)
-  const [eftMessage, setEftMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-
-  // PayPal
-  const [paypalEnabled, setPaypalEnabled] = useState(false)
-  const [paypalMode, setPaypalMode] = useState<'sandbox' | 'live'>('sandbox')
-  const [paypalSandboxClientId, setPaypalSandboxClientId] = useState('')
-  const [paypalSandboxSecret, setPaypalSandboxSecret] = useState('')
-  const [paypalLiveClientId, setPaypalLiveClientId] = useState('')
-  const [paypalLiveSecret, setPaypalLiveSecret] = useState('')
-  const [showPaypalSecret, setShowPaypalSecret] = useState(false)
-  const [paypalLoading, setPaypalLoading] = useState(false)
-  const [paypalMessage, setPaypalMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   // Calendar Sync State
   // Airbnb
@@ -534,64 +451,17 @@ export default function Settings() {
       setCountry(tenant.country || 'South Africa')
       setTimezone(tenant.timezone || 'Africa/Johannesburg')
       setDateFormat(tenant.date_format || 'DD/MM/YYYY')
-      // Business settings
-      setBusinessName(tenant.business_name || '')
-      setBusinessDescription(tenant.business_description || '')
-      setLogoUrl(tenant.logo_url || '')
-      setAddressLine1(tenant.address_line1 || '')
-      setAddressLine2(tenant.address_line2 || '')
-      setCity(tenant.city || '')
-      setStateProvince(tenant.state_province || '')
-      setPostalCode(tenant.postal_code || '')
-      setBusinessCountry(tenant.country || 'South Africa')
-      setVatNumber(tenant.vat_number || '')
-      setBusinessEmail(tenant.business_email || '')
-      setWebsiteUrl(tenant.website_url || '')
-
-      // Parse business phone
-      const fullBusinessPhone = tenant.business_phone || ''
-      if (fullBusinessPhone) {
-        const matchedCode = PHONE_CODES.find(pc => fullBusinessPhone.startsWith(pc.code))
-        if (matchedCode) {
-          setBusinessPhoneCode(matchedCode.code)
-          setBusinessPhoneNumber(fullBusinessPhone.replace(matchedCode.code, '').trim())
-        } else {
-          setBusinessPhoneNumber(fullBusinessPhone)
-        }
-      }
-
-      // Business hours
-      if (tenant.business_hours) {
-        setBusinessHours(tenant.business_hours as Record<string, DayHours>)
-      }
-
-      // Paystack settings
-      setPaystackEnabled(tenant.paystack_enabled || false)
-      setPaystackMode((tenant.paystack_mode as 'test' | 'live') || 'test')
-      setPaystackTestPublicKey(tenant.paystack_test_public_key || '')
-      setPaystackTestSecretKey(tenant.paystack_test_secret_key || '')
-      setPaystackLivePublicKey(tenant.paystack_live_public_key || '')
-      setPaystackLiveSecretKey(tenant.paystack_live_secret_key || '')
-
-      // EFT settings
-      setEftEnabled(tenant.eft_enabled || false)
-      setEftAccountHolder(tenant.eft_account_holder || '')
-      setEftBankName(tenant.eft_bank_name || '')
-      setEftAccountNumber(tenant.eft_account_number || '')
-      setEftBranchCode(tenant.eft_branch_code || '')
-      setEftAccountType((tenant.eft_account_type as 'cheque' | 'savings' | 'current') || 'cheque')
     }
   }, [tenant])
 
   const generalSettings = [
-    { id: 'apps', name: 'Apps', icon: Wrench },
+    { id: 'apps', name: 'Integrations', icon: Wrench },
     { id: 'account', name: 'Account', icon: UserPlus },
     { id: 'notification', name: 'Notification', icon: Bell },
     { id: 'language', name: 'Language & Region', icon: Globe },
   ]
 
   const workspaceSettings = [
-    { id: 'general', name: 'General', icon: Wrench },
     { id: 'domains', name: 'Domains', icon: Link2 },
     { id: 'members', name: 'Members', icon: UserPlus },
     { id: 'billing', name: 'Billing', icon: CreditCard },
@@ -882,271 +752,6 @@ export default function Settings() {
     }
   }
 
-  const handleBusinessUpdate = async () => {
-    if (!session?.access_token) return
-
-    setBusinessLoading(true)
-    setBusinessMessage(null)
-
-    // Combine business phone code and number
-    const fullBusinessPhone = businessPhoneNumber ? `${businessPhoneCode}${businessPhoneNumber.replace(/^0+/, '')}` : ''
-
-    try {
-      const response = await fetch(`${API_URL}/tenants/me`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({
-          business_name: businessName,
-          business_description: businessDescription,
-          address_line1: addressLine1,
-          address_line2: addressLine2,
-          city,
-          state_province: stateProvince,
-          postal_code: postalCode,
-          country: businessCountry,
-          vat_number: vatNumber,
-          business_email: businessEmail,
-          business_phone: fullBusinessPhone,
-          website_url: websiteUrl,
-          business_hours: businessHours,
-        }),
-      })
-
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to update business settings')
-      }
-
-      await refreshTenant()
-      setBusinessMessage({ type: 'success', text: 'Business settings updated successfully' })
-    } catch (error) {
-      setBusinessMessage({
-        type: 'error',
-        text: error instanceof Error ? error.message : 'Failed to update business settings',
-      })
-    } finally {
-      setBusinessLoading(false)
-    }
-  }
-
-  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file || !session?.access_token) return
-
-    // Validate file type
-    if (!file.type.startsWith('image/')) {
-      setBusinessMessage({ type: 'error', text: 'Please upload an image file' })
-      return
-    }
-
-    // Validate file size (2MB)
-    if (file.size > 2 * 1024 * 1024) {
-      setBusinessMessage({ type: 'error', text: 'Image must be under 2MB' })
-      return
-    }
-
-    setLogoUploading(true)
-    setBusinessMessage(null)
-
-    try {
-      // Convert to base64
-      const reader = new FileReader()
-      reader.onload = async () => {
-        const base64 = reader.result as string
-
-        const response = await fetch(`${API_URL}/tenants/me/logo`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${session.access_token}`,
-          },
-          body: JSON.stringify({ image: base64 }),
-        })
-
-        const data = await response.json()
-
-        if (!response.ok) {
-          throw new Error(data.error || 'Failed to upload logo')
-        }
-
-        setLogoUrl(data.logo_url)
-        await refreshTenant()
-        setBusinessMessage({ type: 'success', text: 'Logo uploaded successfully' })
-        setLogoUploading(false)
-      }
-      reader.onerror = () => {
-        setBusinessMessage({ type: 'error', text: 'Failed to read image file' })
-        setLogoUploading(false)
-      }
-      reader.readAsDataURL(file)
-    } catch (error) {
-      setBusinessMessage({
-        type: 'error',
-        text: error instanceof Error ? error.message : 'Failed to upload logo',
-      })
-      setLogoUploading(false)
-    }
-  }
-
-  const handleRemoveLogo = async () => {
-    if (!session?.access_token) return
-
-    setLogoUploading(true)
-
-    try {
-      const response = await fetch(`${API_URL}/tenants/me`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({ logo_url: null }),
-      })
-
-      if (!response.ok) {
-        throw new Error('Failed to remove logo')
-      }
-
-      setLogoUrl('')
-      await refreshTenant()
-      setBusinessMessage({ type: 'success', text: 'Logo removed' })
-    } catch (error) {
-      setBusinessMessage({
-        type: 'error',
-        text: error instanceof Error ? error.message : 'Failed to remove logo',
-      })
-    } finally {
-      setLogoUploading(false)
-    }
-  }
-
-  // Payment Apps Handlers
-  const handlePaystackSave = async () => {
-    if (!session?.access_token) return
-
-    setPaystackLoading(true)
-    setPaystackMessage(null)
-
-    try {
-      const response = await fetch(`${API_URL}/tenants/me/payment-apps/paystack`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({
-          enabled: paystackEnabled,
-          mode: paystackMode,
-          test_public_key: paystackTestPublicKey,
-          test_secret_key: paystackTestSecretKey,
-          live_public_key: paystackLivePublicKey,
-          live_secret_key: paystackLiveSecretKey,
-        }),
-      })
-
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to save Paystack settings')
-      }
-
-      setPaystackMessage({ type: 'success', text: 'Paystack settings saved successfully' })
-    } catch (error) {
-      setPaystackMessage({
-        type: 'error',
-        text: error instanceof Error ? error.message : 'Failed to save Paystack settings',
-      })
-    } finally {
-      setPaystackLoading(false)
-    }
-  }
-
-  const handleEftSave = async () => {
-    if (!session?.access_token) return
-
-    setEftLoading(true)
-    setEftMessage(null)
-
-    try {
-      const response = await fetch(`${API_URL}/tenants/me/payment-apps/eft`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({
-          enabled: eftEnabled,
-          account_holder: eftAccountHolder,
-          bank_name: eftBankName,
-          account_number: eftAccountNumber,
-          branch_code: eftBranchCode,
-          account_type: eftAccountType,
-          swift_code: eftSwiftCode,
-          reference_instructions: eftReferenceInstructions,
-        }),
-      })
-
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to save EFT settings')
-      }
-
-      setEftMessage({ type: 'success', text: 'EFT settings saved successfully' })
-    } catch (error) {
-      setEftMessage({
-        type: 'error',
-        text: error instanceof Error ? error.message : 'Failed to save EFT settings',
-      })
-    } finally {
-      setEftLoading(false)
-    }
-  }
-
-  const handlePaypalSave = async () => {
-    if (!session?.access_token) return
-
-    setPaypalLoading(true)
-    setPaypalMessage(null)
-
-    try {
-      const response = await fetch(`${API_URL}/tenants/me/payment-apps/paypal`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({
-          enabled: paypalEnabled,
-          mode: paypalMode,
-          sandbox_client_id: paypalSandboxClientId,
-          sandbox_secret: paypalSandboxSecret,
-          live_client_id: paypalLiveClientId,
-          live_secret: paypalLiveSecret,
-        }),
-      })
-
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to save PayPal settings')
-      }
-
-      setPaypalMessage({ type: 'success', text: 'PayPal settings saved successfully' })
-    } catch (error) {
-      setPaypalMessage({
-        type: 'error',
-        text: error instanceof Error ? error.message : 'Failed to save PayPal settings',
-      })
-    } finally {
-      setPaypalLoading(false)
-    }
-  }
-
   // Copy to clipboard helper
   const copyToClipboard = async (text: string, platform: string) => {
     try {
@@ -1421,7 +1026,7 @@ export default function Settings() {
       case 'general_manager':
         return 'bg-blue-100 text-blue-800'
       case 'accountant':
-        return 'bg-green-100 text-green-800'
+        return 'bg-accent-100 text-accent-800'
       default:
         return 'bg-gray-100 text-gray-800'
     }
@@ -1441,13 +1046,13 @@ export default function Settings() {
   }
 
   return (
-    <div className="p-8 bg-white min-h-full">
+    <div className="p-8 bg-gray-50 min-h-full">
       <h1 className="text-3xl font-bold text-gray-900 mb-8">Account Settings</h1>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Left Column - Settings Navigation */}
-        <div className="lg:col-span-1 space-y-6">
-          <div>
+        <div className="lg:col-span-1 bg-white rounded-xl border border-gray-200 p-5 h-fit">
+          <div className="mb-6">
             <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
               GENERAL SETTINGS
             </h2>
@@ -1459,13 +1064,13 @@ export default function Settings() {
                   <button
                     key={item.id}
                     onClick={() => setActiveSection(item.id)}
-                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-md transition-all ${
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all ${
                       isActive
-                        ? 'bg-gray-100 text-gray-900 font-medium'
-                        : 'text-gray-700 hover:bg-gray-50'
+                        ? 'bg-accent-50 text-accent-700 font-medium'
+                        : 'text-gray-700 hover:bg-gray-100'
                     }`}
                   >
-                    <Icon size={18} />
+                    <Icon size={18} className={isActive ? 'text-accent-600' : ''} />
                     <span className="text-sm">{item.name}</span>
                   </button>
                 )
@@ -1485,13 +1090,13 @@ export default function Settings() {
                   <button
                     key={item.id}
                     onClick={() => setActiveSection(item.id)}
-                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-md transition-all ${
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all ${
                       isActive
-                        ? 'bg-gray-100 text-gray-900 font-medium'
-                        : 'text-gray-700 hover:bg-gray-50'
+                        ? 'bg-accent-50 text-accent-700 font-medium'
+                        : 'text-gray-700 hover:bg-gray-100'
                     }`}
                   >
-                    <Icon size={18} />
+                    <Icon size={18} className={isActive ? 'text-accent-600' : ''} />
                     <span className="text-sm">{item.name}</span>
                   </button>
                 )
@@ -1501,7 +1106,7 @@ export default function Settings() {
         </div>
 
         {/* Right Column - Settings Content */}
-        <div className="lg:col-span-2">
+        <div className="lg:col-span-2 bg-white rounded-xl border border-gray-200 p-6">
           {/* Account Section */}
           {activeSection === 'account' && (
             <div className="space-y-8">
@@ -1509,7 +1114,7 @@ export default function Settings() {
               <div>
                 <h2 className="text-lg font-semibold text-gray-900 mb-4">My Profile</h2>
                 <div className="flex items-start gap-6">
-                  <div className="w-20 h-20 rounded-full bg-gradient-to-br from-gray-400 to-gray-600 flex items-center justify-center overflow-hidden">
+                  <div className="w-20 h-20 rounded-full bg-gradient-to-br from-accent-400 to-accent-600 flex items-center justify-center overflow-hidden">
                     {avatarUrl ? (
                       <img src={avatarUrl} alt="Profile" className="w-full h-full object-cover" />
                     ) : (
@@ -1528,7 +1133,7 @@ export default function Settings() {
                       <button
                         onClick={() => avatarInputRef.current?.click()}
                         disabled={avatarUploading}
-                        className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-md text-sm font-medium hover:bg-gray-800 transition-colors disabled:opacity-50"
+                        className="flex items-center gap-2 px-4 py-2 bg-accent-500 text-white rounded-lg text-sm font-medium hover:bg-accent-600 transition-colors disabled:opacity-50"
                       >
                         {avatarUploading ? (
                           <Loader2 size={16} className="animate-spin" />
@@ -1563,7 +1168,7 @@ export default function Settings() {
                       value={firstName}
                       onChange={(e) => setFirstName(e.target.value)}
                       placeholder="Enter first name"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-accent-500 focus:border-accent-500"
                     />
                   </div>
                   <div>
@@ -1575,7 +1180,7 @@ export default function Settings() {
                       value={lastName}
                       onChange={(e) => setLastName(e.target.value)}
                       placeholder="Enter last name"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-accent-500 focus:border-accent-500"
                     />
                   </div>
                 </div>
@@ -1597,7 +1202,7 @@ export default function Settings() {
                   <button
                     onClick={handleProfileUpdate}
                     disabled={profileLoading}
-                    className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-md text-sm font-medium hover:bg-gray-800 transition-colors disabled:opacity-50"
+                    className="flex items-center gap-2 px-4 py-2 bg-accent-500 text-white rounded-lg text-sm font-medium hover:bg-accent-600 transition-colors disabled:opacity-50"
                   >
                     {profileLoading && <Loader2 size={16} className="animate-spin" />}
                     Save Profile
@@ -1605,7 +1210,7 @@ export default function Settings() {
                   {profileMessage && (
                     <span
                       className={`text-sm ${
-                        profileMessage.type === 'success' ? 'text-green-600' : 'text-red-600'
+                        profileMessage.type === 'success' ? 'text-accent-600' : 'text-red-600'
                       }`}
                     >
                       {profileMessage.text}
@@ -1629,7 +1234,7 @@ export default function Settings() {
                           type="email"
                           value={email}
                           onChange={(e) => setEmail(e.target.value)}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-accent-500 focus:border-accent-500"
                         />
                       </div>
                       <button
@@ -1643,7 +1248,7 @@ export default function Settings() {
                     {emailMessage && (
                       <p
                         className={`mt-2 text-sm ${
-                          emailMessage.type === 'success' ? 'text-green-600' : 'text-red-600'
+                          emailMessage.type === 'success' ? 'text-accent-600' : 'text-red-600'
                         }`}
                       >
                         {emailMessage.text}
@@ -1677,7 +1282,7 @@ export default function Settings() {
                             value={newPassword}
                             onChange={(e) => setNewPassword(e.target.value)}
                             placeholder="New password"
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-accent-500 focus:border-accent-500"
                           />
                         </div>
                         <div>
@@ -1686,14 +1291,14 @@ export default function Settings() {
                             value={confirmPassword}
                             onChange={(e) => setConfirmPassword(e.target.value)}
                             placeholder="Confirm new password"
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-accent-500 focus:border-accent-500"
                           />
                         </div>
                         <div className="flex items-center gap-4">
                           <button
                             onClick={handlePasswordUpdate}
                             disabled={passwordLoading || !newPassword || !confirmPassword}
-                            className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-md text-sm font-medium hover:bg-gray-800 transition-colors disabled:opacity-50"
+                            className="flex items-center gap-2 px-4 py-2 bg-accent-500 text-white rounded-lg text-sm font-medium hover:bg-accent-600 transition-colors disabled:opacity-50"
                           >
                             {passwordLoading && <Loader2 size={16} className="animate-spin" />}
                             Update Password
@@ -1701,7 +1306,7 @@ export default function Settings() {
                           {passwordMessage && (
                             <span
                               className={`text-sm ${
-                                passwordMessage.type === 'success' ? 'text-green-600' : 'text-red-600'
+                                passwordMessage.type === 'success' ? 'text-accent-600' : 'text-red-600'
                               }`}
                             >
                               {passwordMessage.text}
@@ -1725,11 +1330,11 @@ export default function Settings() {
                     <button
                       onClick={() => setTwoStepEnabled(!twoStepEnabled)}
                       className={`ml-4 w-12 h-6 rounded-full transition-colors ${
-                        twoStepEnabled ? 'bg-black' : 'bg-gray-300'
+                        twoStepEnabled ? 'bg-accent-500' : 'bg-gray-300'
                       }`}
                     >
                       <div
-                        className={`w-5 h-5 bg-white rounded-full transition-transform ${
+                        className={`w-5 h-5 bg-white rounded-full shadow-sm transition-transform ${
                           twoStepEnabled ? 'translate-x-6' : 'translate-x-0.5'
                         }`}
                         style={{ marginTop: '2px' }}
@@ -1781,7 +1386,7 @@ export default function Settings() {
                     <select
                       value={language}
                       onChange={(e) => setLanguage(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-accent-500 focus:border-accent-500"
                     >
                       {LANGUAGES.map((lang) => (
                         <option key={lang.code} value={lang.code}>
@@ -1802,7 +1407,7 @@ export default function Settings() {
                     <select
                       value={currency}
                       onChange={(e) => setCurrency(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-accent-500 focus:border-accent-500"
                     >
                       {CURRENCIES.map((curr) => (
                         <option key={curr.code} value={curr.code}>
@@ -1823,7 +1428,7 @@ export default function Settings() {
                     <select
                       value={country}
                       onChange={(e) => setCountry(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-accent-500 focus:border-accent-500"
                     >
                       {COUNTRIES.map((c) => (
                         <option key={c} value={c}>
@@ -1841,7 +1446,7 @@ export default function Settings() {
                     <select
                       value={timezone}
                       onChange={(e) => setTimezone(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-accent-500 focus:border-accent-500"
                     >
                       <optgroup label="Africa">
                         <option value="Africa/Johannesburg">Johannesburg +2:00</option>
@@ -1956,7 +1561,7 @@ export default function Settings() {
                     <select
                       value={dateFormat}
                       onChange={(e) => setDateFormat(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-accent-500 focus:border-accent-500"
                     >
                       <option value="DD/MM/YYYY">DD/MM/YYYY (31/12/2024)</option>
                       <option value="MM/DD/YYYY">MM/DD/YYYY (12/31/2024)</option>
@@ -1973,7 +1578,7 @@ export default function Settings() {
                     <button
                       onClick={handleRegionUpdate}
                       disabled={regionLoading}
-                      className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-md text-sm font-medium hover:bg-gray-800 transition-colors disabled:opacity-50"
+                      className="flex items-center gap-2 px-4 py-2 bg-accent-500 text-white rounded-lg text-sm font-medium hover:bg-accent-600 transition-colors disabled:opacity-50"
                     >
                       {regionLoading && <Loader2 size={16} className="animate-spin" />}
                       Save Regional Settings
@@ -1981,341 +1586,10 @@ export default function Settings() {
                     {regionMessage && (
                       <span
                         className={`text-sm ${
-                          regionMessage.type === 'success' ? 'text-green-600' : 'text-red-600'
+                          regionMessage.type === 'success' ? 'text-accent-600' : 'text-red-600'
                         }`}
                       >
                         {regionMessage.text}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* General/Business Settings Section */}
-          {activeSection === 'general' && (
-            <div className="space-y-8">
-              <div>
-                <h2 className="text-lg font-semibold text-gray-900 mb-2">Business Information</h2>
-                <p className="text-sm text-gray-500 mb-6">
-                  Configure your business details. This information will be displayed on your public booking pages and invoices.
-                </p>
-
-                {/* Logo */}
-                <div className="mb-6">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Business Logo
-                  </label>
-                  <div className="flex items-start gap-4">
-                    <div className="w-24 h-24 rounded-lg border-2 border-dashed border-gray-300 flex items-center justify-center overflow-hidden bg-gray-50">
-                      {logoUrl ? (
-                        <img src={logoUrl} alt="Business logo" className="w-full h-full object-contain" />
-                      ) : (
-                        <Upload size={24} className="text-gray-400" />
-                      )}
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex gap-3 mb-2">
-                        <input
-                          ref={logoInputRef}
-                          type="file"
-                          accept="image/*"
-                          onChange={handleLogoUpload}
-                          className="hidden"
-                        />
-                        <button
-                          onClick={() => logoInputRef.current?.click()}
-                          disabled={logoUploading}
-                          className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-md text-sm font-medium hover:bg-gray-800 transition-colors disabled:opacity-50"
-                        >
-                          {logoUploading ? (
-                            <Loader2 size={16} className="animate-spin" />
-                          ) : (
-                            <Upload size={16} />
-                          )}
-                          Upload Logo
-                        </button>
-                        {logoUrl && (
-                          <button
-                            onClick={handleRemoveLogo}
-                            disabled={logoUploading}
-                            className="flex items-center gap-2 px-4 py-2 border border-gray-300 text-gray-700 rounded-md text-sm font-medium hover:bg-gray-50 transition-colors disabled:opacity-50"
-                          >
-                            <X size={16} />
-                            Remove
-                          </button>
-                        )}
-                      </div>
-                      <p className="text-xs text-gray-500">
-                        PNG, JPG, GIF up to 2MB. Recommended: 200x200px or larger, square format.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-4">
-                  {/* Business Name */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Business Name
-                    </label>
-                    <input
-                      type="text"
-                      value={businessName}
-                      onChange={(e) => setBusinessName(e.target.value)}
-                      placeholder="Enter your business name"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
-                    />
-                  </div>
-
-                  {/* Business Description */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Business Description
-                    </label>
-                    <textarea
-                      value={businessDescription}
-                      onChange={(e) => setBusinessDescription(e.target.value)}
-                      placeholder="Describe your business..."
-                      rows={4}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
-                    />
-                    <p className="mt-1 text-xs text-gray-500">
-                      This description may be shown on your public booking pages.
-                    </p>
-                  </div>
-
-                  {/* Address */}
-                  <div className="border-t border-gray-200 pt-4 mt-6">
-                    <h3 className="text-sm font-semibold text-gray-900 mb-4">Address</h3>
-                    <div className="space-y-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Address Line 1
-                        </label>
-                        <input
-                          type="text"
-                          value={addressLine1}
-                          onChange={(e) => setAddressLine1(e.target.value)}
-                          placeholder="Street address"
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Address Line 2
-                        </label>
-                        <input
-                          type="text"
-                          value={addressLine2}
-                          onChange={(e) => setAddressLine2(e.target.value)}
-                          placeholder="Apartment, suite, unit, etc. (optional)"
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
-                        />
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">
-                            City
-                          </label>
-                          <input
-                            type="text"
-                            value={city}
-                            onChange={(e) => setCity(e.target.value)}
-                            placeholder="City"
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">
-                            State/Province
-                          </label>
-                          <input
-                            type="text"
-                            value={stateProvince}
-                            onChange={(e) => setStateProvince(e.target.value)}
-                            placeholder="State or Province"
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
-                          />
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">
-                            Postal Code
-                          </label>
-                          <input
-                            type="text"
-                            value={postalCode}
-                            onChange={(e) => setPostalCode(e.target.value)}
-                            placeholder="Postal code"
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">
-                            Country
-                          </label>
-                          <select
-                            value={businessCountry}
-                            onChange={(e) => setBusinessCountry(e.target.value)}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
-                          >
-                            {COUNTRIES.map((c) => (
-                              <option key={c} value={c}>
-                                {c}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Tax Information */}
-                  <div className="border-t border-gray-200 pt-4 mt-6">
-                    <h3 className="text-sm font-semibold text-gray-900 mb-4">Tax Information</h3>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        VAT Number
-                      </label>
-                      <input
-                        type="text"
-                        value={vatNumber}
-                        onChange={(e) => setVatNumber(e.target.value)}
-                        placeholder="VAT registration number (optional)"
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
-                      />
-                      <p className="mt-1 text-xs text-gray-500">
-                        Your VAT/Tax ID will be displayed on invoices if provided.
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Contact Information */}
-                  <div className="border-t border-gray-200 pt-4 mt-6">
-                    <h3 className="text-sm font-semibold text-gray-900 mb-4">Contact Information</h3>
-                    <div className="space-y-4">
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">
-                            Business Email
-                          </label>
-                          <input
-                            type="email"
-                            value={businessEmail}
-                            onChange={(e) => setBusinessEmail(e.target.value)}
-                            placeholder="contact@business.com"
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">
-                            Business Phone
-                          </label>
-                          <PhoneInput
-                            phoneCode={businessPhoneCode}
-                            setPhoneCode={setBusinessPhoneCode}
-                            phoneNumber={businessPhoneNumber}
-                            setPhoneNumber={setBusinessPhoneNumber}
-                            placeholder="12 345 6789"
-                          />
-                        </div>
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Website URL
-                        </label>
-                        <input
-                          type="url"
-                          value={websiteUrl}
-                          onChange={(e) => setWebsiteUrl(e.target.value)}
-                          placeholder="https://www.yourbusiness.com"
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Business Hours */}
-                  <div className="border-t border-gray-200 pt-4 mt-6">
-                    <h3 className="text-sm font-semibold text-gray-900 mb-2">Business Hours</h3>
-                    <p className="text-xs text-gray-500 mb-4">
-                      Set your operating hours for each day. These will be displayed on your public pages.
-                    </p>
-                    <div className="space-y-3">
-                      {['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map((day) => (
-                        <div key={day} className="flex items-center gap-4">
-                          <div className="w-24">
-                            <span className="text-sm font-medium text-gray-700 capitalize">{day}</span>
-                          </div>
-                          <label className="flex items-center gap-2 cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={businessHours[day]?.closed || false}
-                              onChange={(e) => {
-                                setBusinessHours(prev => ({
-                                  ...prev,
-                                  [day]: { ...prev[day], closed: e.target.checked }
-                                }))
-                              }}
-                              className="w-4 h-4 text-gray-900 border-gray-300 rounded focus:ring-gray-500"
-                            />
-                            <span className="text-sm text-gray-600">Closed</span>
-                          </label>
-                          {!businessHours[day]?.closed && (
-                            <div className="flex items-center gap-2 flex-1">
-                              <input
-                                type="time"
-                                value={businessHours[day]?.open || '08:00'}
-                                onChange={(e) => {
-                                  setBusinessHours(prev => ({
-                                    ...prev,
-                                    [day]: { ...prev[day], open: e.target.value }
-                                  }))
-                                }}
-                                className="px-2 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
-                              />
-                              <span className="text-gray-400">to</span>
-                              <input
-                                type="time"
-                                value={businessHours[day]?.close || '17:00'}
-                                onChange={(e) => {
-                                  setBusinessHours(prev => ({
-                                    ...prev,
-                                    [day]: { ...prev[day], close: e.target.value }
-                                  }))
-                                }}
-                                className="px-2 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
-                              />
-                            </div>
-                          )}
-                          {businessHours[day]?.closed && (
-                            <span className="text-sm text-gray-400 italic">Closed all day</span>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Save Button */}
-                  <div className="flex items-center gap-4 pt-6 border-t border-gray-200 mt-6">
-                    <button
-                      onClick={handleBusinessUpdate}
-                      disabled={businessLoading}
-                      className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-md text-sm font-medium hover:bg-gray-800 transition-colors disabled:opacity-50"
-                    >
-                      {businessLoading && <Loader2 size={16} className="animate-spin" />}
-                      Save Business Settings
-                    </button>
-                    {businessMessage && (
-                      <span
-                        className={`text-sm ${
-                          businessMessage.type === 'success' ? 'text-green-600' : 'text-red-600'
-                        }`}
-                      >
-                        {businessMessage.text}
                       </span>
                     )}
                   </div>
@@ -2333,9 +1607,9 @@ export default function Settings() {
                   Manage your property's subdomain and custom domain settings
                 </p>
               </div>
-              {session?.access_token && (
-                <DomainSettings accessToken={session.access_token} />
-              )}
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-6 text-center">
+                <p className="text-gray-500">Domain settings coming soon.</p>
+              </div>
             </div>
           )}
 
@@ -2355,7 +1629,7 @@ export default function Settings() {
                     <div className="flex items-start justify-between">
                       <div>
                         <div className="flex items-center gap-2 mb-1">
-                          <span className="text-sm font-medium text-green-100">Subscription Status</span>
+                          <span className="text-sm font-medium text-accent-100">Subscription Status</span>
                           <span className="px-2 py-0.5 bg-white/20 text-white text-xs font-medium rounded-full">
                             Active
                           </span>
@@ -2366,7 +1640,7 @@ export default function Settings() {
                           {subscriptionPlan === 'annual' && 'Annual Plan'}
                           {!subscriptionPlan && 'Lifetime Access'}
                         </h3>
-                        <p className="text-green-100 text-sm">
+                        <p className="text-accent-100 text-sm">
                           {subscriptionPlan === 'lifetime' || !subscriptionPlan
                             ? 'You have unlimited access to all Vilo features forever.'
                             : subscriptionPlan === 'monthly'
@@ -2381,7 +1655,7 @@ export default function Settings() {
                       </div>
                     </div>
                     {subscriptionDate && (
-                      <div className="mt-4 pt-4 border-t border-green-400/30 flex items-center gap-2 text-sm text-green-100">
+                      <div className="mt-4 pt-4 border-t border-accent-400/30 flex items-center gap-2 text-sm text-accent-100">
                         <Calendar size={16} />
                         <span>
                           {subscriptionPlan === 'monthly' || subscriptionPlan === 'annual'
@@ -2425,8 +1699,8 @@ export default function Settings() {
 
                 {/* Lifetime Plan Card */}
                 {!hasActiveSubscription && (
-                  <div className="relative rounded-xl border-2 border-black ring-2 ring-black ring-offset-2 p-6 bg-white">
-                    <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 bg-black text-white text-xs font-medium rounded-full">
+                  <div className="relative rounded-xl border-2 border-accent-500 ring-2 ring-accent-500 ring-offset-2 p-6 bg-white">
+                    <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 bg-accent-500 text-white text-xs font-medium rounded-full">
                       Limited Time Offer
                     </div>
 
@@ -2439,27 +1713,27 @@ export default function Settings() {
 
                         <ul className="space-y-2">
                           <li className="flex items-center gap-2 text-sm text-gray-600">
-                            <Check size={16} className="text-green-500 flex-shrink-0" />
+                            <Check size={16} className="text-accent-500 flex-shrink-0" />
                             <span>Unlimited rooms & bookings</span>
                           </li>
                           <li className="flex items-center gap-2 text-sm text-gray-600">
-                            <Check size={16} className="text-green-500 flex-shrink-0" />
+                            <Check size={16} className="text-accent-500 flex-shrink-0" />
                             <span>Calendar sync (Google, iCal, Outlook)</span>
                           </li>
                           <li className="flex items-center gap-2 text-sm text-gray-600">
-                            <Check size={16} className="text-green-500 flex-shrink-0" />
+                            <Check size={16} className="text-accent-500 flex-shrink-0" />
                             <span>Custom branding & no watermarks</span>
                           </li>
                           <li className="flex items-center gap-2 text-sm text-gray-600">
-                            <Check size={16} className="text-green-500 flex-shrink-0" />
+                            <Check size={16} className="text-accent-500 flex-shrink-0" />
                             <span>Advanced analytics & reporting</span>
                           </li>
                           <li className="flex items-center gap-2 text-sm text-gray-600">
-                            <Check size={16} className="text-green-500 flex-shrink-0" />
+                            <Check size={16} className="text-accent-500 flex-shrink-0" />
                             <span>Priority email support</span>
                           </li>
                           <li className="flex items-center gap-2 text-sm text-gray-600">
-                            <Check size={16} className="text-green-500 flex-shrink-0" />
+                            <Check size={16} className="text-accent-500 flex-shrink-0" />
                             <span>All future updates included</span>
                           </li>
                         </ul>
@@ -2481,7 +1755,7 @@ export default function Settings() {
                         <button
                           onClick={handlePaystackPayment}
                           disabled={billingLoading}
-                          className="w-full md:w-auto flex items-center justify-center gap-2 px-8 py-3 bg-black text-white rounded-lg text-sm font-medium hover:bg-gray-800 transition-colors disabled:opacity-50"
+                          className="w-full md:w-auto flex items-center justify-center gap-2 px-8 py-3 bg-accent-500 text-white rounded-lg text-sm font-medium hover:bg-accent-600 transition-colors disabled:opacity-50"
                         >
                           {billingLoading ? (
                             <Loader2 size={18} className="animate-spin" />
@@ -2534,7 +1808,7 @@ export default function Settings() {
                           }`}
                         >
                           Annual
-                          <span className="ml-1 text-xs text-green-600 font-semibold">Save 14%</span>
+                          <span className="ml-1 text-xs text-accent-600 font-semibold">Save 14%</span>
                         </button>
                       </div>
                     </div>
@@ -2554,27 +1828,27 @@ export default function Settings() {
 
                           <ul className="space-y-2">
                             <li className="flex items-center gap-2 text-sm text-gray-600">
-                              <Check size={16} className="text-green-500 flex-shrink-0" />
+                              <Check size={16} className="text-accent-500 flex-shrink-0" />
                               <span>Unlimited rooms & bookings</span>
                             </li>
                             <li className="flex items-center gap-2 text-sm text-gray-600">
-                              <Check size={16} className="text-green-500 flex-shrink-0" />
+                              <Check size={16} className="text-accent-500 flex-shrink-0" />
                               <span>Calendar sync (Google, iCal, Outlook)</span>
                             </li>
                             <li className="flex items-center gap-2 text-sm text-gray-600">
-                              <Check size={16} className="text-green-500 flex-shrink-0" />
+                              <Check size={16} className="text-accent-500 flex-shrink-0" />
                               <span>Custom branding & no watermarks</span>
                             </li>
                             <li className="flex items-center gap-2 text-sm text-gray-600">
-                              <Check size={16} className="text-green-500 flex-shrink-0" />
+                              <Check size={16} className="text-accent-500 flex-shrink-0" />
                               <span>Advanced analytics & reporting</span>
                             </li>
                             <li className="flex items-center gap-2 text-sm text-gray-600">
-                              <Check size={16} className="text-green-500 flex-shrink-0" />
+                              <Check size={16} className="text-accent-500 flex-shrink-0" />
                               <span>Priority email support</span>
                             </li>
                             <li className="flex items-center gap-2 text-sm text-gray-600">
-                              <Check size={16} className="text-green-500 flex-shrink-0" />
+                              <Check size={16} className="text-accent-500 flex-shrink-0" />
                               <span>Cancel anytime</span>
                             </li>
                           </ul>
@@ -2598,7 +1872,7 @@ export default function Settings() {
                               {selectedBillingCycle === 'monthly' ? 'per month' : 'per year'}
                             </div>
                             {selectedBillingCycle === 'annual' && (
-                              <div className="text-xs text-green-600 mt-1">
+                              <div className="text-xs text-accent-600 mt-1">
                                 That's just R{billingPrices ? ((billingPrices.annual.amount / 12 / 100).toFixed(0)) : "417"}/month
                               </div>
                             )}
@@ -2607,7 +1881,7 @@ export default function Settings() {
                           <button
                             onClick={() => handleSubscriptionPayment(selectedBillingCycle)}
                             disabled={billingLoading}
-                            className="w-full md:w-auto flex items-center justify-center gap-2 px-8 py-3 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-800 transition-colors disabled:opacity-50"
+                            className="w-full md:w-auto flex items-center justify-center gap-2 px-8 py-3 bg-accent-500 text-white rounded-lg text-sm font-medium hover:bg-accent-600 transition-colors disabled:opacity-50"
                           >
                             {billingLoading ? (
                               <Loader2 size={18} className="animate-spin" />
@@ -2640,7 +1914,7 @@ export default function Settings() {
                         'All future updates included',
                       ].map((feature, idx) => (
                         <div key={idx} className="flex items-center gap-2 text-sm text-gray-600">
-                          <Check size={16} className="text-green-500 flex-shrink-0" />
+                          <Check size={16} className="text-accent-500 flex-shrink-0" />
                           <span>{feature}</span>
                         </div>
                       ))}
@@ -2692,7 +1966,7 @@ export default function Settings() {
                             <td className="px-4 py-3">
                               <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
                                 payment.status === 'success'
-                                  ? 'bg-green-100 text-green-700'
+                                  ? 'bg-accent-100 text-accent-700'
                                   : payment.status === 'pending'
                                   ? 'bg-yellow-100 text-yellow-700'
                                   : 'bg-red-100 text-red-700'
@@ -2719,557 +1993,35 @@ export default function Settings() {
                 )}
               </div>
 
-              {/* FAQ */}
-              <div className="border-t border-gray-200 pt-8">
-                <h2 className="text-lg font-semibold text-gray-900 mb-4">Frequently Asked Questions</h2>
-                <div className="space-y-4">
-                  <div className="bg-gray-50 rounded-lg p-4">
-                    <h3 className="text-sm font-medium text-gray-900 mb-1">
-                      What payment methods do you accept?
-                    </h3>
-                    <p className="text-sm text-gray-600">
-                      We accept all major credit/debit cards (Visa, Mastercard, Verve) and bank transfers via Paystack.
-                    </p>
-                  </div>
-                  <div className="bg-gray-50 rounded-lg p-4">
-                    <h3 className="text-sm font-medium text-gray-900 mb-1">
-                      Is my payment secure?
-                    </h3>
-                    <p className="text-sm text-gray-600">
-                      Yes! All payments are processed securely through Paystack. We never store your card details on our servers.
-                    </p>
-                  </div>
-                  <div className="bg-gray-50 rounded-lg p-4">
-                    <h3 className="text-sm font-medium text-gray-900 mb-1">
-                      What does "lifetime access" mean?
-                    </h3>
-                    <p className="text-sm text-gray-600">
-                      Pay once and get access to Vilo forever. This includes all current features and future updates at no additional cost.
-                    </p>
-                  </div>
-                  <div className="bg-gray-50 rounded-lg p-4">
-                    <h3 className="text-sm font-medium text-gray-900 mb-1">
-                      Can I get a refund?
-                    </h3>
-                    <p className="text-sm text-gray-600">
-                      Yes, we offer a 30-day money-back guarantee. If you're not satisfied, contact us for a full refund.
-                    </p>
-                  </div>
-                </div>
-              </div>
             </div>
           )}
 
-          {/* Apps Section */}
+          {/* Integrations Section - Payment Apps moved to My Business > Payment Integration */}
           {activeSection === 'apps' && (
             <div className="space-y-8">
+              {/* Link to full integrations manager */}
+              <div className="bg-gradient-to-r from-accent-50 to-accent-100 border border-accent-200 rounded-xl p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-sm font-semibold text-accent-900">Full Integrations Manager</h3>
+                    <p className="text-xs text-accent-700 mt-0.5">Manage all connected platforms, room mappings, and sync logs</p>
+                  </div>
+                  <button
+                    onClick={() => navigate('/dashboard/settings/integrations')}
+                    className="px-4 py-2 bg-accent-600 text-white rounded-lg text-sm font-medium hover:bg-accent-700 transition-colors"
+                  >
+                    Open Manager
+                  </button>
+                </div>
+              </div>
+
               <div>
-                <h2 className="text-lg font-semibold text-gray-900 mb-2">Payment Apps</h2>
+                <h2 className="text-lg font-semibold text-gray-900 mb-2">Quick Calendar Sync</h2>
                 <p className="text-sm text-gray-500 mb-6">
-                  Connect payment gateways to accept payments directly from your guests. Configure your API keys and banking details below.
+                  Connect booking platforms to sync availability and prevent double bookings. When a booking is made on any platform, all connected calendars will be updated.
                 </p>
 
-                {/* Paystack Card */}
-                <div className="bg-white border border-gray-200 rounded-xl overflow-hidden mb-6">
-                  <div className="p-6 border-b border-gray-100">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 rounded-lg bg-[#00C3F7]/10 flex items-center justify-center">
-                          <svg viewBox="0 0 24 24" className="w-7 h-7" fill="none">
-                            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z" fill="#00C3F7"/>
-                            <path d="M12 6.5c-1.38 0-2.5 1.12-2.5 2.5h1.5c0-.55.45-1 1-1s1 .45 1 1c0 .55-.45 1-1 1h-.5v2.5h1.5v-1.08c1.14-.32 2-1.37 2-2.62 0-1.52-1.35-2.8-3-2.8zM11.25 14.5v1.5h1.5v-1.5h-1.5z" fill="white"/>
-                          </svg>
-                        </div>
-                        <div>
-                          <h3 className="text-base font-semibold text-gray-900">Paystack</h3>
-                          <p className="text-sm text-gray-500">Accept card payments, bank transfers, and mobile money</p>
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => canToggle('paystack') && setPaystackEnabled(!paystackEnabled)}
-                        className={`relative w-12 h-6 rounded-full transition-colors ${
-                          paystackEnabled ? 'bg-[#00C3F7]' : 'bg-gray-300'
-                        }`}
-                      >
-                        <div
-                          className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
-                            paystackEnabled ? 'translate-x-6' : 'translate-x-0.5'
-                          }`}
-                        />
-                      </button>
-                    </div>
-                  </div>
-
-                  {paystackEnabled && (
-                    <div className="p-6 bg-gray-50">
-                      {/* Mode Toggle */}
-                      <div className="mb-6">
-                        <label className="block text-sm font-medium text-gray-700 mb-3">Environment</label>
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => setPaystackMode('test')}
-                            className={`flex-1 py-2.5 px-4 rounded-lg text-sm font-medium transition-colors ${
-                              paystackMode === 'test'
-                                ? 'bg-yellow-100 text-yellow-800 border-2 border-yellow-300'
-                                : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-50'
-                            }`}
-                          >
-                            Test Mode
-                          </button>
-                          <button
-                            onClick={() => setPaystackMode('live')}
-                            className={`flex-1 py-2.5 px-4 rounded-lg text-sm font-medium transition-colors ${
-                              paystackMode === 'live'
-                                ? 'bg-green-100 text-green-800 border-2 border-green-300'
-                                : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-50'
-                            }`}
-                          >
-                            Live Mode
-                          </button>
-                        </div>
-                        <p className="mt-2 text-xs text-gray-500">
-                          {paystackMode === 'test'
-                            ? 'Test mode allows you to simulate transactions without processing real payments.'
-                            : 'Live mode processes real transactions. Make sure your keys are correct.'}
-                        </p>
-                      </div>
-
-                      {/* Test Keys */}
-                      {paystackMode === 'test' && (
-                        <div className="space-y-4">
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                              Test Public Key
-                            </label>
-                            <input
-                              type="text"
-                              value={paystackTestPublicKey}
-                              onChange={(e) => setPaystackTestPublicKey(e.target.value)}
-                              placeholder="pk_test_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#00C3F7] focus:border-[#00C3F7] font-mono text-sm"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                              Test Secret Key
-                            </label>
-                            <div className="relative">
-                              <input
-                                type={showPaystackSecretKey ? 'text' : 'password'}
-                                value={paystackTestSecretKey}
-                                onChange={(e) => setPaystackTestSecretKey(e.target.value)}
-                                placeholder="sk_test_your_secret_key_here"
-                                className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#00C3F7] focus:border-[#00C3F7] font-mono text-sm"
-                              />
-                              <button
-                                type="button"
-                                onClick={() => setShowPaystackSecretKey(!showPaystackSecretKey)}
-                                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                              >
-                                {showPaystackSecretKey ? <EyeOff size={18} /> : <Eye size={18} />}
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Live Keys */}
-                      {paystackMode === 'live' && (
-                        <div className="space-y-4">
-                          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
-                            <p className="text-sm text-amber-800">
-                              <strong>Warning:</strong> Live keys will process real transactions. Only use verified keys from your Paystack dashboard.
-                            </p>
-                          </div>
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                              Live Public Key
-                            </label>
-                            <input
-                              type="text"
-                              value={paystackLivePublicKey}
-                              onChange={(e) => setPaystackLivePublicKey(e.target.value)}
-                              placeholder="pk_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#00C3F7] focus:border-[#00C3F7] font-mono text-sm"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                              Live Secret Key
-                            </label>
-                            <div className="relative">
-                              <input
-                                type={showPaystackSecretKey ? 'text' : 'password'}
-                                value={paystackLiveSecretKey}
-                                onChange={(e) => setPaystackLiveSecretKey(e.target.value)}
-                                placeholder="sk_live_your_secret_key_here"
-                                className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#00C3F7] focus:border-[#00C3F7] font-mono text-sm"
-                              />
-                              <button
-                                type="button"
-                                onClick={() => setShowPaystackSecretKey(!showPaystackSecretKey)}
-                                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                              >
-                                {showPaystackSecretKey ? <EyeOff size={18} /> : <Eye size={18} />}
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Save Button */}
-                      <div className="flex items-center gap-4 mt-6 pt-4 border-t border-gray-200">
-                        <button
-                          onClick={handlePaystackSave}
-                          disabled={paystackLoading}
-                          className="flex items-center gap-2 px-4 py-2 bg-[#00C3F7] text-white rounded-lg text-sm font-medium hover:bg-[#00a8d4] transition-colors disabled:opacity-50"
-                        >
-                          {paystackLoading && <Loader2 size={16} className="animate-spin" />}
-                          Save Paystack Settings
-                        </button>
-                        {paystackMessage && (
-                          <span className={`text-sm ${paystackMessage.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>
-                            {paystackMessage.text}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* EFT/Bank Details Card */}
-                <div className="bg-white border border-gray-200 rounded-xl overflow-hidden mb-6">
-                  <div className="p-6 border-b border-gray-100">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 rounded-lg bg-gray-100 flex items-center justify-center">
-                          <Building2 size={24} className="text-gray-600" />
-                        </div>
-                        <div>
-                          <h3 className="text-base font-semibold text-gray-900">EFT / Bank Transfer</h3>
-                          <p className="text-sm text-gray-500">Accept direct bank transfers to your account</p>
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => canToggle('eft') && setEftEnabled(!eftEnabled)}
-                        className={`relative w-12 h-6 rounded-full transition-colors ${
-                          eftEnabled ? 'bg-gray-900' : 'bg-gray-300'
-                        }`}
-                      >
-                        <div
-                          className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
-                            eftEnabled ? 'translate-x-6' : 'translate-x-0.5'
-                          }`}
-                        />
-                      </button>
-                    </div>
-                  </div>
-
-                  {eftEnabled && (
-                    <div className="p-6 bg-gray-50">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">
-                            Account Holder Name
-                          </label>
-                          <input
-                            type="text"
-                            value={eftAccountHolder}
-                            onChange={(e) => setEftAccountHolder(e.target.value)}
-                            placeholder="John Doe or Business Name"
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">
-                            Bank Name
-                          </label>
-                          <input
-                            type="text"
-                            value={eftBankName}
-                            onChange={(e) => setEftBankName(e.target.value)}
-                            placeholder="e.g., FNB, Standard Bank, Absa"
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">
-                            Account Number
-                          </label>
-                          <input
-                            type="text"
-                            value={eftAccountNumber}
-                            onChange={(e) => setEftAccountNumber(e.target.value)}
-                            placeholder="1234567890"
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 font-mono"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">
-                            Branch Code
-                          </label>
-                          <input
-                            type="text"
-                            value={eftBranchCode}
-                            onChange={(e) => setEftBranchCode(e.target.value)}
-                            placeholder="250655"
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 font-mono"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">
-                            Account Type
-                          </label>
-                          <select
-                            value={eftAccountType}
-                            onChange={(e) => setEftAccountType(e.target.value as 'cheque' | 'savings' | 'current')}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
-                          >
-                            <option value="cheque">Cheque Account</option>
-                            <option value="savings">Savings Account</option>
-                            <option value="current">Current Account</option>
-                          </select>
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">
-                            SWIFT Code <span className="text-gray-400 font-normal">(Optional)</span>
-                          </label>
-                          <input
-                            type="text"
-                            value={eftSwiftCode}
-                            onChange={(e) => setEftSwiftCode(e.target.value)}
-                            placeholder="FIABORJJ"
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 font-mono"
-                          />
-                        </div>
-                      </div>
-                      <div className="mt-4">
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Reference Instructions
-                        </label>
-                        <textarea
-                          value={eftReferenceInstructions}
-                          onChange={(e) => setEftReferenceInstructions(e.target.value)}
-                          placeholder="e.g., Please use your booking reference number as the payment reference."
-                          rows={2}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
-                        />
-                        <p className="mt-1 text-xs text-gray-500">
-                          This message will be shown to guests when they select EFT as a payment method.
-                        </p>
-                      </div>
-
-                      {/* Save Button */}
-                      <div className="flex items-center gap-4 mt-6 pt-4 border-t border-gray-200">
-                        <button
-                          onClick={handleEftSave}
-                          disabled={eftLoading}
-                          className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-800 transition-colors disabled:opacity-50"
-                        >
-                          {eftLoading && <Loader2 size={16} className="animate-spin" />}
-                          Save EFT Settings
-                        </button>
-                        {eftMessage && (
-                          <span className={`text-sm ${eftMessage.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>
-                            {eftMessage.text}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* PayPal Card */}
-                <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-                  <div className="p-6 border-b border-gray-100">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 rounded-lg bg-[#003087]/10 flex items-center justify-center">
-                          <svg viewBox="0 0 24 24" className="w-7 h-7" fill="none">
-                            <path d="M7.076 21.337H2.47a.641.641 0 01-.633-.74L4.944 3.72a.77.77 0 01.76-.654h6.394c2.118 0 3.768.506 4.896 1.502 1.168 1.03 1.652 2.56 1.384 4.42-.312 2.168-1.26 3.862-2.82 5.04-1.512 1.141-3.479 1.719-5.85 1.719h-1.31c-.503 0-.929.365-1.007.862l-.917 5.893a.642.642 0 01-.633.54l-.765-.005z" fill="#003087"/>
-                            <path d="M19.093 8.366c-.307 2.168-1.259 3.862-2.819 5.04-1.512 1.142-3.48 1.72-5.85 1.72h-1.31c-.503 0-.93.364-1.007.861l-1.373 8.694a.519.519 0 00.512.6h3.327c.44 0 .816-.32.886-.753l.729-4.648a.897.897 0 01.886-.752h.559c3.616 0 6.45-1.47 7.282-5.72.347-1.781.149-3.258-.822-4.042z" fill="#0070E0"/>
-                          </svg>
-                        </div>
-                        <div>
-                          <h3 className="text-base font-semibold text-gray-900">PayPal</h3>
-                          <p className="text-sm text-gray-500">Accept PayPal payments worldwide</p>
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => canToggle('paypal') && setPaypalEnabled(!paypalEnabled)}
-                        className={`relative w-12 h-6 rounded-full transition-colors ${
-                          paypalEnabled ? 'bg-[#003087]' : 'bg-gray-300'
-                        }`}
-                      >
-                        <div
-                          className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
-                            paypalEnabled ? 'translate-x-6' : 'translate-x-0.5'
-                          }`}
-                        />
-                      </button>
-                    </div>
-                  </div>
-
-                  {paypalEnabled && (
-                    <div className="p-6 bg-gray-50">
-                      {/* Mode Toggle */}
-                      <div className="mb-6">
-                        <label className="block text-sm font-medium text-gray-700 mb-3">Environment</label>
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => setPaypalMode('sandbox')}
-                            className={`flex-1 py-2.5 px-4 rounded-lg text-sm font-medium transition-colors ${
-                              paypalMode === 'sandbox'
-                                ? 'bg-yellow-100 text-yellow-800 border-2 border-yellow-300'
-                                : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-50'
-                            }`}
-                          >
-                            Sandbox (Test)
-                          </button>
-                          <button
-                            onClick={() => setPaypalMode('live')}
-                            className={`flex-1 py-2.5 px-4 rounded-lg text-sm font-medium transition-colors ${
-                              paypalMode === 'live'
-                                ? 'bg-green-100 text-green-800 border-2 border-green-300'
-                                : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-50'
-                            }`}
-                          >
-                            Live Mode
-                          </button>
-                        </div>
-                        <p className="mt-2 text-xs text-gray-500">
-                          {paypalMode === 'sandbox'
-                            ? 'Sandbox mode allows you to test payments without processing real transactions.'
-                            : 'Live mode processes real PayPal payments.'}
-                        </p>
-                      </div>
-
-                      {/* Sandbox Keys */}
-                      {paypalMode === 'sandbox' && (
-                        <div className="space-y-4">
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                              Sandbox Client ID
-                            </label>
-                            <input
-                              type="text"
-                              value={paypalSandboxClientId}
-                              onChange={(e) => setPaypalSandboxClientId(e.target.value)}
-                              placeholder="AxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxB"
-                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#003087] focus:border-[#003087] font-mono text-sm"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                              Sandbox Secret
-                            </label>
-                            <div className="relative">
-                              <input
-                                type={showPaypalSecret ? 'text' : 'password'}
-                                value={paypalSandboxSecret}
-                                onChange={(e) => setPaypalSandboxSecret(e.target.value)}
-                                placeholder="ExxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxB"
-                                className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#003087] focus:border-[#003087] font-mono text-sm"
-                              />
-                              <button
-                                type="button"
-                                onClick={() => setShowPaypalSecret(!showPaypalSecret)}
-                                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                              >
-                                {showPaypalSecret ? <EyeOff size={18} /> : <Eye size={18} />}
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Live Keys */}
-                      {paypalMode === 'live' && (
-                        <div className="space-y-4">
-                          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
-                            <p className="text-sm text-amber-800">
-                              <strong>Warning:</strong> Live credentials will process real PayPal transactions. Use production keys from your PayPal Developer Dashboard.
-                            </p>
-                          </div>
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                              Live Client ID
-                            </label>
-                            <input
-                              type="text"
-                              value={paypalLiveClientId}
-                              onChange={(e) => setPaypalLiveClientId(e.target.value)}
-                              placeholder="AxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxB"
-                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#003087] focus:border-[#003087] font-mono text-sm"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                              Live Secret
-                            </label>
-                            <div className="relative">
-                              <input
-                                type={showPaypalSecret ? 'text' : 'password'}
-                                value={paypalLiveSecret}
-                                onChange={(e) => setPaypalLiveSecret(e.target.value)}
-                                placeholder="ExxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxB"
-                                className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#003087] focus:border-[#003087] font-mono text-sm"
-                              />
-                              <button
-                                type="button"
-                                onClick={() => setShowPaypalSecret(!showPaypalSecret)}
-                                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                              >
-                                {showPaypalSecret ? <EyeOff size={18} /> : <Eye size={18} />}
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Save Button */}
-                      <div className="flex items-center gap-4 mt-6 pt-4 border-t border-gray-200">
-                        <button
-                          onClick={handlePaypalSave}
-                          disabled={paypalLoading}
-                          className="flex items-center gap-2 px-4 py-2 bg-[#003087] text-white rounded-lg text-sm font-medium hover:bg-[#002060] transition-colors disabled:opacity-50"
-                        >
-                          {paypalLoading && <Loader2 size={16} className="animate-spin" />}
-                          Save PayPal Settings
-                        </button>
-                        {paypalMessage && (
-                          <span className={`text-sm ${paypalMessage.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>
-                            {paypalMessage.text}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Info Section */}
-                <div className="mt-8 bg-blue-50 border border-blue-200 rounded-lg p-4">
-                  <h4 className="text-sm font-medium text-blue-900 mb-2">How Payment Apps Work</h4>
-                  <ul className="text-sm text-blue-800 space-y-1">
-                    <li>- Enable the payment methods you want to offer to your guests.</li>
-                    <li>- Guests will see available payment options when making a booking.</li>
-                    <li>- For Paystack and PayPal, payments are processed automatically.</li>
-                    <li>- For EFT, guests will receive your bank details to make a manual transfer.</li>
-                    <li>- Always test your integration in test/sandbox mode first.</li>
-                  </ul>
-                </div>
-
-                {/* Calendar Sync Section */}
-                <div className="mt-12 pt-8 border-t border-gray-200">
-                  <h2 className="text-lg font-semibold text-gray-900 mb-2">Calendar Sync</h2>
-                  <p className="text-sm text-gray-500 mb-6">
-                    Connect booking platforms to sync availability and prevent double bookings. When a booking is made on any platform, all connected calendars will be updated.
-                  </p>
-
-                  {/* Airbnb Card */}
+                {/* Airbnb Card */}
                   <div className="bg-white border border-gray-200 rounded-xl overflow-hidden mb-4">
                     <div className="p-5 border-b border-gray-100">
                       <div className="flex items-center justify-between">
@@ -3298,7 +2050,7 @@ export default function Settings() {
                           <div className="flex gap-2">
                             <input type="text" value={getExportUrl('airbnb')} readOnly className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm bg-gray-100 text-gray-600" />
                             <button onClick={() => copyToClipboard(getExportUrl('airbnb'), 'airbnb')} className="px-3 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg transition-colors">
-                              {copiedPlatform === 'airbnb' ? <Check size={16} className="text-green-600" /> : <Copy size={16} className="text-gray-600" />}
+                              {copiedPlatform === 'airbnb' ? <Check size={16} className="text-accent-600" /> : <Copy size={16} className="text-gray-600" />}
                             </button>
                           </div>
                         </div>
@@ -3316,7 +2068,7 @@ export default function Settings() {
                             {airbnbSyncLoading && <Loader2 size={14} className="animate-spin" />}
                             Save
                           </button>
-                          {airbnbSyncMessage && <span className={`text-xs ${airbnbSyncMessage.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>{airbnbSyncMessage.text}</span>}
+                          {airbnbSyncMessage && <span className={`text-xs ${airbnbSyncMessage.type === 'success' ? 'text-accent-600' : 'text-red-600'}`}>{airbnbSyncMessage.text}</span>}
                         </div>
                       </div>
                     )}
@@ -3351,7 +2103,7 @@ export default function Settings() {
                           <div className="flex gap-2">
                             <input type="text" value={getExportUrl('bookingcom')} readOnly className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm bg-gray-100 text-gray-600" />
                             <button onClick={() => copyToClipboard(getExportUrl('bookingcom'), 'bookingcom')} className="px-3 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg transition-colors">
-                              {copiedPlatform === 'bookingcom' ? <Check size={16} className="text-green-600" /> : <Copy size={16} className="text-gray-600" />}
+                              {copiedPlatform === 'bookingcom' ? <Check size={16} className="text-accent-600" /> : <Copy size={16} className="text-gray-600" />}
                             </button>
                           </div>
                         </div>
@@ -3369,7 +2121,7 @@ export default function Settings() {
                             {bookingComSyncLoading && <Loader2 size={14} className="animate-spin" />}
                             Save
                           </button>
-                          {bookingComSyncMessage && <span className={`text-xs ${bookingComSyncMessage.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>{bookingComSyncMessage.text}</span>}
+                          {bookingComSyncMessage && <span className={`text-xs ${bookingComSyncMessage.type === 'success' ? 'text-accent-600' : 'text-red-600'}`}>{bookingComSyncMessage.text}</span>}
                         </div>
                       </div>
                     )}
@@ -3404,7 +2156,7 @@ export default function Settings() {
                           <div className="flex gap-2">
                             <input type="text" value={getExportUrl('lekkeslaap')} readOnly className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm bg-gray-100 text-gray-600" />
                             <button onClick={() => copyToClipboard(getExportUrl('lekkeslaap'), 'lekkeslaap')} className="px-3 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg transition-colors">
-                              {copiedPlatform === 'lekkeslaap' ? <Check size={16} className="text-green-600" /> : <Copy size={16} className="text-gray-600" />}
+                              {copiedPlatform === 'lekkeslaap' ? <Check size={16} className="text-accent-600" /> : <Copy size={16} className="text-gray-600" />}
                             </button>
                           </div>
                         </div>
@@ -3422,7 +2174,7 @@ export default function Settings() {
                             {lekkeslaapSyncLoading && <Loader2 size={14} className="animate-spin" />}
                             Save
                           </button>
-                          {lekkeslaapSyncMessage && <span className={`text-xs ${lekkeslaapSyncMessage.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>{lekkeslaapSyncMessage.text}</span>}
+                          {lekkeslaapSyncMessage && <span className={`text-xs ${lekkeslaapSyncMessage.type === 'success' ? 'text-accent-600' : 'text-red-600'}`}>{lekkeslaapSyncMessage.text}</span>}
                         </div>
                       </div>
                     )}
@@ -3457,7 +2209,7 @@ export default function Settings() {
                           <div className="flex gap-2">
                             <input type="text" value={getExportUrl('vrbo')} readOnly className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm bg-gray-100 text-gray-600" />
                             <button onClick={() => copyToClipboard(getExportUrl('vrbo'), 'vrbo')} className="px-3 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg transition-colors">
-                              {copiedPlatform === 'vrbo' ? <Check size={16} className="text-green-600" /> : <Copy size={16} className="text-gray-600" />}
+                              {copiedPlatform === 'vrbo' ? <Check size={16} className="text-accent-600" /> : <Copy size={16} className="text-gray-600" />}
                             </button>
                           </div>
                         </div>
@@ -3475,7 +2227,7 @@ export default function Settings() {
                             {vrboSyncLoading && <Loader2 size={14} className="animate-spin" />}
                             Save
                           </button>
-                          {vrboSyncMessage && <span className={`text-xs ${vrboSyncMessage.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>{vrboSyncMessage.text}</span>}
+                          {vrboSyncMessage && <span className={`text-xs ${vrboSyncMessage.type === 'success' ? 'text-accent-600' : 'text-red-600'}`}>{vrboSyncMessage.text}</span>}
                         </div>
                       </div>
                     )}
@@ -3510,7 +2262,7 @@ export default function Settings() {
                           <div className="flex gap-2">
                             <input type="text" value={getExportUrl('expedia')} readOnly className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm bg-gray-100 text-gray-600" />
                             <button onClick={() => copyToClipboard(getExportUrl('expedia'), 'expedia')} className="px-3 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg transition-colors">
-                              {copiedPlatform === 'expedia' ? <Check size={16} className="text-green-600" /> : <Copy size={16} className="text-gray-600" />}
+                              {copiedPlatform === 'expedia' ? <Check size={16} className="text-accent-600" /> : <Copy size={16} className="text-gray-600" />}
                             </button>
                           </div>
                         </div>
@@ -3528,7 +2280,7 @@ export default function Settings() {
                             {expediaSyncLoading && <Loader2 size={14} className="animate-spin" />}
                             Save
                           </button>
-                          {expediaSyncMessage && <span className={`text-xs ${expediaSyncMessage.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>{expediaSyncMessage.text}</span>}
+                          {expediaSyncMessage && <span className={`text-xs ${expediaSyncMessage.type === 'success' ? 'text-accent-600' : 'text-red-600'}`}>{expediaSyncMessage.text}</span>}
                         </div>
                       </div>
                     )}
@@ -3563,7 +2315,7 @@ export default function Settings() {
                           <div className="flex gap-2">
                             <input type="text" value={getExportUrl('tripadvisor')} readOnly className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm bg-gray-100 text-gray-600" />
                             <button onClick={() => copyToClipboard(getExportUrl('tripadvisor'), 'tripadvisor')} className="px-3 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg transition-colors">
-                              {copiedPlatform === 'tripadvisor' ? <Check size={16} className="text-green-600" /> : <Copy size={16} className="text-gray-600" />}
+                              {copiedPlatform === 'tripadvisor' ? <Check size={16} className="text-accent-600" /> : <Copy size={16} className="text-gray-600" />}
                             </button>
                           </div>
                         </div>
@@ -3581,7 +2333,7 @@ export default function Settings() {
                             {tripadvisorSyncLoading && <Loader2 size={14} className="animate-spin" />}
                             Save
                           </button>
-                          {tripadvisorSyncMessage && <span className={`text-xs ${tripadvisorSyncMessage.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>{tripadvisorSyncMessage.text}</span>}
+                          {tripadvisorSyncMessage && <span className={`text-xs ${tripadvisorSyncMessage.type === 'success' ? 'text-accent-600' : 'text-red-600'}`}>{tripadvisorSyncMessage.text}</span>}
                         </div>
                       </div>
                     )}
@@ -3616,7 +2368,7 @@ export default function Settings() {
                           <div className="flex gap-2">
                             <input type="text" value={getExportUrl('agoda')} readOnly className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm bg-gray-100 text-gray-600" />
                             <button onClick={() => copyToClipboard(getExportUrl('agoda'), 'agoda')} className="px-3 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg transition-colors">
-                              {copiedPlatform === 'agoda' ? <Check size={16} className="text-green-600" /> : <Copy size={16} className="text-gray-600" />}
+                              {copiedPlatform === 'agoda' ? <Check size={16} className="text-accent-600" /> : <Copy size={16} className="text-gray-600" />}
                             </button>
                           </div>
                         </div>
@@ -3634,7 +2386,7 @@ export default function Settings() {
                             {agodaSyncLoading && <Loader2 size={14} className="animate-spin" />}
                             Save
                           </button>
-                          {agodaSyncMessage && <span className={`text-xs ${agodaSyncMessage.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>{agodaSyncMessage.text}</span>}
+                          {agodaSyncMessage && <span className={`text-xs ${agodaSyncMessage.type === 'success' ? 'text-accent-600' : 'text-red-600'}`}>{agodaSyncMessage.text}</span>}
                         </div>
                       </div>
                     )}
@@ -3669,7 +2421,7 @@ export default function Settings() {
                           <div className="flex gap-2">
                             <input type="text" value={getExportUrl('hotelscom')} readOnly className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm bg-gray-100 text-gray-600" />
                             <button onClick={() => copyToClipboard(getExportUrl('hotelscom'), 'hotelscom')} className="px-3 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg transition-colors">
-                              {copiedPlatform === 'hotelscom' ? <Check size={16} className="text-green-600" /> : <Copy size={16} className="text-gray-600" />}
+                              {copiedPlatform === 'hotelscom' ? <Check size={16} className="text-accent-600" /> : <Copy size={16} className="text-gray-600" />}
                             </button>
                           </div>
                         </div>
@@ -3687,7 +2439,7 @@ export default function Settings() {
                             {hotelsComSyncLoading && <Loader2 size={14} className="animate-spin" />}
                             Save
                           </button>
-                          {hotelsComSyncMessage && <span className={`text-xs ${hotelsComSyncMessage.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>{hotelsComSyncMessage.text}</span>}
+                          {hotelsComSyncMessage && <span className={`text-xs ${hotelsComSyncMessage.type === 'success' ? 'text-accent-600' : 'text-red-600'}`}>{hotelsComSyncMessage.text}</span>}
                         </div>
                       </div>
                     )}
@@ -3722,7 +2474,7 @@ export default function Settings() {
                           <div className="flex gap-2">
                             <input type="text" value={getExportUrl('googlecal')} readOnly className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm bg-gray-100 text-gray-600" />
                             <button onClick={() => copyToClipboard(getExportUrl('googlecal'), 'googlecal')} className="px-3 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg transition-colors">
-                              {copiedPlatform === 'googlecal' ? <Check size={16} className="text-green-600" /> : <Copy size={16} className="text-gray-600" />}
+                              {copiedPlatform === 'googlecal' ? <Check size={16} className="text-accent-600" /> : <Copy size={16} className="text-gray-600" />}
                             </button>
                           </div>
                         </div>
@@ -3740,7 +2492,7 @@ export default function Settings() {
                             {googleCalSyncLoading && <Loader2 size={14} className="animate-spin" />}
                             Save
                           </button>
-                          {googleCalSyncMessage && <span className={`text-xs ${googleCalSyncMessage.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>{googleCalSyncMessage.text}</span>}
+                          {googleCalSyncMessage && <span className={`text-xs ${googleCalSyncMessage.type === 'success' ? 'text-accent-600' : 'text-red-600'}`}>{googleCalSyncMessage.text}</span>}
                         </div>
                       </div>
                     )}
@@ -3775,7 +2527,7 @@ export default function Settings() {
                           <div className="flex gap-2">
                             <input type="text" value={getExportUrl('outlook')} readOnly className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm bg-gray-100 text-gray-600" />
                             <button onClick={() => copyToClipboard(getExportUrl('outlook'), 'outlook')} className="px-3 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg transition-colors">
-                              {copiedPlatform === 'outlook' ? <Check size={16} className="text-green-600" /> : <Copy size={16} className="text-gray-600" />}
+                              {copiedPlatform === 'outlook' ? <Check size={16} className="text-accent-600" /> : <Copy size={16} className="text-gray-600" />}
                             </button>
                           </div>
                         </div>
@@ -3793,23 +2545,22 @@ export default function Settings() {
                             {outlookSyncLoading && <Loader2 size={14} className="animate-spin" />}
                             Save
                           </button>
-                          {outlookSyncMessage && <span className={`text-xs ${outlookSyncMessage.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>{outlookSyncMessage.text}</span>}
+                          {outlookSyncMessage && <span className={`text-xs ${outlookSyncMessage.type === 'success' ? 'text-accent-600' : 'text-red-600'}`}>{outlookSyncMessage.text}</span>}
                         </div>
                       </div>
                     )}
                   </div>
 
-                  {/* Calendar Sync Info Section */}
-                  <div className="mt-6 bg-green-50 border border-green-200 rounded-lg p-4">
-                    <h4 className="text-sm font-medium text-green-900 mb-2">How Calendar Sync Works</h4>
-                    <ul className="text-sm text-green-800 space-y-1">
-                      <li>- Paste the iCal URL from each booking platform to import their bookings into Vilo.</li>
-                      <li>- Copy your Vilo Export URL and add it to each platform to share your availability.</li>
-                      <li>- When a booking is made on any platform, all connected calendars update automatically.</li>
-                      <li>- Blocked dates on any platform will block availability everywhere, preventing double bookings.</li>
-                      <li>- Sync frequency determines how often Vilo checks for updates from external calendars.</li>
-                    </ul>
-                  </div>
+                {/* Calendar Sync Info Section */}
+                <div className="mt-6 bg-accent-50 border border-accent-200 rounded-lg p-4">
+                  <h4 className="text-sm font-medium text-accent-900 mb-2">How Calendar Sync Works</h4>
+                  <ul className="text-sm text-accent-800 space-y-1">
+                    <li>- Paste the iCal URL from each booking platform to import their bookings into Vilo.</li>
+                    <li>- Copy your Vilo Export URL and add it to each platform to share your availability.</li>
+                    <li>- When a booking is made on any platform, all connected calendars update automatically.</li>
+                    <li>- Blocked dates on any platform will block availability everywhere, preventing double bookings.</li>
+                    <li>- Sync frequency determines how often Vilo checks for updates from external calendars.</li>
+                  </ul>
                 </div>
               </div>
             </div>
@@ -3831,7 +2582,7 @@ export default function Settings() {
                 <div
                   className={`p-4 rounded-lg ${
                     membersMessage.type === 'success'
-                      ? 'bg-green-50 border border-green-200 text-green-800'
+                      ? 'bg-accent-50 border border-accent-200 text-accent-800'
                       : 'bg-red-50 border border-red-200 text-red-800'
                   }`}
                 >
@@ -3886,7 +2637,7 @@ export default function Settings() {
                         setInviteEmail('')
                         setMembersMessage(null)
                       }}
-                      className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors"
+                      className="flex items-center gap-2 px-4 py-2 bg-accent-500 text-white rounded-lg hover:bg-accent-600 transition-colors"
                     >
                       <UserPlus size={16} />
                       <span>Invite Member</span>
@@ -4059,7 +2810,7 @@ export default function Settings() {
                     </p>
                   </div>
                   <div className="flex items-start gap-3">
-                    <span className="px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+                    <span className="px-2 py-0.5 rounded text-xs font-medium bg-accent-100 text-accent-800">
                       Accountant
                     </span>
                     <p className="text-sm text-gray-600">
@@ -4179,7 +2930,7 @@ export default function Settings() {
                         onClick={() => setInviteMethod('code')}
                         className={`flex items-center justify-center gap-2 px-4 py-3 border rounded-lg transition-colors ${
                           inviteMethod === 'code'
-                            ? 'border-gray-900 bg-gray-900 text-white'
+                            ? 'border-accent-500 bg-accent-500 text-white'
                             : 'border-gray-300 hover:border-gray-400'
                         }`}
                       >
@@ -4191,7 +2942,7 @@ export default function Settings() {
                         onClick={() => setInviteMethod('email')}
                         className={`flex items-center justify-center gap-2 px-4 py-3 border rounded-lg transition-colors ${
                           inviteMethod === 'email'
-                            ? 'border-gray-900 bg-gray-900 text-white'
+                            ? 'border-accent-500 bg-accent-500 text-white'
                             : 'border-gray-300 hover:border-gray-400'
                         }`}
                       >
@@ -4207,6 +2958,13 @@ export default function Settings() {
                   </div>
                 </div>
 
+                {/* Error message inside modal */}
+                {membersMessage && membersMessage.type === 'error' && (
+                  <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                    <p className="text-sm text-red-700">{membersMessage.text}</p>
+                  </div>
+                )}
+
                 <div className="flex justify-end gap-3 mt-6">
                   <button
                     onClick={() => {
@@ -4221,7 +2979,7 @@ export default function Settings() {
                   <button
                     onClick={handleInviteMember}
                     disabled={!inviteEmail || inviteLoading}
-                    className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-800 transition-colors disabled:opacity-50"
+                    className="flex items-center gap-2 px-4 py-2 bg-accent-500 text-white rounded-lg text-sm font-medium hover:bg-accent-600 transition-colors disabled:opacity-50"
                   >
                     {inviteLoading && <Loader2 size={16} className="animate-spin" />}
                     {inviteMethod === 'code' ? 'Generate Code' : 'Send Invitation'}
@@ -4231,8 +2989,8 @@ export default function Settings() {
             ) : (
               <div className="text-center py-4">
                 <div className="mb-4">
-                  <div className="inline-flex items-center justify-center w-12 h-12 bg-green-100 rounded-full mb-3">
-                    <Check size={24} className="text-green-600" />
+                  <div className="inline-flex items-center justify-center w-12 h-12 bg-accent-100 rounded-full mb-3">
+                    <Check size={24} className="text-accent-600" />
                   </div>
                   <p className="text-sm text-gray-600 mb-2">
                     Share this code with <strong>{inviteEmail}</strong>
@@ -4247,7 +3005,7 @@ export default function Settings() {
 
                 <button
                   onClick={() => copyInviteCodeToClipboard(generatedCode)}
-                  className="flex items-center justify-center gap-2 w-full px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-800 transition-colors"
+                  className="flex items-center justify-center gap-2 w-full px-4 py-2 bg-accent-500 text-white rounded-lg text-sm font-medium hover:bg-accent-600 transition-colors"
                 >
                   <Copy size={16} />
                   Copy Code
@@ -4265,7 +3023,7 @@ export default function Settings() {
                     </button>
                     <button
                       onClick={() => shareViaWhatsApp(generatedCode)}
-                      className="flex items-center justify-center gap-2 px-4 py-2 border border-green-500 bg-green-50 rounded-lg text-sm font-medium text-green-700 hover:bg-green-100 transition-colors"
+                      className="flex items-center justify-center gap-2 px-4 py-2 border border-accent-500 bg-accent-50 rounded-lg text-sm font-medium text-accent-700 hover:bg-accent-100 transition-colors"
                     >
                       <MessageCircle size={16} />
                       WhatsApp

@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { ArrowLeft, Calendar, Users, Plus, Minus, Check, Building2 } from 'lucide-react'
+import { ArrowLeft, Users, Plus, Minus, Check, Building2, BedDouble } from 'lucide-react'
 import Button from '../../components/Button'
+import TermsAcceptance from '../../components/TermsAcceptance'
 import { scrollToTop } from '../../components/ScrollToTop'
 import Card from '../../components/Card'
+import DateRangePicker from '../../components/DateRangePicker'
 import { portalApi, Property, Room, AddOn } from '../../services/portalApi'
 import { useNotification } from '../../contexts/NotificationContext'
 import { useCustomerAuth } from '../../contexts/CustomerAuthContext'
@@ -44,11 +46,14 @@ export default function CustomerNewBooking() {
   const [children, setChildren] = useState(0)
   const [specialRequests, setSpecialRequests] = useState('')
   const [selectedAddons, setSelectedAddons] = useState<SelectedAddon[]>([])
+  const [termsAccepted, setTermsAccepted] = useState(false)
 
   // Calculated values
   const [nights, setNights] = useState(0)
   const [roomPrice, setRoomPrice] = useState(0)
   const [addonsTotal, setAddonsTotal] = useState(0)
+  const [pricingBreakdown, setPricingBreakdown] = useState<Array<{ date: string; price: number; rate_name: string | null }>>([])
+  const [loadingPricing, setLoadingPricing] = useState(false)
 
   useEffect(() => {
     loadProperties()
@@ -74,17 +79,33 @@ export default function CustomerNewBooking() {
   }, [checkIn, checkOut])
 
   useEffect(() => {
-    // Calculate room price
-    if (selectedRoom && rooms.length > 0) {
-      const room = rooms.find(r => r.id === selectedRoom)
-      if (room) {
-        const price = room.pricing?.basePrice || room.base_price || 0
-        setRoomPrice(price * nights)
+    // Fetch room pricing with seasonal rates from API
+    const fetchPricing = async () => {
+      if (selectedRoom && selectedProperty && checkIn && checkOut && nights > 0) {
+        setLoadingPricing(true)
+        try {
+          const pricing = await portalApi.getRoomPricing(selectedProperty, selectedRoom, checkIn, checkOut)
+          setRoomPrice(pricing.subtotal)
+          setPricingBreakdown(pricing.nights)
+        } catch (error) {
+          console.error('Failed to fetch pricing:', error)
+          // Fallback to base price if pricing API fails
+          const room = rooms.find(r => r.id === selectedRoom)
+          if (room) {
+            const price = room.pricing?.basePrice || room.base_price || 0
+            setRoomPrice(price * nights)
+          }
+          setPricingBreakdown([])
+        } finally {
+          setLoadingPricing(false)
+        }
+      } else {
+        setRoomPrice(0)
+        setPricingBreakdown([])
       }
-    } else {
-      setRoomPrice(0)
     }
-  }, [selectedRoom, rooms, nights])
+    fetchPricing()
+  }, [selectedRoom, selectedProperty, checkIn, checkOut, nights, rooms])
 
   useEffect(() => {
     // Calculate addons total
@@ -165,12 +186,6 @@ export default function CustomerNewBooking() {
     return tomorrow.toISOString().split('T')[0]
   }
 
-  const getMinCheckout = () => {
-    if (!checkIn) return getTomorrow()
-    const minDate = new Date(checkIn)
-    minDate.setDate(minDate.getDate() + 1)
-    return minDate.toISOString().split('T')[0]
-  }
 
   const canProceedToStep2 = selectedProperty && checkIn && checkOut && nights > 0
   const canProceedToStep3 = canProceedToStep2 && selectedRoom
@@ -184,7 +199,7 @@ export default function CustomerNewBooking() {
     try {
       setSubmitting(true)
 
-      const result = await portalApi.createBooking({
+      await portalApi.createBooking({
         tenantId: selectedProperty,
         roomId: selectedRoom,
         checkIn,
@@ -197,7 +212,7 @@ export default function CustomerNewBooking() {
       })
 
       showSuccess('Booking Created!', 'Your booking request has been submitted')
-      navigate(`/portal/bookings/${result.booking.id}`)
+      navigate('/portal/bookings')
     } catch (error: any) {
       showError('Error', error.message || 'Failed to create booking')
     } finally {
@@ -207,10 +222,10 @@ export default function CustomerNewBooking() {
 
   if (loading) {
     return (
-      <div className="p-8">
+      <div className="p-8 bg-gray-50 min-h-full">
         <div className="flex items-center justify-center h-64">
           <div className="text-center">
-            <div className="w-8 h-8 border-2 border-gray-300 border-t-gray-900 rounded-full animate-spin mx-auto mb-4" />
+            <div className="w-8 h-8 border-2 border-accent-200 border-t-accent-600 rounded-full animate-spin mx-auto mb-4" />
             <p className="text-gray-500">Loading...</p>
           </div>
         </div>
@@ -220,7 +235,7 @@ export default function CustomerNewBooking() {
 
   if (properties.length === 0) {
     return (
-      <div className="p-8 bg-white min-h-full">
+      <div className="p-8 bg-gray-50 min-h-full">
         <button
           onClick={() => navigate('/portal')}
           className="flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-8"
@@ -244,7 +259,7 @@ export default function CustomerNewBooking() {
   const selectedPropertyData = properties.find(p => p.id === selectedProperty)
 
   return (
-    <div className="p-8 bg-white min-h-full">
+    <div className="p-8 bg-gray-50 min-h-full">
       {/* Header */}
       <div className="mb-8">
         <button
@@ -304,44 +319,26 @@ export default function CustomerNewBooking() {
               </div>
 
               {/* Date Selection */}
-              <div className="grid grid-cols-2 gap-4 mb-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Check-in</label>
-                  <div className="relative">
-                    <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
-                    <input
-                      type="date"
-                      value={checkIn}
-                      onChange={(e) => {
-                        setCheckIn(e.target.value)
-                        setSelectedRoom('')
-                        // Reset checkout if it's before new check-in
-                        if (checkOut && new Date(checkOut) <= new Date(e.target.value)) {
-                          setCheckOut('')
-                        }
-                      }}
-                      min={getTomorrow()}
-                      className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Check-out</label>
-                  <div className="relative">
-                    <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
-                    <input
-                      type="date"
-                      value={checkOut}
-                      onChange={(e) => {
-                        setCheckOut(e.target.value)
-                        setSelectedRoom('')
-                      }}
-                      min={getMinCheckout()}
-                      disabled={!checkIn}
-                      className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 disabled:bg-gray-100"
-                    />
-                  </div>
-                </div>
+              <div className="mb-6">
+                <DateRangePicker
+                  startDate={checkIn}
+                  endDate={checkOut}
+                  onStartDateChange={(date) => {
+                    setCheckIn(date)
+                    setSelectedRoom('')
+                    // Reset checkout if it's before new check-in
+                    if (checkOut && new Date(checkOut) <= new Date(date)) {
+                      setCheckOut('')
+                    }
+                  }}
+                  onEndDateChange={(date) => {
+                    setCheckOut(date)
+                    setSelectedRoom('')
+                  }}
+                  minDate={getTomorrow()}
+                  startLabel="Check-in"
+                  endLabel="Check-out"
+                />
               </div>
 
               {/* Guests */}
@@ -426,7 +423,7 @@ export default function CustomerNewBooking() {
                       <div
                         key={room.id}
                         onClick={() => isAvailable && setSelectedRoom(room.id)}
-                        className={`p-4 border rounded-lg cursor-pointer transition-all ${
+                        className={`border rounded-lg cursor-pointer transition-all overflow-hidden ${
                           selectedRoom === room.id
                             ? 'border-gray-900 bg-gray-50'
                             : isAvailable
@@ -434,49 +431,69 @@ export default function CustomerNewBooking() {
                               : 'border-gray-200 bg-gray-100 cursor-not-allowed opacity-60'
                         }`}
                       >
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2">
-                              <h3 className="font-semibold text-gray-900">{room.name}</h3>
-                              {!isAvailable && (
-                                <span className="px-2 py-0.5 text-xs bg-red-100 text-red-700 rounded">
-                                  Not Available
-                                </span>
-                              )}
-                            </div>
-                            <p className="text-sm text-gray-500 mt-1">{room.room_type}</p>
-                            <div className="flex items-center gap-4 mt-2 text-sm text-gray-500">
-                              <span className="flex items-center gap-1">
-                                <Users size={14} />
-                                Up to {room.max_occupancy} guests
-                              </span>
-                            </div>
-                            {room.amenities && room.amenities.length > 0 && (
-                              <div className="flex flex-wrap gap-2 mt-2">
-                                {room.amenities.slice(0, 4).map((amenity, i) => (
-                                  <span key={i} className="px-2 py-0.5 text-xs bg-gray-100 text-gray-600 rounded">
-                                    {amenity}
-                                  </span>
-                                ))}
-                                {room.amenities.length > 4 && (
-                                  <span className="text-xs text-gray-500">+{room.amenities.length - 4} more</span>
-                                )}
+                        <div className="flex">
+                          {/* Room Image */}
+                          <div className="w-32 h-32 flex-shrink-0">
+                            {room.images?.featured ? (
+                              <img
+                                src={room.images.featured.url}
+                                alt={room.name}
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <div className="w-full h-full bg-gray-100 flex items-center justify-center">
+                                <BedDouble className="w-8 h-8 text-gray-300" />
                               </div>
                             )}
                           </div>
-                          <div className="text-right">
-                            <p className="font-semibold text-gray-900">{formatCurrency(price)}</p>
-                            <p className="text-xs text-gray-500">per night</p>
+
+                          {/* Room Details */}
+                          <div className="flex-1 p-4">
+                            <div className="flex items-start justify-between">
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2">
+                                  <h3 className="font-semibold text-gray-900">{room.name}</h3>
+                                  {!isAvailable && (
+                                    <span className="px-2 py-0.5 text-xs bg-red-100 text-red-700 rounded">
+                                      Not Available
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-sm text-gray-500 mt-1">{room.room_type}</p>
+                                <div className="flex items-center gap-4 mt-2 text-sm text-gray-500">
+                                  <span className="flex items-center gap-1">
+                                    <Users size={14} />
+                                    Up to {room.max_occupancy} guests
+                                  </span>
+                                </div>
+                                {room.amenities && room.amenities.length > 0 && (
+                                  <div className="flex flex-wrap gap-2 mt-2">
+                                    {room.amenities.slice(0, 4).map((amenity, i) => (
+                                      <span key={i} className="px-2 py-0.5 text-xs bg-gray-100 text-gray-600 rounded">
+                                        {amenity}
+                                      </span>
+                                    ))}
+                                    {room.amenities.length > 4 && (
+                                      <span className="text-xs text-gray-500">+{room.amenities.length - 4} more</span>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                              <div className="text-right">
+                                <p className="font-semibold text-gray-900">{formatCurrency(price)}</p>
+                                <p className="text-xs text-gray-500">per night</p>
+                              </div>
+                            </div>
+                            {selectedRoom === room.id && (
+                              <div className="mt-3 pt-3 border-t border-gray-200">
+                                <div className="flex items-center gap-2 text-accent-600">
+                                  <Check size={16} />
+                                  <span className="text-sm font-medium">Selected</span>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         </div>
-                        {selectedRoom === room.id && (
-                          <div className="mt-3 pt-3 border-t border-gray-200">
-                            <div className="flex items-center gap-2 text-green-600">
-                              <Check size={16} />
-                              <span className="text-sm font-medium">Selected</span>
-                            </div>
-                          </div>
-                        )}
                       </div>
                     )
                   })}
@@ -586,13 +603,21 @@ export default function CustomerNewBooking() {
                 />
               </div>
 
+              {/* Terms Acceptance */}
+              <div className="mb-6">
+                <TermsAcceptance
+                  accepted={termsAccepted}
+                  onChange={setTermsAccepted}
+                />
+              </div>
+
               <div className="flex justify-between">
                 <Button variant="secondary" onClick={() => goToStep(2)}>
                   Back
                 </Button>
                 <Button
                   onClick={handleSubmit}
-                  disabled={submitting}
+                  disabled={submitting || !termsAccepted}
                 >
                   {submitting ? 'Creating Booking...' : 'Confirm Booking'}
                 </Button>
@@ -638,7 +663,29 @@ export default function CustomerNewBooking() {
               <div className="mb-4 pb-4 border-b border-gray-200">
                 <p className="text-sm text-gray-500">Room</p>
                 <p className="font-medium">{selectedRoomData.name}</p>
-                <p className="text-sm text-gray-500">{formatCurrency(selectedRoomData.pricing?.basePrice || selectedRoomData.base_price || 0)} x {nights} nights</p>
+                {loadingPricing ? (
+                  <p className="text-sm text-gray-400">Calculating price...</p>
+                ) : pricingBreakdown.length > 0 ? (
+                  <div className="mt-2 space-y-1">
+                    {pricingBreakdown.some(n => n.rate_name) ? (
+                      // Show breakdown when seasonal rates apply
+                      pricingBreakdown.map((night, idx) => (
+                        <div key={idx} className="flex justify-between text-xs">
+                          <span className="text-gray-500">
+                            {new Date(night.date).toLocaleDateString('en-ZA', { weekday: 'short', day: 'numeric', month: 'short' })}
+                            {night.rate_name && <span className="ml-1 text-accent-600">({night.rate_name})</span>}
+                          </span>
+                          <span className="text-gray-700">{formatCurrency(night.price)}</span>
+                        </div>
+                      ))
+                    ) : (
+                      // Simple display when no seasonal rates
+                      <p className="text-sm text-gray-500">{formatCurrency(pricingBreakdown[0]?.price || 0)} x {nights} nights</p>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-500">{formatCurrency(selectedRoomData.pricing?.basePrice || selectedRoomData.base_price || 0)} x {nights} nights</p>
+                )}
               </div>
             )}
 

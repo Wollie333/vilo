@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, ArrowRight, Check, Save } from 'lucide-react'
 import Button from '../components/Button'
+import TermsAcceptance from '../components/TermsAcceptance'
 import { scrollToTop } from '../components/ScrollToTop'
 import RoomDatesStep from '../components/booking-wizard/RoomDatesStep'
 import GuestInfoStep from '../components/booking-wizard/GuestInfoStep'
@@ -54,6 +55,7 @@ export default function BookingWizard() {
   const [stepOneValid, setStepOneValid] = useState(false)
   const [validationWarnings, setValidationWarnings] = useState<ValidationWarning[]>([])
   const [selectedAddons, setSelectedAddons] = useState<SelectedAddon[]>([])
+  const [termsAccepted, setTermsAccepted] = useState(false)
 
   const [formData, setFormData] = useState<BookingFormData>({
     guest_name: '',
@@ -230,7 +232,7 @@ export default function BookingWizard() {
       return formData.guest_name.trim() !== ''
     }
     if (currentStep === 3) {
-      return formData.total_amount >= 0
+      return formData.total_amount >= 0 && termsAccepted
     }
     return true
   }
@@ -246,28 +248,31 @@ export default function BookingWizard() {
   return (
     <div className="bg-gray-50 min-h-full">
       {/* Header */}
-      <div className="bg-white border-b border-gray-200">
-        <div className="max-w-5xl mx-auto px-6 py-4">
+      <div className="bg-gradient-to-r from-accent-600 to-accent-500 shadow-lg">
+        <div className="max-w-5xl mx-auto px-6 py-5">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
               <button
                 onClick={handleCancel}
-                className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                className="p-2 text-white/80 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
               >
                 <ArrowLeft size={20} />
               </button>
               <div>
-                <h1 className="text-xl font-bold text-gray-900">
+                <h1 className="text-xl font-bold text-white">
                   {isEditing ? 'Edit Booking' : 'Create New Booking'}
                 </h1>
-                <p className="text-sm text-gray-500">
+                <p className="text-sm text-white/70">
                   {formData.guest_name ? `Guest: ${formData.guest_name}` : 'Fill in the booking details'}
                 </p>
               </div>
             </div>
-            <Button variant="outline" onClick={handleCancel}>
+            <button
+              onClick={handleCancel}
+              className="px-4 py-2 text-sm font-medium text-white border border-white/30 rounded-lg hover:bg-white/10 transition-colors"
+            >
               Cancel
-            </Button>
+            </button>
           </div>
         </div>
       </div>
@@ -383,6 +388,16 @@ export default function BookingWizard() {
             />
           )}
         </div>
+
+        {/* Terms Acceptance - Step 3 only */}
+        {currentStep === 3 && (
+          <div className="mt-6">
+            <TermsAcceptance
+              accepted={termsAccepted}
+              onChange={setTermsAccepted}
+            />
+          </div>
+        )}
 
         {/* Navigation */}
         <div className="flex items-center justify-between mt-6">

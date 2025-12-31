@@ -147,13 +147,13 @@ export const COLOR_THEMES: ColorTheme[] = [
   {
     id: 'tropical',
     name: 'Tropical Paradise',
-    primary: '#059669',
-    secondary: '#10b981',
+    primary: '#047857',
+    secondary: '#059669',
     accent: '#f59e0b',
-    background: '#ecfdf5',
-    text: '#064e3b',
+    background: '#ECFDF5',
+    text: '#064E3B',
     preview: {
-      gradient: 'linear-gradient(135deg, #059669 0%, #10b981 50%, #f59e0b 100%)'
+      gradient: 'linear-gradient(135deg, #047857 0%, #059669 50%, #f59e0b 100%)'
     }
   }
 ]

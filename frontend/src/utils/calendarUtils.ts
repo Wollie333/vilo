@@ -21,34 +21,34 @@ import type { Booking, Room } from '../services/api'
 // Status colors for booking blocks
 export const statusColors: Record<Booking['status'], { bg: string; border: string; text: string }> = {
   pending: {
-    bg: 'bg-yellow-100 dark:bg-yellow-900/30',
-    border: 'border-yellow-400 dark:border-yellow-600',
-    text: 'text-yellow-800 dark:text-yellow-200',
+    bg: 'bg-yellow-100',
+    border: 'border-yellow-400',
+    text: 'text-yellow-800',
   },
   confirmed: {
-    bg: 'bg-green-100 dark:bg-green-900/30',
-    border: 'border-green-400 dark:border-green-600',
-    text: 'text-green-800 dark:text-green-200',
+    bg: 'bg-accent-100',
+    border: 'border-accent-400',
+    text: 'text-accent-800',
   },
   checked_in: {
-    bg: 'bg-blue-100 dark:bg-blue-900/30',
-    border: 'border-blue-400 dark:border-blue-600',
-    text: 'text-blue-800 dark:text-blue-200',
+    bg: 'bg-blue-100',
+    border: 'border-blue-400',
+    text: 'text-blue-800',
   },
   checked_out: {
-    bg: 'bg-purple-100 dark:bg-purple-900/30',
-    border: 'border-purple-400 dark:border-purple-600',
-    text: 'text-purple-800 dark:text-purple-200',
+    bg: 'bg-purple-100',
+    border: 'border-purple-400',
+    text: 'text-purple-800',
   },
   cancelled: {
-    bg: 'bg-red-100 dark:bg-red-900/30',
-    border: 'border-red-400 dark:border-red-600',
-    text: 'text-red-800 dark:text-red-200',
+    bg: 'bg-red-100',
+    border: 'border-red-400',
+    text: 'text-red-800',
   },
   completed: {
-    bg: 'bg-gray-100 dark:bg-gray-700/30',
-    border: 'border-gray-400 dark:border-gray-600',
-    text: 'text-gray-800 dark:text-gray-200',
+    bg: 'bg-gray-100',
+    border: 'border-gray-400',
+    text: 'text-gray-800',
   },
 }
 
@@ -79,13 +79,15 @@ export function getTimelineDays(startDate: Date, daysCount: number): Date[] {
 
 // Check if a date falls within a booking's date range
 export function isDateInBooking(date: Date, booking: Booking): boolean {
-  const checkIn = parseISO(booking.check_in)
-  const checkOut = parseISO(booking.check_out)
+  // Normalize all dates to start of day to avoid timezone issues
+  const normalizedDate = startOfDay(date)
+  const checkIn = startOfDay(parseISO(booking.check_in))
+  const checkOut = startOfDay(parseISO(booking.check_out))
 
   // Check-in day is included, check-out day is not (guest leaves that day)
   return (
-    (isSameDay(date, checkIn) || isAfter(date, checkIn)) &&
-    isBefore(date, checkOut)
+    (isSameDay(normalizedDate, checkIn) || isAfter(normalizedDate, checkIn)) &&
+    isBefore(normalizedDate, checkOut)
   )
 }
 

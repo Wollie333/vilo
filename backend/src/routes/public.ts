@@ -1,100 +1,13 @@
 import { Router, Request, Response } from 'express'
 import { supabase } from '../lib/supabase.js'
 import { getOrCreateCustomer, createSessionToken } from '../middleware/customerAuth.js'
-import { getTenantId, findTenantById } from '../middleware/tenantResolver.js'
 
 const router = Router()
 
 // ============================================
 // PUBLIC BOOKING API
-// These endpoints support both:
-// - Path-based routing: /:tenantId/rooms (legacy)
-// - Hostname-based routing: /rooms (uses req.tenantContext from middleware)
+// All endpoints use path-based routing: /:tenantId/...
 // ============================================
-
-/**
- * Helper to resolve tenant ID from request
- * Supports both hostname-based and path-based routing
- */
-async function resolveTenantId(req: Request): Promise<string | null> {
-  // First try the helper (checks hostname context, then path param, then header)
-  const tenantId = getTenantId(req)
-  if (tenantId) return tenantId
-
-  return null
-}
-
-// ============================================
-// TENANT RESOLUTION ENDPOINT
-// For frontend to get current tenant from hostname
-// ============================================
-
-router.get('/tenant/current', async (req: Request, res: Response) => {
-  // If tenant was resolved from hostname
-  if (req.tenantContext) {
-    const { data: tenant } = await supabase
-      .from('tenants')
-      .select(`
-        id,
-        slug,
-        custom_domain,
-        business_name,
-        business_description,
-        logo_url,
-        business_email,
-        business_phone,
-        address_line1,
-        city,
-        state_province,
-        country,
-        currency,
-        timezone
-      `)
-      .eq('id', req.tenantContext.id)
-      .single()
-
-    if (tenant) {
-      return res.json(tenant)
-    }
-  }
-
-  return res.status(404).json({ error: 'Tenant not found' })
-})
-
-/**
- * GET /public/tenant/by-slug/:slug
- * Look up tenant by slug (for subdomain resolution)
- */
-router.get('/tenant/by-slug/:slug', async (req: Request, res: Response) => {
-  const { slug } = req.params
-
-  const { data: tenant, error } = await supabase
-    .from('tenants')
-    .select(`
-      id,
-      slug,
-      custom_domain,
-      business_name,
-      business_description,
-      logo_url,
-      business_email,
-      business_phone,
-      address_line1,
-      city,
-      state_province,
-      country,
-      currency,
-      timezone
-    `)
-    .eq('slug', slug)
-    .single()
-
-  if (error || !tenant) {
-    return res.status(404).json({ error: 'Property not found' })
-  }
-
-  return res.json(tenant)
-})
 
 // Get public property info by tenant ID
 router.get('/:tenantId/property', async (req, res) => {
@@ -553,7 +466,7 @@ router.post('/:tenantId/bookings', async (req, res) => {
     // Get room details for booking
     const { data: room, error: roomError } = await supabase
       .from('rooms')
-      .select('name, max_guests')
+      .select('name, max_guests, base_price_per_night, currency')
       .eq('id', room_id)
       .eq('tenant_id', tenantId)
       .eq('is_active', true)
@@ -570,8 +483,65 @@ router.post('/:tenantId/bookings', async (req, res) => {
       })
     }
 
-    // Generate booking reference
-    const bookingRef = `BK-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`
+    // Calculate total price server-side with seasonal rates
+    // Use noon to avoid timezone/DST issues
+    const checkInDate = new Date(check_in + 'T12:00:00')
+    const checkOutDate = new Date(check_out + 'T12:00:00')
+    const nights = Math.round((checkOutDate.getTime() - checkInDate.getTime()) / (1000 * 60 * 60 * 24))
+
+    if (nights <= 0) {
+      return res.status(400).json({ error: 'Check-out must be after check-in' })
+    }
+
+    // Get seasonal rates that overlap with the booking dates
+    const { data: seasonalRates } = await supabase
+      .from('seasonal_rates')
+      .select('*')
+      .eq('room_id', room_id)
+      .eq('tenant_id', tenantId)
+      .lte('start_date', check_out)
+      .gte('end_date', check_in)
+      .order('priority', { ascending: false })
+
+    // Calculate room total by iterating through each night
+    // Use noon to avoid DST issues
+    let calculatedRoomTotal = 0
+    const currentDate = new Date(check_in + 'T12:00:00')
+    const endDateForLoop = new Date(check_out + 'T12:00:00')
+
+    while (currentDate < endDateForLoop) {
+      const year = currentDate.getFullYear()
+      const month = String(currentDate.getMonth() + 1).padStart(2, '0')
+      const day = String(currentDate.getDate()).padStart(2, '0')
+      const dateStr = `${year}-${month}-${day}`
+
+      // Compare date strings directly to avoid timezone issues
+      const applicableRate = (seasonalRates || []).find(rate => {
+        const rateStart = rate.start_date
+        const rateEnd = rate.end_date
+        return dateStr >= rateStart && dateStr <= rateEnd
+      })
+
+      const nightPrice = applicableRate ? Number(applicableRate.price_per_night) : room.base_price_per_night
+      calculatedRoomTotal += nightPrice
+      currentDate.setDate(currentDate.getDate() + 1)
+    }
+
+    // Calculate add-ons total (trust client values for add-on selection but could be validated)
+    const addonsTotal = (addons || []).reduce((sum: number, addon: any) => {
+      return sum + ((addon.price || 0) * (addon.quantity || 1))
+    }, 0)
+
+    // Use server-calculated total
+    const calculatedTotalAmount = calculatedRoomTotal + addonsTotal
+
+    // Generate short booking reference (VILO-XXXX format)
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789' // Exclude confusing chars: I, O, 0, 1
+    let refCode = ''
+    for (let i = 0; i < 4; i++) {
+      refCode += chars.charAt(Math.floor(Math.random() * chars.length))
+    }
+    const bookingRef = `VILO-${refCode}`
 
     // Get or create customer for this email
     const customer = await getOrCreateCustomer(guest_email, guest_name, guest_phone)
@@ -591,8 +561,8 @@ router.post('/:tenantId/bookings', async (req, res) => {
         check_out,
         status: 'pending',
         payment_status: 'pending',
-        total_amount,
-        currency: currency || 'ZAR',
+        total_amount: calculatedTotalAmount,
+        currency: room.currency || currency || 'ZAR',
         notes: JSON.stringify({
           guests: guests || 1,
           addons: addons || [],
@@ -693,211 +663,6 @@ router.get('/:tenantId/bookings/:reference', async (req, res) => {
   }
 })
 
-// ============================================
-// PUBLIC CMS API
-// ============================================
-
-// Get CMS settings for public website rendering
-router.get('/:tenantId/cms-settings', async (req, res) => {
-  try {
-    const { tenantId } = req.params
-
-    // Get website settings
-    const { data: settings } = await supabase
-      .from('website_settings')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .single()
-
-    // Get all pages
-    const { data: pages } = await supabase
-      .from('website_pages')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .eq('is_published', true)
-      .order('navigation_order', { ascending: true })
-
-    res.json({
-      settings: settings || {
-        primary_color: '#1f2937',
-        secondary_color: '#374151',
-        accent_color: '#3b82f6',
-        background_color: '#ffffff',
-        text_color: '#111827',
-        heading_font: 'Inter',
-        body_font: 'Inter'
-      },
-      pages: pages || []
-    })
-  } catch (error) {
-    console.error('Error fetching CMS settings:', error)
-    res.status(500).json({ error: 'Internal server error' })
-  }
-})
-
-// Get page settings by slug or page_type
-router.get('/:tenantId/cms-page/:pageIdentifier', async (req, res) => {
-  try {
-    const { tenantId, pageIdentifier } = req.params
-
-    // Try to find by page_type first, then by slug
-    let query = supabase
-      .from('website_pages')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .eq('is_published', true)
-
-    // Check if it's a known page_type
-    const pageTypes = ['home', 'accommodation', 'reviews', 'contact', 'blog', 'book', 'room_detail']
-    if (pageTypes.includes(pageIdentifier)) {
-      query = query.eq('page_type', pageIdentifier)
-    } else {
-      query = query.eq('slug', pageIdentifier)
-    }
-
-    const { data, error } = await query.single()
-
-    if (error || !data) {
-      return res.status(404).json({ error: 'Page not found' })
-    }
-
-    res.json(data)
-  } catch (error) {
-    console.error('Error fetching page:', error)
-    res.status(500).json({ error: 'Internal server error' })
-  }
-})
-
-// Get published blog posts
-router.get('/:tenantId/blog', async (req, res) => {
-  try {
-    const { tenantId } = req.params
-    const { category, tag, limit, offset } = req.query
-
-    let query = supabase
-      .from('blog_posts')
-      .select(`
-        id,
-        title,
-        slug,
-        excerpt,
-        featured_image_url,
-        featured_image_alt,
-        author_name,
-        author_avatar_url,
-        tags,
-        reading_time_minutes,
-        published_at,
-        seo_title,
-        seo_description,
-        category:blog_categories(id, name, slug, color)
-      `)
-      .eq('tenant_id', tenantId)
-      .eq('status', 'published')
-      .lte('published_at', new Date().toISOString())
-      .order('published_at', { ascending: false })
-
-    if (category) {
-      // Find category by slug
-      const { data: cat } = await supabase
-        .from('blog_categories')
-        .select('id')
-        .eq('tenant_id', tenantId)
-        .eq('slug', category)
-        .single()
-
-      if (cat) {
-        query = query.eq('category_id', cat.id)
-      }
-    }
-
-    if (limit) {
-      query = query.limit(parseInt(limit as string))
-    }
-
-    if (offset) {
-      query = query.range(parseInt(offset as string), parseInt(offset as string) + (parseInt(limit as string) || 10) - 1)
-    }
-
-    const { data, error } = await query
-
-    if (error) {
-      console.error('Error fetching blog posts:', error)
-      return res.status(500).json({ error: 'Failed to fetch posts' })
-    }
-
-    // Filter by tag if provided (tags is a JSONB array)
-    let posts = data || []
-    if (tag) {
-      posts = posts.filter(post =>
-        Array.isArray(post.tags) && post.tags.includes(tag)
-      )
-    }
-
-    res.json(posts)
-  } catch (error) {
-    console.error('Unexpected error:', error)
-    res.status(500).json({ error: 'Internal server error' })
-  }
-})
-
-// Get single blog post by slug
-router.get('/:tenantId/blog/:slug', async (req, res) => {
-  try {
-    const { tenantId, slug } = req.params
-
-    const { data, error } = await supabase
-      .from('blog_posts')
-      .select(`
-        *,
-        category:blog_categories(id, name, slug, color)
-      `)
-      .eq('tenant_id', tenantId)
-      .eq('slug', slug)
-      .eq('status', 'published')
-      .lte('published_at', new Date().toISOString())
-      .single()
-
-    if (error || !data) {
-      return res.status(404).json({ error: 'Post not found' })
-    }
-
-    // Increment view count (fire and forget)
-    supabase
-      .from('blog_posts')
-      .update({ view_count: (data.view_count || 0) + 1 })
-      .eq('id', data.id)
-      .then(() => {})
-
-    res.json(data)
-  } catch (error) {
-    console.error('Unexpected error:', error)
-    res.status(500).json({ error: 'Internal server error' })
-  }
-})
-
-// Get blog categories
-router.get('/:tenantId/blog-categories', async (req, res) => {
-  try {
-    const { tenantId } = req.params
-
-    const { data, error } = await supabase
-      .from('blog_categories')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .order('name', { ascending: true })
-
-    if (error) {
-      console.error('Error fetching categories:', error)
-      return res.status(500).json({ error: 'Failed to fetch categories' })
-    }
-
-    res.json(data || [])
-  } catch (error) {
-    console.error('Unexpected error:', error)
-    res.status(500).json({ error: 'Internal server error' })
-  }
-})
 
 // ============================================
 // PUBLIC CONTACT FORM
@@ -976,348 +741,6 @@ router.post('/:tenantId/contact', async (req: Request, res: Response) => {
     console.error('Unexpected error in contact form:', error)
     res.status(500).json({ error: 'Internal server error' })
   }
-})
-
-// ============================================
-// HOSTNAME-BASED ROUTES (no tenantId in path)
-// These work when tenant is resolved from subdomain/custom domain
-// ============================================
-
-// Get property info (hostname-based)
-router.get('/property', async (req: Request, res: Response) => {
-  const tenantId = await resolveTenantId(req)
-  if (!tenantId) {
-    return res.status(400).json({ error: 'Tenant context required' })
-  }
-
-  // Forward to path-based handler
-  req.params.tenantId = tenantId
-  const { data: tenant, error } = await supabase
-    .from('tenants')
-    .select(`
-      id, name, business_name, business_email, business_phone,
-      address_line1, address_line2, city, state_province,
-      postal_code, country, business_hours, slug, custom_domain
-    `)
-    .eq('id', tenantId)
-    .single()
-
-  if (error || !tenant) {
-    return res.status(404).json({ error: 'Property not found' })
-  }
-
-  const addressParts = [
-    tenant.address_line1, tenant.address_line2, tenant.city,
-    tenant.state_province, tenant.postal_code, tenant.country
-  ].filter(Boolean)
-
-  res.json({
-    id: tenant.id,
-    name: tenant.business_name || tenant.name || 'Accommodation',
-    email: tenant.business_email || null,
-    phone: tenant.business_phone || null,
-    address: addressParts.length > 0 ? addressParts.join(', ') : null,
-    address_line1: tenant.address_line1 || null,
-    address_line2: tenant.address_line2 || null,
-    city: tenant.city || null,
-    state_province: tenant.state_province || null,
-    postal_code: tenant.postal_code || null,
-    country: tenant.country || null,
-    business_hours: tenant.business_hours || null,
-    slug: tenant.slug,
-    custom_domain: tenant.custom_domain
-  })
-})
-
-// Get rooms (hostname-based)
-router.get('/rooms', async (req: Request, res: Response) => {
-  const tenantId = await resolveTenantId(req)
-  if (!tenantId) {
-    return res.status(400).json({ error: 'Tenant context required' })
-  }
-
-  const { data, error } = await supabase
-    .from('rooms')
-    .select('*')
-    .eq('tenant_id', tenantId)
-    .eq('is_active', true)
-    .order('base_price_per_night', { ascending: true })
-
-  if (error) {
-    return res.status(500).json({ error: 'Failed to fetch rooms' })
-  }
-
-  res.json(data || [])
-})
-
-// Get single room (hostname-based)
-router.get('/rooms/:roomId', async (req: Request, res: Response) => {
-  const tenantId = await resolveTenantId(req)
-  if (!tenantId) {
-    return res.status(400).json({ error: 'Tenant context required' })
-  }
-
-  const { roomId } = req.params
-
-  const { data: room, error } = await supabase
-    .from('rooms')
-    .select('*')
-    .eq('id', roomId)
-    .eq('tenant_id', tenantId)
-    .eq('is_active', true)
-    .single()
-
-  if (error || !room) {
-    return res.status(404).json({ error: 'Room not found' })
-  }
-
-  const { data: rates } = await supabase
-    .from('seasonal_rates')
-    .select('*')
-    .eq('room_id', roomId)
-    .eq('tenant_id', tenantId)
-    .order('start_date', { ascending: true })
-
-  res.json({ ...room, seasonal_rates: rates || [] })
-})
-
-// Get room addons (hostname-based)
-router.get('/rooms/:roomId/addons', async (req: Request, res: Response) => {
-  const tenantId = await resolveTenantId(req)
-  if (!tenantId) {
-    return res.status(400).json({ error: 'Tenant context required' })
-  }
-
-  const { roomId } = req.params
-
-  const { data: addons, error } = await supabase
-    .from('addons')
-    .select('*')
-    .eq('tenant_id', tenantId)
-    .eq('is_active', true)
-    .order('price', { ascending: true })
-
-  if (error) {
-    return res.status(500).json({ error: 'Failed to fetch addons' })
-  }
-
-  const availableAddons = (addons || []).filter(addon => {
-    if (!addon.available_for_rooms || addon.available_for_rooms.length === 0) return true
-    return addon.available_for_rooms.includes(roomId)
-  })
-
-  res.json(availableAddons)
-})
-
-// Get CMS settings (hostname-based)
-router.get('/cms-settings', async (req: Request, res: Response) => {
-  const tenantId = await resolveTenantId(req)
-  if (!tenantId) {
-    return res.status(400).json({ error: 'Tenant context required' })
-  }
-
-  const { data: settings } = await supabase
-    .from('website_settings')
-    .select('*')
-    .eq('tenant_id', tenantId)
-    .single()
-
-  const { data: pages } = await supabase
-    .from('website_pages')
-    .select('*')
-    .eq('tenant_id', tenantId)
-    .eq('is_published', true)
-    .order('navigation_order', { ascending: true })
-
-  res.json({
-    settings: settings || {
-      primary_color: '#1f2937',
-      secondary_color: '#374151',
-      accent_color: '#3b82f6',
-      background_color: '#ffffff',
-      text_color: '#111827',
-      heading_font: 'Inter',
-      body_font: 'Inter'
-    },
-    pages: pages || []
-  })
-})
-
-// Get CMS page (hostname-based)
-router.get('/cms-page/:pageIdentifier', async (req: Request, res: Response) => {
-  const tenantId = await resolveTenantId(req)
-  if (!tenantId) {
-    return res.status(400).json({ error: 'Tenant context required' })
-  }
-
-  const { pageIdentifier } = req.params
-  const pageTypes = ['home', 'accommodation', 'reviews', 'contact', 'blog', 'book', 'room_detail']
-
-  let query = supabase
-    .from('website_pages')
-    .select('*')
-    .eq('tenant_id', tenantId)
-    .eq('is_published', true)
-
-  if (pageTypes.includes(pageIdentifier)) {
-    query = query.eq('page_type', pageIdentifier)
-  } else {
-    query = query.eq('slug', pageIdentifier)
-  }
-
-  const { data, error } = await query.single()
-
-  if (error || !data) {
-    return res.status(404).json({ error: 'Page not found' })
-  }
-
-  res.json(data)
-})
-
-// Create booking (hostname-based)
-router.post('/bookings', async (req: Request, res: Response) => {
-  const tenantId = await resolveTenantId(req)
-  if (!tenantId) {
-    return res.status(400).json({ error: 'Tenant context required' })
-  }
-
-  const {
-    guest_name, guest_email, guest_phone, room_id, check_in, check_out,
-    guests, addons, special_requests, total_amount, currency
-  } = req.body
-
-  if (!guest_name || !guest_email || !room_id || !check_in || !check_out) {
-    return res.status(400).json({
-      error: 'Missing required fields: guest_name, guest_email, room_id, check_in, check_out'
-    })
-  }
-
-  const { data: room, error: roomError } = await supabase
-    .from('rooms')
-    .select('name, max_guests')
-    .eq('id', room_id)
-    .eq('tenant_id', tenantId)
-    .eq('is_active', true)
-    .single()
-
-  if (roomError || !room) {
-    return res.status(404).json({ error: 'Room not found or unavailable' })
-  }
-
-  if (guests && guests > room.max_guests) {
-    return res.status(400).json({ error: `This room allows maximum ${room.max_guests} guests` })
-  }
-
-  const bookingRef = `BK-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`
-  const customer = await getOrCreateCustomer(guest_email, guest_name, guest_phone)
-
-  const { data: booking, error: bookingError } = await supabase
-    .from('bookings')
-    .insert({
-      tenant_id: tenantId,
-      customer_id: customer?.id || null,
-      guest_name, guest_email, guest_phone, room_id,
-      room_name: room.name,
-      check_in, check_out,
-      status: 'pending',
-      payment_status: 'pending',
-      total_amount,
-      currency: currency || 'ZAR',
-      notes: JSON.stringify({
-        guests: guests || 1,
-        addons: addons || [],
-        special_requests: special_requests || '',
-        booking_reference: bookingRef,
-        booked_online: true
-      })
-    })
-    .select()
-    .single()
-
-  if (bookingError) {
-    return res.status(500).json({ error: 'Failed to create booking' })
-  }
-
-  let sessionToken = null
-  let sessionExpiresAt = null
-  if (customer) {
-    const session = await createSessionToken(customer.id)
-    if (session) {
-      sessionToken = session.token
-      sessionExpiresAt = session.expiresAt
-    }
-  }
-
-  res.status(201).json({
-    success: true,
-    booking: {
-      id: booking.id,
-      reference: bookingRef,
-      guest_name: booking.guest_name,
-      guest_email: booking.guest_email,
-      room_name: booking.room_name,
-      check_in: booking.check_in,
-      check_out: booking.check_out,
-      total_amount: booking.total_amount,
-      currency: booking.currency,
-      status: booking.status
-    },
-    customer: customer ? {
-      id: customer.id,
-      email: customer.email,
-      name: customer.name,
-      hasPassword: !!customer.password_hash
-    } : null,
-    token: sessionToken,
-    expiresAt: sessionExpiresAt
-  })
-})
-
-// Submit contact form (hostname-based)
-router.post('/contact', async (req: Request, res: Response) => {
-  const tenantId = await resolveTenantId(req)
-  if (!tenantId) {
-    return res.status(400).json({ error: 'Tenant context required' })
-  }
-
-  const { name, email, phone, subject, message } = req.body
-
-  if (!name || !email || !subject || !message) {
-    return res.status(400).json({ error: 'Name, email, subject, and message are required' })
-  }
-
-  const { data: existingCustomer } = await supabase
-    .from('customers')
-    .select('id')
-    .eq('tenant_id', tenantId)
-    .eq('email', email.toLowerCase().trim())
-    .single()
-
-  const { data: supportMessage, error: createError } = await supabase
-    .from('support_messages')
-    .insert({
-      tenant_id: tenantId,
-      customer_id: existingCustomer?.id || null,
-      sender_email: email.toLowerCase().trim(),
-      sender_name: name.trim(),
-      sender_phone: phone?.trim() || null,
-      subject: subject.trim(),
-      message: message.trim(),
-      source: 'website',
-      status: 'new'
-    })
-    .select()
-    .single()
-
-  if (createError) {
-    return res.status(500).json({ error: 'Failed to submit contact form' })
-  }
-
-  res.status(201).json({
-    success: true,
-    message: 'Thank you for your message. We will get back to you soon.',
-    id: supportMessage.id
-  })
 })
 
 export default router

@@ -39,20 +39,20 @@ export default function DayModal({
       />
 
       {/* Modal */}
-      <div className="relative bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-md mx-4 max-h-[80vh] overflow-hidden">
+      <div className="relative bg-white rounded-lg shadow-xl w-full max-w-md mx-4 max-h-[80vh] overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+        <div className="bg-gradient-to-r from-accent-600 to-accent-500 px-6 py-5 flex items-center justify-between rounded-t-lg">
           <div>
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+            <h2 className="text-lg font-semibold text-white">
               {format(date, 'EEEE, MMMM d, yyyy')}
             </h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400">
+            <p className="text-sm text-white/70">
               {bookings.length} {bookings.length === 1 ? 'booking' : 'bookings'}
             </p>
           </div>
           <button
             onClick={onClose}
-            className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400"
+            className="p-1.5 text-white/80 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -79,7 +79,7 @@ export default function DayModal({
                     {/* Guest name and status */}
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2">
-                        <User className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+                        <User className="w-4 h-4 text-gray-500" />
                         <span className={`font-medium ${colors.text}`}>
                           {booking.guest_name}
                         </span>
@@ -93,13 +93,13 @@ export default function DayModal({
                     </div>
 
                     {/* Room */}
-                    <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 mb-1">
+                    <div className="flex items-center gap-2 text-sm text-gray-600 mb-1">
                       <BedDouble className="w-4 h-4" />
                       {getRoomName(booking)}
                     </div>
 
                     {/* Dates */}
-                    <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                    <div className="flex items-center gap-2 text-sm text-gray-600">
                       <Calendar className="w-4 h-4" />
                       {format(new Date(booking.check_in), 'MMM d')} - {format(new Date(booking.check_out), 'MMM d')}
                       <span className="text-gray-400">
@@ -108,11 +108,11 @@ export default function DayModal({
                     </div>
 
                     {/* Total */}
-                    <div className="mt-2 pt-2 border-t border-gray-200 dark:border-gray-600 flex items-center justify-between">
-                      <span className="text-sm text-gray-500 dark:text-gray-400">
+                    <div className="mt-2 pt-2 border-t border-gray-200 flex items-center justify-between">
+                      <span className="text-sm text-gray-500">
                         Total
                       </span>
-                      <span className="font-medium text-gray-900 dark:text-white">
+                      <span className="font-medium text-gray-900">
                         {new Intl.NumberFormat('en-ZA', {
                           style: 'currency',
                           currency: booking.currency || 'ZAR',
@@ -121,7 +121,7 @@ export default function DayModal({
                     </div>
 
                     {/* View details link */}
-                    <div className="mt-2 flex items-center justify-end text-sm text-blue-600 dark:text-blue-400">
+                    <div className="mt-2 flex items-center justify-end text-sm text-blue-600">
                       <Eye className="w-4 h-4 mr-1" />
                       View Details
                     </div>
@@ -132,7 +132,7 @@ export default function DayModal({
           ) : (
             <div className="text-center py-8">
               <Calendar className="w-12 h-12 mx-auto text-gray-400 mb-4" />
-              <p className="text-gray-500 dark:text-gray-400">
+              <p className="text-gray-500">
                 No bookings for this day
               </p>
             </div>
@@ -140,10 +140,10 @@ export default function DayModal({
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50">
+        <div className="px-6 py-4 border-t border-gray-200 bg-gray-50">
           <button
             onClick={onCreateClick}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-black dark:bg-white text-white dark:text-black rounded-lg hover:opacity-90 transition-opacity"
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-accent-500 hover:bg-accent-600 text-white rounded-lg transition-colors font-medium"
           >
             <Plus className="w-4 h-4" />
             Create Booking

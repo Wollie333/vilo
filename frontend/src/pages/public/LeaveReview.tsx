@@ -1,8 +1,17 @@
 import { useState, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
-import { Loader2, CheckCircle, AlertCircle, BedDouble, Calendar } from 'lucide-react'
+import { Loader2, CheckCircle, AlertCircle, BedDouble, Calendar, Camera } from 'lucide-react'
 import StarRating from '../../components/StarRating'
-import { publicReviewsApi, type ReviewVerification } from '../../services/api'
+import ReviewCategoryRatings, {
+  CategoryRatings,
+  createEmptyRatings,
+  areAllRatingsFilled,
+  fromCategoryRatings,
+  calculateOverallRating
+} from '../../components/ReviewCategoryRatings'
+import ReviewImageUpload from '../../components/ReviewImageUpload'
+import TermsAcceptance from '../../components/TermsAcceptance'
+import { publicReviewsApi, type ReviewVerification, type ReviewImage } from '../../services/api'
 
 export default function LeaveReview() {
   const { tenantId, token } = useParams<{ tenantId: string; token: string }>()
@@ -13,9 +22,11 @@ export default function LeaveReview() {
   const [verification, setVerification] = useState<ReviewVerification | null>(null)
 
   // Form state
-  const [rating, setRating] = useState(0)
+  const [categoryRatings, setCategoryRatings] = useState<CategoryRatings>(createEmptyRatings())
   const [title, setTitle] = useState('')
   const [content, setContent] = useState('')
+  const [images, setImages] = useState<ReviewImage[]>([])
+  const [termsAccepted, setTermsAccepted] = useState(false)
 
   useEffect(() => {
     const verifyToken = async () => {
@@ -41,8 +52,8 @@ export default function LeaveReview() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
-    if (rating === 0) {
-      setError('Please select a rating')
+    if (!areAllRatingsFilled(categoryRatings)) {
+      setError('Please rate all categories')
       return
     }
 
@@ -52,10 +63,12 @@ export default function LeaveReview() {
     setError(null)
 
     try {
+      const apiRatings = fromCategoryRatings(categoryRatings)
       await publicReviewsApi.submitReview(tenantId, token, {
-        rating,
+        ...apiRatings,
         title: title.trim() || undefined,
-        content: content.trim() || undefined
+        content: content.trim() || undefined,
+        images: images.length > 0 ? images : undefined
       })
       setSuccess(true)
     } catch (err: any) {
@@ -73,6 +86,8 @@ export default function LeaveReview() {
       day: 'numeric'
     })
   }
+
+  const overallRating = calculateOverallRating(categoryRatings)
 
   // Loading state
   if (loading) {
@@ -110,18 +125,19 @@ export default function LeaveReview() {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
         <div className="max-w-md w-full bg-white rounded-2xl shadow-lg p-8 text-center">
-          <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <CheckCircle size={32} className="text-green-600" />
+          <div className="w-16 h-16 bg-accent-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <CheckCircle size={32} className="text-accent-600" />
           </div>
           <h1 className="text-2xl font-bold text-gray-900 mb-2">Thank You!</h1>
           <p className="text-gray-600 mb-6">
             Your review has been submitted successfully. We appreciate you taking the time to share your experience.
           </p>
-          <div className="flex justify-center">
-            <StarRating rating={rating} size="lg" />
+          <div className="flex justify-center mb-2">
+            <StarRating rating={overallRating} size="lg" showValue />
           </div>
+          <p className="text-sm text-gray-500 mb-4">Overall Rating</p>
           {title && (
-            <p className="mt-4 text-gray-700 font-medium">"{title}"</p>
+            <p className="text-gray-700 font-medium">"{title}"</p>
           )}
         </div>
       </div>
@@ -168,28 +184,27 @@ export default function LeaveReview() {
 
         {/* Review Form */}
         <form onSubmit={handleSubmit} className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          {/* Rating */}
-          <div className="mb-6">
-            <label className="block text-sm font-medium text-gray-900 mb-3">
-              Overall Rating <span className="text-red-500">*</span>
+          {/* Category Ratings */}
+          <div className="mb-8">
+            <label className="block text-sm font-medium text-gray-900 mb-4">
+              Rate Your Experience <span className="text-red-500">*</span>
             </label>
-            <div className="flex items-center gap-4">
-              <StarRating
-                rating={rating}
-                size="lg"
-                interactive
-                onChange={setRating}
-              />
-              {rating > 0 && (
-                <span className="text-lg font-semibold text-gray-900">
-                  {rating === 1 && 'Poor'}
-                  {rating === 2 && 'Fair'}
-                  {rating === 3 && 'Good'}
-                  {rating === 4 && 'Very Good'}
-                  {rating === 5 && 'Excellent'}
-                </span>
-              )}
-            </div>
+            <ReviewCategoryRatings
+              ratings={categoryRatings}
+              onChange={setCategoryRatings}
+              interactive
+              size="md"
+              layout="vertical"
+            />
+            {areAllRatingsFilled(categoryRatings) && (
+              <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-between">
+                <span className="text-sm font-medium text-gray-700">Overall Rating</span>
+                <div className="flex items-center gap-2">
+                  <StarRating rating={overallRating} size="md" />
+                  <span className="text-lg font-semibold text-gray-900">{overallRating.toFixed(1)}</span>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Title */}
@@ -228,6 +243,34 @@ export default function LeaveReview() {
             <p className="mt-1 text-xs text-gray-500">{content.length}/2000 characters</p>
           </div>
 
+          {/* Photo Upload */}
+          <div className="mb-6">
+            <label className="block text-sm font-medium text-gray-900 mb-2">
+              <span className="flex items-center gap-2">
+                <Camera size={16} />
+                Add Photos
+                <span className="text-gray-500 font-normal">(optional)</span>
+              </span>
+            </label>
+            <p className="text-sm text-gray-500 mb-3">
+              Share photos from your stay to help other travelers
+            </p>
+            <ReviewImageUpload
+              value={images}
+              onChange={setImages}
+              tenantId={tenantId || ''}
+              maxImages={4}
+            />
+          </div>
+
+          {/* Terms Acceptance */}
+          <div className="mb-6">
+            <TermsAcceptance
+              accepted={termsAccepted}
+              onChange={setTermsAccepted}
+            />
+          </div>
+
           {/* Error Message */}
           {error && (
             <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3">
@@ -239,7 +282,7 @@ export default function LeaveReview() {
           {/* Submit Button */}
           <button
             type="submit"
-            disabled={submitting || rating === 0}
+            disabled={submitting || !areAllRatingsFilled(categoryRatings) || !termsAccepted}
             className="w-full py-3 px-4 bg-black text-white font-medium rounded-lg hover:bg-gray-800 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
           >
             {submitting ? (

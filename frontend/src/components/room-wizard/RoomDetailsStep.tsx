@@ -28,9 +28,10 @@ const BED_SLEEPS: Record<string, number> = {
 interface RoomDetailsStepProps {
   formData: RoomFormData
   onChange: (updates: Partial<RoomFormData>) => void
+  tenantId: string
 }
 
-export default function RoomDetailsStep({ formData, onChange }: RoomDetailsStepProps) {
+export default function RoomDetailsStep({ formData, onChange, tenantId }: RoomDetailsStepProps) {
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
   ) => {
@@ -295,6 +296,7 @@ export default function RoomDetailsStep({ formData, onChange }: RoomDetailsStepP
         <RoomImageUpload
           value={formData.images}
           onChange={(images) => onChange({ images })}
+          tenantId={tenantId}
         />
       </div>
 

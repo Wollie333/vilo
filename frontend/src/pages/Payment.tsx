@@ -93,7 +93,7 @@ export default function Payment() {
         <div className="w-full max-w-md mx-auto">
           {/* Header */}
           <div className="text-center mb-8">
-            <div className="inline-flex items-center justify-center w-12 h-12 bg-gray-900 rounded-xl mb-4">
+            <div className="inline-flex items-center justify-center w-12 h-12 bg-emerald-500 rounded-xl mb-4">
               <span className="text-white font-bold text-lg">V</span>
             </div>
             <h1 className="text-2xl font-semibold text-gray-900 mb-2">
@@ -118,8 +118,8 @@ export default function Payment() {
             <ul className="space-y-3">
               {features.map((feature, index) => (
                 <li key={index} className="flex items-center gap-3 text-sm text-gray-700">
-                  <div className="flex-shrink-0 w-5 h-5 bg-green-100 rounded-full flex items-center justify-center">
-                    <Check size={12} className="text-green-600" />
+                  <div className="flex-shrink-0 w-5 h-5 bg-accent-100 rounded-full flex items-center justify-center">
+                    <Check size={12} className="text-accent-600" />
                   </div>
                   {feature}
                 </li>
@@ -150,7 +150,7 @@ export default function Payment() {
             30-day money-back guarantee.
           </p>
 
-          {/* Sign out link */}
+          {/* Footer */}
           <div className="mt-8 pt-6 border-t border-gray-100 text-center">
             <p className="text-sm text-gray-500">
               Signed in as {session?.user?.email}

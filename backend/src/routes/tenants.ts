@@ -61,10 +61,10 @@ router.patch('/me', async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Invalid token' })
     }
 
-    // Get tenant for this user
+    // Get tenant for this user (include slug, business_name, name for slug generation)
     const { data: existingTenant, error: fetchError } = await supabase
       .from('tenants')
-      .select('id')
+      .select('id, slug, business_name, name')
       .eq('owner_user_id', user.id)
       .single()
 
@@ -84,6 +84,7 @@ router.patch('/me', async (req: Request, res: Response) => {
       'postal_code',
       'country',
       'vat_number',
+      'company_registration_number',
       'business_email',
       'business_phone',
       'website_url',
@@ -91,7 +92,36 @@ router.patch('/me', async (req: Request, res: Response) => {
       'currency',
       'timezone',
       'date_format',
-      'business_hours'
+      'business_hours',
+      // Directory listing fields
+      'slug',
+      'discoverable',
+      'directory_featured',
+      'property_type',
+      'region',
+      'region_slug',
+      'cover_image',
+      // Extended directory listing fields
+      'gallery_images',
+      'directory_description',
+      'check_in_time',
+      'check_out_time',
+      'cancellation_policies',
+      'property_amenities',
+      'house_rules',
+      'whats_included',
+      'property_highlights',
+      'seasonal_message',
+      'special_offers',
+      // Geographic hierarchy fields
+      'country_id',
+      'province_id',
+      'destination_id',
+      'latitude',
+      'longitude',
+      'google_place_id',
+      'formatted_address',
+      'category_slugs'
     ]
 
     const updates: Record<string, unknown> = {}
@@ -103,6 +133,41 @@ router.patch('/me', async (req: Request, res: Response) => {
 
     if (Object.keys(updates).length === 0) {
       return res.status(400).json({ error: 'No valid fields to update' })
+    }
+
+    // Auto-generate slug from business_name if:
+    // 1. business_name is being updated and slug wasn't explicitly provided, OR
+    // 2. discoverable is being set to true and no slug exists yet
+    const shouldGenerateSlug =
+      (updates.business_name && !updates.slug) ||
+      (updates.discoverable === true && !existingTenant.slug && !updates.slug)
+
+    if (shouldGenerateSlug) {
+      const businessName = (updates.business_name as string) || existingTenant.business_name || existingTenant.name
+      if (businessName) {
+        let baseSlug = businessName
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-|-$/g, '')
+          .substring(0, 50)
+
+        // Check if slug exists and make unique if needed
+        let slug = baseSlug
+        let counter = 1
+        while (true) {
+          const { data: existing } = await supabase
+            .from('tenants')
+            .select('id')
+            .eq('slug', slug)
+            .neq('id', existingTenant.id)
+            .single()
+
+          if (!existing) break
+          slug = `${baseSlug}-${counter}`
+          counter++
+        }
+        updates.slug = slug
+      }
     }
 
     // Update tenant
@@ -396,6 +461,131 @@ router.put('/me/payment-apps/eft', async (req: Request, res: Response) => {
     res.json({ success: true, tenant })
   } catch (error) {
     console.error('Error in PUT /tenants/me/payment-apps/eft:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+// Update property categories
+router.put('/me/categories', async (req: Request, res: Response) => {
+  const authHeader = req.headers.authorization
+
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Missing or invalid authorization header' })
+  }
+
+  const token = authHeader.split(' ')[1]
+  const { categories } = req.body // Array of category slugs
+
+  if (!Array.isArray(categories)) {
+    return res.status(400).json({ error: 'Categories must be an array of slugs' })
+  }
+
+  try {
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token)
+
+    if (authError || !user) {
+      return res.status(401).json({ error: 'Invalid token' })
+    }
+
+    const { data: tenant, error: tenantError } = await supabase
+      .from('tenants')
+      .select('id')
+      .eq('owner_user_id', user.id)
+      .single()
+
+    if (tenantError || !tenant) {
+      return res.status(404).json({ error: 'Tenant not found' })
+    }
+
+    // Get category IDs from slugs
+    const { data: categoryRecords, error: catError } = await supabase
+      .from('property_categories')
+      .select('id, slug')
+      .in('slug', categories)
+      .eq('is_active', true)
+
+    if (catError) {
+      console.error('Error fetching categories:', catError)
+      return res.status(500).json({ error: 'Failed to fetch categories' })
+    }
+
+    // Delete existing tenant categories
+    const { error: deleteError } = await supabase
+      .from('tenant_categories')
+      .delete()
+      .eq('tenant_id', tenant.id)
+
+    if (deleteError) {
+      console.error('Error deleting existing categories:', deleteError)
+      return res.status(500).json({ error: 'Failed to update categories' })
+    }
+
+    // Insert new tenant categories
+    if (categoryRecords && categoryRecords.length > 0) {
+      const insertData = categoryRecords.map((cat, idx) => ({
+        tenant_id: tenant.id,
+        category_id: cat.id,
+        is_primary: idx === 0 // First category is primary
+      }))
+
+      const { error: insertError } = await supabase
+        .from('tenant_categories')
+        .insert(insertData)
+
+      if (insertError) {
+        console.error('Error inserting categories:', insertError)
+        return res.status(500).json({ error: 'Failed to save categories' })
+      }
+    }
+
+    // Update denormalized category_slugs on tenant
+    const validSlugs = categoryRecords?.map(c => c.slug) || []
+    const { error: updateError } = await supabase
+      .from('tenants')
+      .update({ category_slugs: validSlugs })
+      .eq('id', tenant.id)
+
+    if (updateError) {
+      console.error('Error updating category_slugs:', updateError)
+    }
+
+    res.json({ success: true, categories: validSlugs })
+  } catch (error) {
+    console.error('Error in PUT /tenants/me/categories:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+// Get property categories for current tenant
+router.get('/me/categories', async (req: Request, res: Response) => {
+  const authHeader = req.headers.authorization
+
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Missing or invalid authorization header' })
+  }
+
+  const token = authHeader.split(' ')[1]
+
+  try {
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token)
+
+    if (authError || !user) {
+      return res.status(401).json({ error: 'Invalid token' })
+    }
+
+    const { data: tenant, error: tenantError } = await supabase
+      .from('tenants')
+      .select('id, category_slugs')
+      .eq('owner_user_id', user.id)
+      .single()
+
+    if (tenantError || !tenant) {
+      return res.status(404).json({ error: 'Tenant not found' })
+    }
+
+    res.json({ categories: tenant.category_slugs || [] })
+  } catch (error) {
+    console.error('Error in GET /tenants/me/categories:', error)
     res.status(500).json({ error: 'Internal server error' })
   }
 })

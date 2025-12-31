@@ -38,6 +38,11 @@ export interface ProofOfPayment {
   uploaded_at: string
 }
 
+// Source types for FOB (Front of Business) integration
+export type BookingSource = 'vilo' | 'website' | 'manual' | 'airbnb' | 'booking_com' | 'lekkerslaap' | 'expedia' | 'tripadvisor'
+export type ReviewSource = 'vilo' | 'airbnb' | 'booking_com' | 'lekkerslaap' | 'expedia' | 'tripadvisor' | 'google'
+export type Platform = 'airbnb' | 'booking_com' | 'lekkerslaap' | 'expedia' | 'tripadvisor' | 'google' | 'ical'
+
 export interface Booking {
   id?: string
   guest_name: string
@@ -54,6 +59,11 @@ export interface Booking {
   notes?: string
   internal_notes?: string
   proof_of_payment?: ProofOfPayment | null
+  // FOB integration fields
+  source?: BookingSource
+  external_id?: string
+  external_url?: string
+  synced_at?: string
 }
 
 // Room types
@@ -606,12 +616,25 @@ export const publicBookingApi = {
   },
 }
 
+// Review image type
+export interface ReviewImage {
+  url: string
+  path: string
+  hidden?: boolean
+}
+
 // Review types
 export interface Review {
   id?: string
   tenant_id?: string
-  booking_id: string
+  booking_id?: string // Optional for external reviews
   rating: number
+  // Category ratings (1-5)
+  rating_cleanliness?: number
+  rating_service?: number
+  rating_location?: number
+  rating_value?: number
+  rating_safety?: number
   title?: string
   content?: string
   guest_name: string
@@ -620,6 +643,13 @@ export interface Review {
   status: 'published' | 'hidden' | 'flagged'
   created_at?: string
   updated_at?: string
+  // Review images (max 4)
+  images?: ReviewImage[]
+  // FOB integration fields
+  source?: ReviewSource
+  external_id?: string
+  external_url?: string
+  synced_at?: string
   bookings?: {
     id: string
     guest_name: string
@@ -634,6 +664,12 @@ export interface Review {
 export interface ReviewStats {
   total_reviews: number
   average_rating: number
+  // Category averages (null if no reviews with categories)
+  average_cleanliness?: number | null
+  average_service?: number | null
+  average_location?: number | null
+  average_value?: number | null
+  average_safety?: number | null
   rating_distribution?: {
     1: number
     2: number
@@ -646,12 +682,20 @@ export interface ReviewStats {
 export interface PublicReview {
   id: string
   rating: number
+  // Category ratings (1-5)
+  rating_cleanliness?: number
+  rating_service?: number
+  rating_location?: number
+  rating_value?: number
+  rating_safety?: number
   title?: string
   content?: string
   guest_name: string
   owner_response?: string
   owner_response_at?: string
   created_at: string
+  // Review images (only non-hidden ones)
+  images?: ReviewImage[]
   bookings: {
     room_id: string
     room_name: string
@@ -674,11 +718,12 @@ export interface ReviewVerification {
 
 // Reviews API (admin)
 export const reviewsApi = {
-  getAll: async (params?: { status?: string; room_id?: string; rating?: number; sort?: string }): Promise<Review[]> => {
+  getAll: async (params?: { status?: string; room_id?: string; rating?: number; source?: string; sort?: string }): Promise<Review[]> => {
     const searchParams = new URLSearchParams()
     if (params?.status) searchParams.set('status', params.status)
     if (params?.room_id) searchParams.set('room_id', params.room_id)
     if (params?.rating) searchParams.set('rating', String(params.rating))
+    if (params?.source) searchParams.set('source', params.source)
     if (params?.sort) searchParams.set('sort', params.sort)
 
     const url = `${API_BASE_URL}/reviews${searchParams.toString() ? `?${searchParams}` : ''}`
@@ -722,7 +767,7 @@ export const reviewsApi = {
     return response.json()
   },
 
-  update: async (id: string, data: { owner_response?: string; status?: string }): Promise<Review> => {
+  update: async (id: string, data: { owner_response?: string; status?: string; images?: ReviewImage[] }): Promise<Review> => {
     const response = await fetch(`${API_BASE_URL}/reviews/${id}`, {
       method: 'PUT',
       headers: getHeaders(),
@@ -828,7 +873,20 @@ export const publicReviewsApi = {
     return response.json()
   },
 
-  submitReview: async (tenantId: string, token: string, data: { rating: number; title?: string; content?: string }): Promise<{ success: boolean; message: string }> => {
+  submitReview: async (
+    tenantId: string,
+    token: string,
+    data: {
+      rating_cleanliness: number
+      rating_service: number
+      rating_location: number
+      rating_value: number
+      rating_safety: number
+      title?: string
+      content?: string
+      images?: ReviewImage[]
+    }
+  ): Promise<{ success: boolean; message: string }> => {
     const response = await fetch(`${API_BASE_URL}/reviews/public/submit/${tenantId}/${token}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -928,6 +986,20 @@ export interface CustomerStats {
   customersWithPortalAccess: number
 }
 
+export interface CustomerReview {
+  id: string
+  rating: number
+  title?: string
+  content?: string
+  owner_response?: string
+  status: string
+  created_at: string
+  booking_id: string
+  room_name: string
+  check_in: string
+  check_out: string
+}
+
 export interface CustomerDetail {
   customer: {
     email: string
@@ -944,8 +1016,10 @@ export interface CustomerDetail {
     firstStay: string
     lastStay: string
     averageRating: number | null
+    totalReviews: number
   }
   bookings: Booking[]
+  reviews: CustomerReview[]
   supportTickets: any[]
 }
 
@@ -1164,3 +1238,473 @@ export const publicContactApi = {
     return response.json()
   },
 }
+
+// Invoice types
+export interface InvoiceData {
+  invoice_number: string
+  invoice_date: string
+  payment_date: string
+  business: {
+    name: string
+    logo_url: string | null
+    address_line1: string | null
+    address_line2: string | null
+    city: string | null
+    state_province: string | null
+    postal_code: string | null
+    country: string | null
+    vat_number: string | null
+    company_registration_number: string | null
+    email: string | null
+    phone: string | null
+  }
+  customer: {
+    name: string
+    email: string | null
+    phone: string | null
+  }
+  booking: {
+    id: string
+    reference: string
+    room_name: string
+    check_in: string
+    check_out: string
+    nights: number
+  }
+  line_items: Array<{
+    description: string
+    quantity: number
+    unit_price: number
+    total: number
+  }>
+  subtotal: number
+  vat_rate: number
+  vat_amount: number
+  total_amount: number
+  currency: string
+}
+
+export interface Invoice {
+  id: string
+  tenant_id: string
+  booking_id: string
+  invoice_number: string
+  invoice_data: InvoiceData
+  pdf_url: string | null
+  pdf_path: string | null
+  sent_via_email_at: string | null
+  sent_via_whatsapp_at: string | null
+  email_recipient: string | null
+  generated_at: string
+  created_at: string
+  updated_at: string
+}
+
+// Invoices API
+export const invoicesApi = {
+  getByBookingId: async (bookingId: string): Promise<Invoice | null> => {
+    const response = await fetch(`${API_BASE_URL}/invoices/booking/${bookingId}`, {
+      headers: getHeaders(),
+    })
+    if (response.status === 404) {
+      return null
+    }
+    if (!response.ok) {
+      throw new Error('Failed to fetch invoice')
+    }
+    return response.json()
+  },
+
+  generate: async (bookingId: string): Promise<Invoice> => {
+    const response = await fetch(`${API_BASE_URL}/invoices/booking/${bookingId}/generate`, {
+      method: 'POST',
+      headers: getHeaders(),
+    })
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || 'Failed to generate invoice')
+    }
+    return response.json()
+  },
+
+  download: async (invoiceId: string, invoiceNumber: string): Promise<void> => {
+    const response = await fetch(`${API_BASE_URL}/invoices/${invoiceId}/download`, {
+      headers: getHeaders(),
+    })
+    if (!response.ok) {
+      throw new Error('Failed to download invoice')
+    }
+    const blob = await response.blob()
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${invoiceNumber}.pdf`
+    document.body.appendChild(a)
+    a.click()
+    window.URL.revokeObjectURL(url)
+    document.body.removeChild(a)
+  },
+
+  sendEmail: async (invoiceId: string, email?: string): Promise<{ success: boolean; message: string }> => {
+    const response = await fetch(`${API_BASE_URL}/invoices/${invoiceId}/send-email`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ email }),
+    })
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || 'Failed to send invoice email')
+    }
+    return response.json()
+  },
+
+  getWhatsAppLink: async (invoiceId: string, phone?: string): Promise<{ url: string }> => {
+    const params = phone ? `?phone=${encodeURIComponent(phone)}` : ''
+    const response = await fetch(`${API_BASE_URL}/invoices/${invoiceId}/whatsapp-link${params}`, {
+      headers: getHeaders(),
+    })
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || 'Failed to get WhatsApp link')
+    }
+    return response.json()
+  },
+
+  getAll: async (page = 1, limit = 20): Promise<{
+    invoices: Invoice[]
+    pagination: { page: number; limit: number; total: number; totalPages: number }
+  }> => {
+    const response = await fetch(`${API_BASE_URL}/invoices?page=${page}&limit=${limit}`, {
+      headers: getHeaders(),
+    })
+    if (!response.ok) {
+      throw new Error('Failed to fetch invoices')
+    }
+    return response.json()
+  },
+}
+
+// ============================================
+// INTEGRATIONS (FOB) TYPES & API
+// ============================================
+
+export interface Integration {
+  id: string
+  tenant_id: string
+  platform: Platform
+  display_name: string | null
+  credentials: Record<string, string>
+  settings: Record<string, unknown>
+  is_active: boolean
+  is_connected: boolean
+  last_sync_at: string | null
+  last_error: string | null
+  sync_bookings: boolean
+  sync_reviews: boolean
+  sync_availability: boolean
+  auto_sync_enabled: boolean
+  sync_interval_minutes: number
+  webhook_url: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface RoomMapping {
+  id: string
+  tenant_id: string
+  room_id: string
+  integration_id: string
+  external_room_id: string
+  external_room_name: string | null
+  ical_url: string | null
+  last_ical_sync: string | null
+  created_at: string
+  updated_at: string
+  room_name?: string // Joined from rooms table
+}
+
+export interface SyncLog {
+  id: string
+  tenant_id: string
+  integration_id: string
+  sync_type: 'bookings' | 'reviews' | 'availability' | 'full'
+  direction: 'inbound' | 'outbound'
+  status: 'pending' | 'running' | 'success' | 'failed'
+  started_at: string
+  completed_at: string | null
+  records_processed: number
+  records_created: number
+  records_updated: number
+  records_skipped: number
+  error_message: string | null
+  details: Record<string, unknown>
+  created_at: string
+}
+
+export interface PlatformConfig {
+  id: Platform
+  name: string
+  description: string
+  color: string
+  supports_bookings: boolean
+  supports_reviews: boolean
+  supports_availability: boolean
+  supports_webhooks: boolean
+  auth_type: 'api_key' | 'oauth' | 'ical' | 'manual'
+  setup_instructions: string
+}
+
+// Platform display configurations
+export const PLATFORM_CONFIGS: Record<Platform, PlatformConfig> = {
+  airbnb: {
+    id: 'airbnb',
+    name: 'Airbnb',
+    description: 'Sync bookings and reviews from Airbnb',
+    color: '#FF5A5F',
+    supports_bookings: true,
+    supports_reviews: true,
+    supports_availability: true,
+    supports_webhooks: true,
+    auth_type: 'oauth',
+    setup_instructions: 'Connect your Airbnb account to sync bookings, reviews, and availability.',
+  },
+  booking_com: {
+    id: 'booking_com',
+    name: 'Booking.com',
+    description: 'Sync bookings and reviews from Booking.com',
+    color: '#003580',
+    supports_bookings: true,
+    supports_reviews: true,
+    supports_availability: true,
+    supports_webhooks: true,
+    auth_type: 'api_key',
+    setup_instructions: 'Enter your Booking.com Partner API credentials.',
+  },
+  lekkerslaap: {
+    id: 'lekkerslaap',
+    name: 'LekkeSlaap',
+    description: 'Sync bookings from LekkeSlaap',
+    color: '#F97316',
+    supports_bookings: true,
+    supports_reviews: true,
+    supports_availability: true,
+    supports_webhooks: false,
+    auth_type: 'ical',
+    setup_instructions: 'Add your LekkeSlaap iCal URL to import bookings.',
+  },
+  expedia: {
+    id: 'expedia',
+    name: 'Expedia',
+    description: 'Sync bookings from Expedia Group',
+    color: '#FBBF24',
+    supports_bookings: true,
+    supports_reviews: true,
+    supports_availability: true,
+    supports_webhooks: true,
+    auth_type: 'api_key',
+    setup_instructions: 'Connect your Expedia Partner Central account.',
+  },
+  tripadvisor: {
+    id: 'tripadvisor',
+    name: 'TripAdvisor',
+    description: 'Sync reviews from TripAdvisor',
+    color: '#00AF87',
+    supports_bookings: false,
+    supports_reviews: true,
+    supports_availability: false,
+    supports_webhooks: false,
+    auth_type: 'api_key',
+    setup_instructions: 'Connect your TripAdvisor business account.',
+  },
+  google: {
+    id: 'google',
+    name: 'Google Business',
+    description: 'Sync reviews from Google Business Profile',
+    color: '#4285F4',
+    supports_bookings: false,
+    supports_reviews: true,
+    supports_availability: false,
+    supports_webhooks: false,
+    auth_type: 'oauth',
+    setup_instructions: 'Connect your Google Business Profile.',
+  },
+  ical: {
+    id: 'ical',
+    name: 'iCal Import',
+    description: 'Import bookings from any iCal feed',
+    color: '#6B7280',
+    supports_bookings: true,
+    supports_reviews: false,
+    supports_availability: true,
+    supports_webhooks: false,
+    auth_type: 'ical',
+    setup_instructions: 'Add an iCal URL to import calendar events.',
+  },
+}
+
+// Source display configurations for badges
+export interface SourceDisplayInfo {
+  label: string
+  color: string
+  bgColor: string
+  textColor: string
+}
+
+export const BOOKING_SOURCE_DISPLAY: Record<BookingSource, SourceDisplayInfo> = {
+  vilo: { label: 'Vilo', color: '#047857', bgColor: 'bg-emerald-100', textColor: 'text-emerald-800' },
+  website: { label: 'Website', color: '#2563EB', bgColor: 'bg-blue-100', textColor: 'text-blue-800' },
+  manual: { label: 'Manual', color: '#6B7280', bgColor: 'bg-gray-100', textColor: 'text-gray-800' },
+  airbnb: { label: 'Airbnb', color: '#FF5A5F', bgColor: 'bg-rose-100', textColor: 'text-rose-800' },
+  booking_com: { label: 'Booking.com', color: '#003580', bgColor: 'bg-blue-100', textColor: 'text-blue-900' },
+  lekkerslaap: { label: 'LekkeSlaap', color: '#F97316', bgColor: 'bg-orange-100', textColor: 'text-orange-800' },
+  expedia: { label: 'Expedia', color: '#FBBF24', bgColor: 'bg-yellow-100', textColor: 'text-yellow-800' },
+  tripadvisor: { label: 'TripAdvisor', color: '#00AF87', bgColor: 'bg-emerald-100', textColor: 'text-emerald-800' },
+}
+
+export const REVIEW_SOURCE_DISPLAY: Record<ReviewSource, SourceDisplayInfo> = {
+  vilo: BOOKING_SOURCE_DISPLAY.vilo,
+  airbnb: BOOKING_SOURCE_DISPLAY.airbnb,
+  booking_com: BOOKING_SOURCE_DISPLAY.booking_com,
+  lekkerslaap: BOOKING_SOURCE_DISPLAY.lekkerslaap,
+  expedia: BOOKING_SOURCE_DISPLAY.expedia,
+  tripadvisor: BOOKING_SOURCE_DISPLAY.tripadvisor,
+  google: { label: 'Google', color: '#4285F4', bgColor: 'bg-blue-100', textColor: 'text-blue-800' },
+}
+
+// Integrations API
+export const integrationsApi = {
+  getAll: async (): Promise<Integration[]> => {
+    const response = await fetch(`${API_BASE_URL}/integrations`, {
+      headers: getHeaders(),
+    })
+    if (!response.ok) {
+      throw new Error('Failed to fetch integrations')
+    }
+    return response.json()
+  },
+
+  getById: async (id: string): Promise<Integration & { room_mappings: RoomMapping[] }> => {
+    const response = await fetch(`${API_BASE_URL}/integrations/${id}`, {
+      headers: getHeaders(),
+    })
+    if (!response.ok) {
+      throw new Error('Failed to fetch integration')
+    }
+    return response.json()
+  },
+
+  create: async (data: {
+    platform: Platform
+    display_name?: string
+    credentials?: Record<string, string>
+    settings?: Record<string, unknown>
+  }): Promise<Integration> => {
+    const response = await fetch(`${API_BASE_URL}/integrations`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(data),
+    })
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || 'Failed to create integration')
+    }
+    return response.json()
+  },
+
+  update: async (id: string, data: Partial<{
+    display_name: string
+    credentials: Record<string, string>
+    settings: Record<string, unknown>
+    is_active: boolean
+    sync_bookings: boolean
+    sync_reviews: boolean
+    sync_availability: boolean
+    auto_sync_enabled: boolean
+    sync_interval_minutes: number
+  }>): Promise<Integration> => {
+    const response = await fetch(`${API_BASE_URL}/integrations/${id}`, {
+      method: 'PUT',
+      headers: getHeaders(),
+      body: JSON.stringify(data),
+    })
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || 'Failed to update integration')
+    }
+    return response.json()
+  },
+
+  delete: async (id: string): Promise<void> => {
+    const response = await fetch(`${API_BASE_URL}/integrations/${id}`, {
+      method: 'DELETE',
+      headers: getHeaders(),
+    })
+    if (!response.ok) {
+      throw new Error('Failed to delete integration')
+    }
+  },
+
+  triggerSync: async (id: string, syncType: 'bookings' | 'reviews' | 'availability' | 'full'): Promise<{ success: boolean; log_id: string }> => {
+    const response = await fetch(`${API_BASE_URL}/integrations/${id}/sync`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ sync_type: syncType }),
+    })
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || 'Failed to trigger sync')
+    }
+    return response.json()
+  },
+
+  getSyncLogs: async (id: string, limit = 20): Promise<SyncLog[]> => {
+    const response = await fetch(`${API_BASE_URL}/integrations/${id}/sync-logs?limit=${limit}`, {
+      headers: getHeaders(),
+    })
+    if (!response.ok) {
+      throw new Error('Failed to fetch sync logs')
+    }
+    return response.json()
+  },
+
+  getRoomMappings: async (id: string): Promise<RoomMapping[]> => {
+    const response = await fetch(`${API_BASE_URL}/integrations/${id}/room-mappings`, {
+      headers: getHeaders(),
+    })
+    if (!response.ok) {
+      throw new Error('Failed to fetch room mappings')
+    }
+    return response.json()
+  },
+
+  updateRoomMappings: async (id: string, mappings: Array<{
+    room_id: string
+    external_room_id: string
+    external_room_name?: string
+    ical_url?: string
+  }>): Promise<RoomMapping[]> => {
+    const response = await fetch(`${API_BASE_URL}/integrations/${id}/room-mappings`, {
+      method: 'PUT',
+      headers: getHeaders(),
+      body: JSON.stringify({ mappings }),
+    })
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || 'Failed to update room mappings')
+    }
+    return response.json()
+  },
+
+  testConnection: async (id: string): Promise<{ success: boolean; message: string }> => {
+    const response = await fetch(`${API_BASE_URL}/integrations/${id}/test`, {
+      method: 'POST',
+      headers: getHeaders(),
+    })
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || 'Connection test failed')
+    }
+    return response.json()
+  },
+}
+

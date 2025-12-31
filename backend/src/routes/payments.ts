@@ -50,7 +50,7 @@ router.post('/initialize', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'You already have lifetime access' })
     }
     const callbackUrl = FRONTEND_URL + '/payment/callback'
-    const result = await initializeTransaction(user.email, callbackUrl, { tenant_id: tenant.id, user_id: user.id, plan }, currency as PaystackCurrency)
+    const result = await initializeTransaction(user.email!, callbackUrl, { tenant_id: tenant.id, user_id: user.id, plan }, currency as PaystackCurrency)
     if (!result.success || !result.data) {
       return res.status(500).json({ error: result.error || 'Failed to initialize payment' })
     }
@@ -61,6 +61,128 @@ router.post('/initialize', async (req: Request, res: Response) => {
     res.json({ authorization_url: result.data.authorization_url, reference: result.data.reference, amount: chargedAmount, currency: currency })
   } catch (error) {
     console.error('Error in POST /payments/initialize:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+// Initialize payment with full profile data (for host signup wizard)
+router.post('/initialize-with-profile', async (req: Request, res: Response) => {
+  const authHeader = req.headers.authorization
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Missing or invalid authorization header' })
+  }
+  const token = authHeader.split(' ')[1]
+  const { plan = 'lifetime', currency = 'ZAR', profile } = req.body
+
+  if (!PAYSTACK_CURRENCIES.includes(currency)) {
+    return res.status(400).json({ error: 'Invalid currency. Supported: NGN, GHS, ZAR, USD, KES' })
+  }
+  if (!['lifetime', 'monthly', 'annual'].includes(plan)) {
+    return res.status(400).json({ error: 'Invalid plan. Must be: lifetime, monthly, or annual' })
+  }
+  if (!profile || !profile.businessName) {
+    return res.status(400).json({ error: 'Profile with businessName is required' })
+  }
+
+  try {
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token)
+    if (authError || !user) {
+      return res.status(401).json({ error: 'Invalid token' })
+    }
+
+    // Check if tenant already exists
+    let { data: tenant } = await supabase.from('tenants').select('*').eq('owner_user_id', user.id).single()
+
+    if (tenant) {
+      // Tenant exists, update with profile data
+      const { error: updateError } = await supabase
+        .from('tenants')
+        .update({
+          business_name: profile.businessName,
+          business_description: profile.businessDescription || null,
+          property_type: profile.propertyType || null,
+          region: profile.region || null,
+          region_slug: profile.regionSlug || null,
+          business_phone: profile.businessPhone || null,
+          address_line1: profile.addressLine1 || null,
+          city: profile.city || null,
+          state_province: profile.stateProvince || null,
+          country: profile.country || 'South Africa',
+          logo_url: profile.logoUrl || null,
+          discoverable: true,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', tenant.id)
+
+      if (updateError) {
+        console.error('Error updating tenant:', updateError)
+      }
+    } else {
+      // Create new tenant with all profile data
+      const { data: newTenant, error: createError } = await supabase
+        .from('tenants')
+        .insert({
+          owner_user_id: user.id,
+          has_lifetime_access: false,
+          business_name: profile.businessName,
+          business_description: profile.businessDescription || null,
+          property_type: profile.propertyType || null,
+          region: profile.region || null,
+          region_slug: profile.regionSlug || null,
+          business_phone: profile.businessPhone || null,
+          address_line1: profile.addressLine1 || null,
+          city: profile.city || null,
+          state_province: profile.stateProvince || null,
+          country: profile.country || 'South Africa',
+          logo_url: profile.logoUrl || null,
+          discoverable: true
+        })
+        .select()
+        .single()
+
+      if (createError) {
+        console.error('Error creating tenant:', createError)
+        return res.status(500).json({ error: 'Failed to create tenant' })
+      }
+      tenant = newTenant
+    }
+
+    if (tenant.has_lifetime_access && plan === 'lifetime') {
+      return res.status(400).json({ error: 'You already have lifetime access' })
+    }
+
+    const callbackUrl = FRONTEND_URL + '/payment/callback'
+    const result = await initializeTransaction(user.email!, callbackUrl, { tenant_id: tenant.id, user_id: user.id, plan }, currency as PaystackCurrency)
+
+    if (!result.success || !result.data) {
+      return res.status(500).json({ error: result.error || 'Failed to initialize payment' })
+    }
+
+    const prices = await getPricesInCurrency(currency as PaystackCurrency)
+    const chargedAmount = (prices as any)[plan]?.amount || 0
+
+    const { error: paymentError } = await supabase
+      .from('payments')
+      .insert({
+        tenant_id: tenant.id,
+        amount: chargedAmount,
+        currency: currency,
+        paystack_reference: result.data.reference,
+        status: 'pending'
+      })
+
+    if (paymentError) {
+      console.error('Error storing payment:', paymentError)
+    }
+
+    res.json({
+      authorization_url: result.data.authorization_url,
+      reference: result.data.reference,
+      amount: chargedAmount,
+      currency: currency
+    })
+  } catch (error) {
+    console.error('Error in POST /payments/initialize-with-profile:', error)
     res.status(500).json({ error: 'Internal server error' })
   }
 })

@@ -415,6 +415,13 @@ router.get('/bookings/:id', requireCustomerAuth, async (req: Request, res: Respo
       .eq('id', booking.tenant_id)
       .single()
 
+    // Get room info with images
+    const { data: room } = await supabase
+      .from('rooms')
+      .select('id, name, images')
+      .eq('id', booking.room_id)
+      .single()
+
     // Get reviews for this booking
     const { data: reviews } = await supabase
       .from('reviews')
@@ -431,6 +438,7 @@ router.get('/bookings/:id', requireCustomerAuth, async (req: Request, res: Respo
     res.json({
       ...booking,
       tenants: tenant,
+      room: room || null,
       reviews: reviews || [],
       availableAddons: addons || [],
       canModifyAddons: canModifyBookingAddons(booking)
@@ -534,6 +542,81 @@ router.put('/bookings/:id/addons', requireCustomerAuth, async (req: Request, res
     })
   } catch (error) {
     console.error('Error updating add-ons:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+/**
+ * Cancel booking
+ * POST /api/portal/bookings/:id/cancel
+ */
+router.post('/bookings/:id/cancel', requireCustomerAuth, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params
+    const customerId = req.customerContext!.customerId
+    const customerEmail = req.customerContext!.email
+
+    // Get the booking
+    const { data: booking, error: fetchError } = await supabase
+      .from('bookings')
+      .select('*')
+      .eq('id', id)
+      .single()
+
+    if (fetchError || !booking) {
+      return res.status(404).json({ error: 'Booking not found' })
+    }
+
+    // Verify ownership
+    const emailMatch = booking.guest_email?.toLowerCase() === customerEmail?.toLowerCase()
+    const customerIdMatch = booking.customer_id === customerId
+    if (!emailMatch && !customerIdMatch) {
+      return res.status(404).json({ error: 'Booking not found' })
+    }
+
+    // Check if booking can be cancelled
+    // Only pending or confirmed bookings can be cancelled
+    // Also check if check-in date hasn't passed
+    const checkInDate = new Date(booking.check_in)
+    const now = new Date()
+
+    if (['cancelled', 'checked_in', 'checked_out', 'completed'].includes(booking.status)) {
+      return res.status(400).json({
+        error: 'Cannot cancel booking',
+        message: 'This booking cannot be cancelled in its current status.'
+      })
+    }
+
+    if (checkInDate < now) {
+      return res.status(400).json({
+        error: 'Cannot cancel booking',
+        message: 'Cannot cancel a booking after the check-in date has passed.'
+      })
+    }
+
+    // Update booking status to cancelled
+    const { data: updatedBooking, error: updateError } = await supabase
+      .from('bookings')
+      .update({
+        status: 'cancelled',
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', id)
+      .select()
+      .single()
+
+    if (updateError) {
+      console.error('Error cancelling booking:', updateError)
+      return res.status(500).json({ error: 'Failed to cancel booking' })
+    }
+
+    res.json({
+      success: true,
+      booking: updatedBooking,
+      message: 'Your reservation has been cancelled.'
+    })
+  } catch (error) {
+    console.error('Error cancelling booking:', error)
     res.status(500).json({ error: 'Internal server error' })
   }
 })
@@ -744,6 +827,93 @@ router.get('/reviews/:id', requireCustomerAuth, async (req: Request, res: Respon
     })
   } catch (error) {
     console.error('Error fetching review:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+/**
+ * Update customer's review
+ * PUT /api/portal/reviews/:id
+ * Only the customer who wrote the review can edit it
+ */
+router.put('/reviews/:id', requireCustomerAuth, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params
+    const customerId = req.customerContext!.customerId
+    const { rating, title, content } = req.body
+
+    // Validate rating
+    if (rating === undefined || rating < 1 || rating > 5) {
+      return res.status(400).json({ error: 'Rating must be between 1 and 5' })
+    }
+
+    // Get review
+    const { data: review, error } = await supabase
+      .from('reviews')
+      .select('*, bookings!inner(customer_id)')
+      .eq('id', id)
+      .single()
+
+    if (error || !review) {
+      return res.status(404).json({ error: 'Review not found' })
+    }
+
+    // Verify review belongs to this customer
+    if (review.bookings.customer_id !== customerId) {
+      return res.status(403).json({ error: 'You can only edit your own reviews' })
+    }
+
+    // Update review - only allow updating rating, title, and content
+    const { data: updatedReview, error: updateError } = await supabase
+      .from('reviews')
+      .update({
+        rating,
+        title: title || null,
+        content: content || null,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', id)
+      .select()
+      .single()
+
+    if (updateError) {
+      console.error('Error updating review:', updateError)
+      return res.status(500).json({ error: 'Failed to update review' })
+    }
+
+    // Get booking info for response
+    const { data: booking } = await supabase
+      .from('bookings')
+      .select('id, room_name, check_in, check_out, tenant_id')
+      .eq('id', updatedReview.booking_id)
+      .single()
+
+    const { data: tenant } = await supabase
+      .from('tenants')
+      .select('business_name')
+      .eq('id', booking?.tenant_id)
+      .single()
+
+    res.json({
+      id: updatedReview.id,
+      rating: updatedReview.rating,
+      title: updatedReview.title,
+      content: updatedReview.content,
+      status: updatedReview.status,
+      owner_response: updatedReview.owner_response,
+      owner_response_at: updatedReview.owner_response_at,
+      created_at: updatedReview.created_at,
+      updated_at: updatedReview.updated_at,
+      booking: {
+        id: booking?.id,
+        roomName: booking?.room_name,
+        propertyName: tenant?.business_name,
+        checkIn: booking?.check_in,
+        checkOut: booking?.check_out
+      }
+    })
+  } catch (error) {
+    console.error('Error updating review:', error)
     res.status(500).json({ error: 'Internal server error' })
   }
 })
@@ -1158,6 +1328,107 @@ router.get('/properties/:tenantId/rooms', requireCustomerAuth, async (req: Reque
 })
 
 /**
+ * Get room pricing with seasonal rates
+ * GET /api/portal/properties/:tenantId/rooms/:roomId/pricing
+ */
+router.get('/properties/:tenantId/rooms/:roomId/pricing', requireCustomerAuth, async (req: Request, res: Response) => {
+  try {
+    const { tenantId, roomId } = req.params
+    const { checkIn, checkOut } = req.query
+    const customerId = req.customerContext!.customerId
+
+    if (!checkIn || !checkOut) {
+      return res.status(400).json({ error: 'checkIn and checkOut dates required' })
+    }
+
+    // Verify customer has bookings with this tenant
+    const { data: customerBookings } = await supabase
+      .from('bookings')
+      .select('id')
+      .eq('customer_id', customerId)
+      .eq('tenant_id', tenantId)
+      .limit(1)
+
+    if (!customerBookings || customerBookings.length === 0) {
+      return res.status(403).json({ error: 'No bookings found with this property' })
+    }
+
+    // Get room base price
+    const { data: room, error: roomError } = await supabase
+      .from('rooms')
+      .select('base_price_per_night, currency, name')
+      .eq('id', roomId)
+      .eq('tenant_id', tenantId)
+      .single()
+
+    if (roomError || !room) {
+      return res.status(404).json({ error: 'Room not found' })
+    }
+
+    // Get all seasonal rates that overlap with the date range
+    const { data: rates } = await supabase
+      .from('seasonal_rates')
+      .select('*')
+      .eq('room_id', roomId)
+      .eq('tenant_id', tenantId)
+      .lte('start_date', checkOut)
+      .gte('end_date', checkIn)
+      .order('priority', { ascending: false })
+
+    // Calculate prices for each night
+    const nights: Array<{
+      date: string
+      price: number
+      rate_name: string | null
+    }> = []
+
+    // Parse dates and work with date strings to avoid timezone issues
+    const startDateStr = checkIn as string
+    const endDateStr = checkOut as string
+    let totalAmount = 0
+
+    const currentDate = new Date(startDateStr + 'T12:00:00') // Use noon to avoid DST issues
+    const endDate = new Date(endDateStr + 'T12:00:00')
+
+    while (currentDate < endDate) {
+      const year = currentDate.getFullYear()
+      const month = String(currentDate.getMonth() + 1).padStart(2, '0')
+      const day = String(currentDate.getDate()).padStart(2, '0')
+      const dateStr = `${year}-${month}-${day}`
+
+      // Compare date strings directly to avoid timezone issues
+      const applicableRate = (rates || []).find(rate => {
+        const rateStart = rate.start_date
+        const rateEnd = rate.end_date
+        return dateStr >= rateStart && dateStr <= rateEnd
+      })
+
+      const price = applicableRate ? Number(applicableRate.price_per_night) : room.base_price_per_night
+      totalAmount += price
+
+      nights.push({
+        date: dateStr,
+        price,
+        rate_name: applicableRate?.name || null
+      })
+
+      currentDate.setDate(currentDate.getDate() + 1)
+    }
+
+    res.json({
+      room_name: room.name,
+      nights,
+      subtotal: totalAmount,
+      currency: room.currency,
+      night_count: nights.length
+    })
+  } catch (error) {
+    console.error('Error fetching room pricing:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+/**
  * Get available add-ons for a property
  * GET /api/portal/properties/:tenantId/addons
  */
@@ -1272,14 +1543,48 @@ router.post('/bookings', requireCustomerAuth, async (req: Request, res: Response
       return res.status(400).json({ error: 'Check-out must be after check-in' })
     }
 
-    // Get room price per night
-    let pricePerNight = room.base_price || 0
-    const roomPricing = room.pricing || {}
-    if (roomPricing.basePrice) {
-      pricePerNight = roomPricing.basePrice
-    }
+    // Get seasonal rates that overlap with the booking dates
+    const { data: seasonalRates } = await supabase
+      .from('seasonal_rates')
+      .select('*')
+      .eq('room_id', roomId)
+      .eq('tenant_id', tenantId)
+      .lte('start_date', checkOut)
+      .gte('end_date', checkIn)
+      .order('priority', { ascending: false })
 
-    let baseTotal = pricePerNight * nights
+    // Calculate total by iterating through each night and applying seasonal rates
+    const basePricePerNight = room.base_price_per_night || room.base_price || 0
+    let baseTotal = 0
+    const nightlyBreakdown: Array<{ date: string; price: number; rateName: string | null }> = []
+
+    // Use noon to avoid DST issues
+    const currentDate = new Date(checkIn + 'T12:00:00')
+    const endDateForLoop = new Date(checkOut + 'T12:00:00')
+
+    while (currentDate < endDateForLoop) {
+      const year = currentDate.getFullYear()
+      const month = String(currentDate.getMonth() + 1).padStart(2, '0')
+      const day = String(currentDate.getDate()).padStart(2, '0')
+      const dateStr = `${year}-${month}-${day}`
+
+      // Compare date strings directly to avoid timezone issues
+      const applicableRate = (seasonalRates || []).find(rate => {
+        const rateStart = rate.start_date
+        const rateEnd = rate.end_date
+        return dateStr >= rateStart && dateStr <= rateEnd
+      })
+
+      const nightPrice = applicableRate ? Number(applicableRate.price_per_night) : basePricePerNight
+      baseTotal += nightPrice
+      nightlyBreakdown.push({
+        date: dateStr,
+        price: nightPrice,
+        rateName: applicableRate?.name || null
+      })
+
+      currentDate.setDate(currentDate.getDate() + 1)
+    }
 
     // Calculate add-ons total
     let addonsTotal = 0
@@ -1362,7 +1667,7 @@ router.post('/bookings', requireCustomerAuth, async (req: Request, res: Response
       },
       summary: {
         nights,
-        pricePerNight,
+        nightlyBreakdown,
         baseTotal,
         addonsTotal,
         totalAmount,
@@ -1372,6 +1677,113 @@ router.post('/bookings', requireCustomerAuth, async (req: Request, res: Response
   } catch (error) {
     console.error('Error creating booking:', error)
     res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+// ============================================
+// INVOICE ENDPOINTS
+// ============================================
+
+/**
+ * Get invoice for a booking
+ * GET /api/portal/bookings/:id/invoice
+ */
+router.get('/bookings/:id/invoice', requireCustomerAuth, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params
+    const customerId = req.customerContext!.customerId
+    const customerEmail = req.customerContext!.email
+
+    // Get the booking
+    const { data: booking, error: bookingError } = await supabase
+      .from('bookings')
+      .select('id, tenant_id, customer_id, guest_email, payment_status')
+      .eq('id', id)
+      .single()
+
+    if (bookingError || !booking) {
+      return res.status(404).json({ error: 'Booking not found' })
+    }
+
+    // Verify ownership
+    const emailMatch = booking.guest_email?.toLowerCase() === customerEmail?.toLowerCase()
+    const customerIdMatch = booking.customer_id === customerId
+    if (!emailMatch && !customerIdMatch) {
+      return res.status(404).json({ error: 'Booking not found' })
+    }
+
+    // Get invoice for this booking
+    const { data: invoice, error: invoiceError } = await supabase
+      .from('invoices')
+      .select('*')
+      .eq('booking_id', id)
+      .eq('tenant_id', booking.tenant_id)
+      .single()
+
+    if (invoiceError || !invoice) {
+      return res.status(404).json({ error: 'Invoice not found', message: 'No invoice has been generated for this booking yet' })
+    }
+
+    res.json(invoice)
+  } catch (error) {
+    console.error('Error fetching invoice:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+/**
+ * Download invoice PDF for a booking
+ * GET /api/portal/bookings/:id/invoice/download
+ */
+router.get('/bookings/:id/invoice/download', requireCustomerAuth, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params
+    const customerId = req.customerContext!.customerId
+    const customerEmail = req.customerContext!.email
+
+    // Get the booking
+    const { data: booking, error: bookingError } = await supabase
+      .from('bookings')
+      .select('id, tenant_id, customer_id, guest_email')
+      .eq('id', id)
+      .single()
+
+    if (bookingError || !booking) {
+      return res.status(404).json({ error: 'Booking not found' })
+    }
+
+    // Verify ownership
+    const emailMatch = booking.guest_email?.toLowerCase() === customerEmail?.toLowerCase()
+    const customerIdMatch = booking.customer_id === customerId
+    if (!emailMatch && !customerIdMatch) {
+      return res.status(404).json({ error: 'Booking not found' })
+    }
+
+    // Get invoice for this booking
+    const { data: invoice, error: invoiceError } = await supabase
+      .from('invoices')
+      .select('*')
+      .eq('booking_id', id)
+      .eq('tenant_id', booking.tenant_id)
+      .single()
+
+    if (invoiceError || !invoice) {
+      return res.status(404).json({ error: 'Invoice not found' })
+    }
+
+    // Import PDF generator dynamically
+    const { generateInvoicePDF } = await import('../services/pdfGenerator.js')
+
+    // Generate PDF from stored invoice data
+    const pdfBuffer = await generateInvoicePDF(invoice.invoice_data)
+
+    res.setHeader('Content-Type', 'application/pdf')
+    res.setHeader('Content-Disposition', `attachment; filename="${invoice.invoice_number}.pdf"`)
+    res.setHeader('Content-Length', pdfBuffer.length)
+    res.send(pdfBuffer)
+  } catch (error) {
+    console.error('Error downloading invoice:', error)
+    res.status(500).json({ error: 'Failed to download invoice' })
   }
 })
 

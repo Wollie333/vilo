@@ -16,7 +16,7 @@ router.get('/', async (req, res) => {
       return res.status(400).json({ error: 'Tenant ID required' })
     }
 
-    const { status, room_id, rating, sort } = req.query
+    const { status, room_id, rating, source, sort } = req.query
 
     let query = supabase
       .from('reviews')
@@ -42,6 +42,11 @@ router.get('/', async (req, res) => {
     // Filter by rating
     if (rating) {
       query = query.eq('rating', Number(rating))
+    }
+
+    // Filter by source (FOB)
+    if (source && typeof source === 'string') {
+      query = query.eq('source', source)
     }
 
     // Sort
@@ -88,7 +93,7 @@ router.get('/stats', async (req, res) => {
     // Get ALL reviews - hidden reviews still count toward rating for fairness
     const { data: reviews, error } = await supabase
       .from('reviews')
-      .select('rating, status')
+      .select('rating, status, rating_cleanliness, rating_service, rating_location, rating_value, rating_safety')
       .eq('tenant_id', tenantId)
 
     if (error) {
@@ -100,6 +105,32 @@ router.get('/stats', async (req, res) => {
     const averageRating = totalReviews > 0
       ? reviews!.reduce((sum, r) => sum + r.rating, 0) / totalReviews
       : 0
+
+    // Calculate category averages (only from reviews that have category ratings)
+    const reviewsWithCategories = reviews?.filter(r =>
+      r.rating_cleanliness != null &&
+      r.rating_service != null &&
+      r.rating_location != null &&
+      r.rating_value != null &&
+      r.rating_safety != null
+    ) || []
+
+    const categoryCount = reviewsWithCategories.length
+    const avgCleanliness = categoryCount > 0
+      ? reviewsWithCategories.reduce((sum, r) => sum + (r.rating_cleanliness || 0), 0) / categoryCount
+      : null
+    const avgService = categoryCount > 0
+      ? reviewsWithCategories.reduce((sum, r) => sum + (r.rating_service || 0), 0) / categoryCount
+      : null
+    const avgLocation = categoryCount > 0
+      ? reviewsWithCategories.reduce((sum, r) => sum + (r.rating_location || 0), 0) / categoryCount
+      : null
+    const avgValue = categoryCount > 0
+      ? reviewsWithCategories.reduce((sum, r) => sum + (r.rating_value || 0), 0) / categoryCount
+      : null
+    const avgSafety = categoryCount > 0
+      ? reviewsWithCategories.reduce((sum, r) => sum + (r.rating_safety || 0), 0) / categoryCount
+      : null
 
     // Count by rating (all reviews count)
     const ratingCounts = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }
@@ -116,6 +147,11 @@ router.get('/stats', async (req, res) => {
       published_reviews: publishedCount,
       hidden_reviews: hiddenCount,
       average_rating: Math.round(averageRating * 10) / 10,
+      average_cleanliness: avgCleanliness !== null ? Math.round(avgCleanliness * 10) / 10 : null,
+      average_service: avgService !== null ? Math.round(avgService * 10) / 10 : null,
+      average_location: avgLocation !== null ? Math.round(avgLocation * 10) / 10 : null,
+      average_value: avgValue !== null ? Math.round(avgValue * 10) / 10 : null,
+      average_safety: avgSafety !== null ? Math.round(avgSafety * 10) / 10 : null,
       rating_distribution: ratingCounts
     })
   } catch (error: any) {
@@ -197,18 +233,18 @@ router.get('/booking/:bookingId', async (req, res) => {
   }
 })
 
-// Update review (owner response only - cannot edit guest content)
+// Update review (owner response, status, and image moderation - cannot edit guest content)
 router.put('/:id', async (req, res) => {
   try {
     const { id } = req.params
     const tenantId = req.headers['x-tenant-id'] as string
-    const { owner_response, status } = req.body
+    const { owner_response, status, images } = req.body
 
     if (!tenantId) {
       return res.status(400).json({ error: 'Tenant ID required' })
     }
 
-    // Only allow updating owner_response and status
+    // Only allow updating owner_response, status, and images (for moderation)
     const updateData: any = {}
 
     if (owner_response !== undefined) {
@@ -221,6 +257,20 @@ router.put('/:id', async (req, res) => {
         return res.status(400).json({ error: 'Invalid status' })
       }
       updateData.status = status
+    }
+
+    // Allow updating images for moderation (hiding inappropriate images)
+    if (images !== undefined) {
+      if (!Array.isArray(images)) {
+        return res.status(400).json({ error: 'Images must be an array' })
+      }
+      // Validate image structure
+      for (const img of images) {
+        if (!img.url || !img.path) {
+          return res.status(400).json({ error: 'Each image must have url and path' })
+        }
+      }
+      updateData.images = images
     }
 
     if (Object.keys(updateData).length === 0) {
@@ -408,12 +458,18 @@ router.get('/public/:tenantId/room/by-code/:roomCode', async (req, res) => {
       .select(`
         id,
         rating,
+        rating_cleanliness,
+        rating_service,
+        rating_location,
+        rating_value,
+        rating_safety,
         title,
         content,
         guest_name,
         owner_response,
         owner_response_at,
         created_at,
+        images,
         bookings!inner (
           room_id,
           room_name,
@@ -430,8 +486,13 @@ router.get('/public/:tenantId/room/by-code/:roomCode', async (req, res) => {
       return res.status(500).json({ error: 'Failed to fetch reviews' })
     }
 
-    // Filter by room_id
-    const roomReviews = (data || []).filter((r: any) => r.bookings?.room_id === room.id)
+    // Filter by room_id and filter out hidden images
+    const roomReviews = (data || [])
+      .filter((r: any) => r.bookings?.room_id === room.id)
+      .map((review: any) => ({
+        ...review,
+        images: (review.images || []).filter((img: any) => !img.hidden)
+      }))
 
     res.json(roomReviews)
   } catch (error: any) {
@@ -450,12 +511,18 @@ router.get('/public/:tenantId/room/:roomId', async (req, res) => {
       .select(`
         id,
         rating,
+        rating_cleanliness,
+        rating_service,
+        rating_location,
+        rating_value,
+        rating_safety,
         title,
         content,
         guest_name,
         owner_response,
         owner_response_at,
         created_at,
+        images,
         bookings!inner (
           room_id,
           room_name,
@@ -472,8 +539,13 @@ router.get('/public/:tenantId/room/:roomId', async (req, res) => {
       return res.status(500).json({ error: 'Failed to fetch reviews' })
     }
 
-    // Filter by room_id
-    const roomReviews = (data || []).filter((r: any) => r.bookings?.room_id === roomId)
+    // Filter by room_id and filter out hidden images
+    const roomReviews = (data || [])
+      .filter((r: any) => r.bookings?.room_id === roomId)
+      .map((review: any) => ({
+        ...review,
+        images: (review.images || []).filter((img: any) => !img.hidden)
+      }))
 
     res.json(roomReviews)
   } catch (error: any) {
@@ -493,12 +565,18 @@ router.get('/public/:tenantId', async (req, res) => {
       .select(`
         id,
         rating,
+        rating_cleanliness,
+        rating_service,
+        rating_location,
+        rating_value,
+        rating_safety,
         title,
         content,
         guest_name,
         owner_response,
         owner_response_at,
         created_at,
+        images,
         bookings!inner (
           room_id,
           room_name,
@@ -521,7 +599,13 @@ router.get('/public/:tenantId', async (req, res) => {
       return res.status(500).json({ error: 'Failed to fetch reviews' })
     }
 
-    res.json(data || [])
+    // Filter out hidden images for public display
+    const reviews = (data || []).map((review: any) => ({
+      ...review,
+      images: (review.images || []).filter((img: any) => !img.hidden)
+    }))
+
+    res.json(reviews)
   } catch (error: any) {
     console.error('Unexpected error:', error)
     res.status(500).json({ error: 'Internal server error' })
@@ -537,7 +621,7 @@ router.get('/public/:tenantId/stats', async (req, res) => {
     // Get ALL reviews - hidden reviews still count toward rating for fairness
     const { data: reviews, error } = await supabase
       .from('reviews')
-      .select('rating, status')
+      .select('rating, status, rating_cleanliness, rating_service, rating_location, rating_value, rating_safety')
       .eq('tenant_id', tenantId)
 
     if (error) {
@@ -551,13 +635,44 @@ router.get('/public/:tenantId/stats', async (req, res) => {
       ? reviews!.reduce((sum, r) => sum + r.rating, 0) / totalReviews
       : 0
 
+    // Calculate category averages (only from reviews that have category ratings)
+    const reviewsWithCategories = reviews?.filter(r =>
+      r.rating_cleanliness != null &&
+      r.rating_service != null &&
+      r.rating_location != null &&
+      r.rating_value != null &&
+      r.rating_safety != null
+    ) || []
+
+    const categoryCount = reviewsWithCategories.length
+    const avgCleanliness = categoryCount > 0
+      ? reviewsWithCategories.reduce((sum, r) => sum + (r.rating_cleanliness || 0), 0) / categoryCount
+      : null
+    const avgService = categoryCount > 0
+      ? reviewsWithCategories.reduce((sum, r) => sum + (r.rating_service || 0), 0) / categoryCount
+      : null
+    const avgLocation = categoryCount > 0
+      ? reviewsWithCategories.reduce((sum, r) => sum + (r.rating_location || 0), 0) / categoryCount
+      : null
+    const avgValue = categoryCount > 0
+      ? reviewsWithCategories.reduce((sum, r) => sum + (r.rating_value || 0), 0) / categoryCount
+      : null
+    const avgSafety = categoryCount > 0
+      ? reviewsWithCategories.reduce((sum, r) => sum + (r.rating_safety || 0), 0) / categoryCount
+      : null
+
     // Only count published for "visible reviews" display
     const visibleReviews = reviews?.filter(r => r.status === 'published').length || 0
 
     res.json({
       total_reviews: totalReviews,
       visible_reviews: visibleReviews,
-      average_rating: Math.round(averageRating * 10) / 10
+      average_rating: Math.round(averageRating * 10) / 10,
+      average_cleanliness: avgCleanliness !== null ? Math.round(avgCleanliness * 10) / 10 : null,
+      average_service: avgService !== null ? Math.round(avgService * 10) / 10 : null,
+      average_location: avgLocation !== null ? Math.round(avgLocation * 10) / 10 : null,
+      average_value: avgValue !== null ? Math.round(avgValue * 10) / 10 : null,
+      average_safety: avgSafety !== null ? Math.round(avgSafety * 10) / 10 : null
     })
   } catch (error: any) {
     console.error('Unexpected error:', error)
@@ -730,11 +845,55 @@ router.get('/public/verify/:tenantId/:token', async (req, res) => {
 router.post('/public/submit/:tenantId/:token', async (req, res) => {
   try {
     const { tenantId, token } = req.params
-    const { rating, title, content } = req.body
+    const {
+      rating_cleanliness,
+      rating_service,
+      rating_location,
+      rating_value,
+      rating_safety,
+      title,
+      content,
+      images
+    } = req.body
 
-    // Validate input
-    if (!rating || rating < 1 || rating > 5) {
-      return res.status(400).json({ error: 'Rating must be between 1 and 5' })
+    // Validate category ratings (all required, 1-5)
+    const categoryRatings = [
+      { name: 'cleanliness', value: rating_cleanliness },
+      { name: 'service', value: rating_service },
+      { name: 'location', value: rating_location },
+      { name: 'value', value: rating_value },
+      { name: 'safety', value: rating_safety }
+    ]
+
+    for (const { name, value } of categoryRatings) {
+      if (value === undefined || value === null) {
+        return res.status(400).json({ error: `Rating for ${name} is required` })
+      }
+      if (value < 1 || value > 5) {
+        return res.status(400).json({ error: `Rating for ${name} must be between 1 and 5` })
+      }
+    }
+
+    // Calculate overall rating as average of categories
+    const overallRating = Math.round(
+      (rating_cleanliness + rating_service + rating_location + rating_value + rating_safety) / 5 * 10
+    ) / 10
+
+    // Validate images (optional, max 4)
+    let reviewImages: any[] = []
+    if (images) {
+      if (!Array.isArray(images)) {
+        return res.status(400).json({ error: 'Images must be an array' })
+      }
+      if (images.length > 4) {
+        return res.status(400).json({ error: 'Maximum 4 images allowed' })
+      }
+      // Add hidden: false to each image
+      reviewImages = images.map(img => ({
+        url: img.url,
+        path: img.path,
+        hidden: false
+      }))
     }
 
     // Find booking with this review token
@@ -775,11 +934,17 @@ router.post('/public/submit/:tenantId/:token', async (req, res) => {
       .insert({
         tenant_id: tenantId,
         booking_id: booking.id,
-        rating,
+        rating: overallRating,
+        rating_cleanliness,
+        rating_service,
+        rating_location,
+        rating_value,
+        rating_safety,
         title: title || null,
         content: content || null,
         guest_name: booking.guest_name,
-        status: 'published'
+        status: 'published',
+        images: reviewImages
       })
       .select()
       .single()

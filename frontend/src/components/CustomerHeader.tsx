@@ -1,98 +1,90 @@
-import { useState, useEffect } from 'react'
-import { Sun, Moon, LogOut } from 'lucide-react'
+import { useState, useRef, useEffect } from 'react'
+import { LogOut, ChevronDown, HelpCircle } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { useCustomerAuth } from '../contexts/CustomerAuthContext'
 
 export default function CustomerHeader() {
   const { customer, logout } = useCustomerAuth()
-  const [isDark, setIsDark] = useState(() => {
-    return localStorage.getItem('theme') === 'dark' ||
-      (!localStorage.getItem('theme') && window.matchMedia('(prefers-color-scheme: dark)').matches)
-  })
+  const [dropdownOpen, setDropdownOpen] = useState(false)
+  const dropdownRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    if (isDark) {
-      document.documentElement.classList.add('dark')
-      localStorage.setItem('theme', 'dark')
-    } else {
-      document.documentElement.classList.remove('dark')
-      localStorage.setItem('theme', 'light')
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setDropdownOpen(false)
+      }
     }
-  }, [isDark])
-
-  const toggleTheme = () => {
-    setIsDark(!isDark)
-  }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   const handleLogout = async () => {
     await logout()
   }
 
+  const displayName = customer?.name || 'Guest'
+  const userEmail = customer?.email || ''
+  const userInitials = customer?.name
+    ? customer.name.split(' ').map(n => n.charAt(0)).join('').toUpperCase().slice(0, 2)
+    : userEmail.substring(0, 2).toUpperCase()
+
   return (
-    <header
-      style={{
-        backgroundColor: 'var(--bg-card)',
-        borderColor: 'var(--border-color)'
-      }}
-      className="h-16 border-b flex items-center justify-between px-6 transition-colors"
-    >
-      <div className="flex items-center gap-4">
-        <h2 style={{ color: 'var(--text-primary)' }} className="text-lg font-medium">
-          Welcome{customer?.name ? `, ${customer.name}` : ''}
-        </h2>
-      </div>
+    <header className="bg-white border-b border-gray-100 px-6 py-3">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <h2 className="text-lg font-medium text-gray-900">
+            Welcome back{customer?.name ? `, ${customer.name.split(' ')[0]}` : ''}
+          </h2>
+        </div>
 
-      <div className="flex items-center gap-4">
-        {/* Theme Toggle */}
-        <button
-          onClick={toggleTheme}
-          style={{ color: 'var(--text-secondary)' }}
-          className="p-2 rounded-md hover:opacity-80 transition-colors"
-          title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-        >
-          {isDark ? <Sun size={20} /> : <Moon size={20} />}
-        </button>
-
-        {/* User Menu */}
-        <div className="relative group">
-          <button
-            className="flex items-center gap-2 p-2 rounded-md hover:opacity-80 transition-colors"
+        <div className="flex items-center gap-4">
+          <Link
+            to="/portal/support"
+            className="flex items-center gap-2 text-gray-600 hover:text-gray-900 px-3 py-1.5 rounded-md transition-colors"
           >
-            <div
-              style={{ backgroundColor: 'var(--bg-tertiary)' }}
-              className="w-8 h-8 rounded-full flex items-center justify-center"
+            <HelpCircle size={18} />
+            <span className="text-sm font-medium">Help</span>
+          </Link>
+
+          <div className="relative" ref={dropdownRef}>
+            <button
+              onClick={() => setDropdownOpen(!dropdownOpen)}
+              className="flex items-center gap-2 cursor-pointer rounded-md px-2 py-1.5 transition-colors hover:bg-gray-50"
             >
-              <span style={{ color: 'var(--text-primary)' }} className="text-sm font-medium">
-                {customer?.name?.charAt(0).toUpperCase() || customer?.email?.charAt(0).toUpperCase() || 'G'}
-              </span>
-            </div>
-          </button>
+              <div className="w-8 h-8 rounded-full bg-accent-100 flex items-center justify-center">
+                <span className="text-accent-700 text-xs font-semibold">{userInitials}</span>
+              </div>
+              <span className="text-sm font-medium text-gray-900 max-w-[120px] truncate">{displayName}</span>
+              <ChevronDown size={16} className="text-gray-400" />
+            </button>
 
-          {/* Dropdown */}
-          <div
-            style={{
-              backgroundColor: 'var(--bg-card)',
-              borderColor: 'var(--border-color)'
-            }}
-            className="absolute right-0 top-full mt-2 w-48 border rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50"
-          >
-            <div style={{ borderColor: 'var(--border-color)' }} className="p-3 border-b">
-              <p style={{ color: 'var(--text-primary)' }} className="text-sm font-medium truncate">
-                {customer?.name || 'Guest'}
-              </p>
-              <p style={{ color: 'var(--text-secondary)' }} className="text-xs truncate">
-                {customer?.email}
-              </p>
-            </div>
-            <div className="p-1">
-              <button
-                onClick={handleLogout}
-                style={{ color: 'var(--text-secondary)' }}
-                className="flex items-center gap-2 w-full px-3 py-2 text-sm rounded hover:opacity-80 transition-colors"
-              >
-                <LogOut size={16} />
-                Sign Out
-              </button>
-            </div>
+            {dropdownOpen && (
+              <div className="absolute right-0 mt-2 w-56 rounded-lg shadow-lg border border-gray-100 bg-white py-1 z-50">
+                <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-accent-100 flex items-center justify-center flex-shrink-0">
+                    <span className="text-accent-700 text-sm font-semibold">{userInitials}</span>
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-gray-900 truncate">{displayName}</p>
+                    <p className="text-xs text-gray-500 truncate">{userEmail}</p>
+                  </div>
+                </div>
+                <Link
+                  to="/portal/profile"
+                  onClick={() => setDropdownOpen(false)}
+                  className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                >
+                  Profile Settings
+                </Link>
+                <button
+                  onClick={handleLogout}
+                  className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-500 hover:bg-red-50 transition-colors"
+                >
+                  <LogOut size={16} />
+                  Sign out
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>

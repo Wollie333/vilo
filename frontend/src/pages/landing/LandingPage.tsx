@@ -15,9 +15,7 @@ import {
   CalendarDays,
   Shield,
   TrendingUp,
-  BadgePercent,
   Sparkles,
-  ChevronRight,
   ChevronDown,
   Play,
   BookOpen,
@@ -44,31 +42,30 @@ import {
   Heart,
   PieChart,
   Target,
-  Clock
+  Clock,
+  Lock
 } from 'lucide-react'
-
-// Competitor names for animation
-const COMPETITORS = ['Booking.com', 'Airbnb', 'Expedia', 'Hotels.com', 'Agoda']
+import { useScrollAnimation } from '../../hooks/useScrollAnimation'
 
 export default function LandingPage() {
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('annual')
-  const [currentCompetitor, setCurrentCompetitor] = useState(0)
-  const [isAnimating, setIsAnimating] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null)
+  const [videoLoaded, setVideoLoaded] = useState(false)
+  const [videoError, setVideoError] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
+  const playerRef = useRef<YT.Player | null>(null)
 
-  // Animate competitor names
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setIsAnimating(true)
-      setTimeout(() => {
-        setCurrentCompetitor((prev) => (prev + 1) % COMPETITORS.length)
-        setIsAnimating(false)
-      }, 200)
-    }, 2500)
-    return () => clearInterval(interval)
-  }, [])
+  // Scroll animation refs
+  const [heroRef, heroVisible] = useScrollAnimation<HTMLDivElement>({ threshold: 0.1 })
+  const [socialProofRef, socialProofVisible] = useScrollAnimation<HTMLElement>({ threshold: 0.2 })
+  const [problemRef, problemVisible] = useScrollAnimation<HTMLElement>({ threshold: 0.15 })
+  const [featuresRef, featuresVisible] = useScrollAnimation<HTMLElement>({ threshold: 0.1 })
+  const [howItWorksRef, howItWorksVisible] = useScrollAnimation<HTMLElement>({ threshold: 0.15 })
+  const [comparisonRef, comparisonVisible] = useScrollAnimation<HTMLElement>({ threshold: 0.15 })
+  const [pricingRef, pricingVisible] = useScrollAnimation<HTMLElement>({ threshold: 0.1 })
+  const [testimonialsRef, testimonialsVisible] = useScrollAnimation<HTMLElement>({ threshold: 0.15 })
+  const [ctaRef, ctaVisible] = useScrollAnimation<HTMLElement>({ threshold: 0.2 })
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -79,6 +76,62 @@ export default function LandingPage() {
     }
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  // YouTube IFrame API setup for better video control
+  useEffect(() => {
+    // Load YouTube IFrame API
+    const tag = document.createElement('script')
+    tag.src = 'https://www.youtube.com/iframe_api'
+    const firstScriptTag = document.getElementsByTagName('script')[0]
+    firstScriptTag.parentNode?.insertBefore(tag, firstScriptTag)
+
+    // Define the callback that YouTube API calls when ready
+    ;(window as unknown as { onYouTubeIframeAPIReady: () => void }).onYouTubeIframeAPIReady = () => {
+      playerRef.current = new YT.Player('hero-video-player', {
+        videoId: 'GdKvzYsmgwM',
+        playerVars: {
+          autoplay: 1,
+          mute: 1,
+          loop: 1,
+          playlist: 'GdKvzYsmgwM',
+          controls: 0,
+          showinfo: 0,
+          rel: 0,
+          modestbranding: 1,
+          playsinline: 1,
+          disablekb: 1,
+          fs: 0,
+          iv_load_policy: 3, // Hide annotations
+          cc_load_policy: 0, // Hide captions
+        },
+        events: {
+          onReady: (event: YT.PlayerEvent) => {
+            event.target.mute()
+            event.target.playVideo()
+            // Give it a moment to start playing before showing
+            setTimeout(() => setVideoLoaded(true), 500)
+          },
+          onError: () => {
+            setVideoError(true)
+          },
+          onStateChange: (event: YT.OnStateChangeEvent) => {
+            // If video ends and doesn't loop properly, restart it
+            if (event.data === YT.PlayerState.ENDED) {
+              event.target.seekTo(0)
+              event.target.playVideo()
+            }
+          }
+        }
+      })
+    }
+
+    // Cleanup
+    return () => {
+      if (playerRef.current) {
+        playerRef.current.destroy()
+      }
+    }
   }, [])
 
   const toggleDropdown = (name: string) => {
@@ -93,7 +146,7 @@ export default function LandingPage() {
           <div className="flex justify-between items-center h-16">
             {/* Logo */}
             <Link to="/" className="flex items-center gap-2">
-              <div className="w-8 h-8 bg-black rounded-lg flex items-center justify-center">
+              <div className="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center">
                 <span className="text-white font-bold text-sm">V</span>
               </div>
               <span className="text-xl font-bold text-gray-900">Vilo</span>
@@ -214,14 +267,6 @@ export default function LandingPage() {
                 Pricing
               </a>
 
-              {/* Directory Link */}
-              <Link
-                to="/directory"
-                className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-lg transition-colors"
-                onClick={() => setActiveDropdown(null)}
-              >
-                Directory
-              </Link>
             </div>
 
             {/* Right Side - CTAs */}
@@ -236,7 +281,7 @@ export default function LandingPage() {
                 to="/pricing"
                 className="hidden sm:flex bg-black text-white px-5 py-2.5 rounded-full hover:bg-gray-800 transition-all text-sm font-medium items-center gap-2"
               >
-                Get Started
+                List Your Property
                 <ArrowRight className="w-4 h-4" />
               </Link>
 
@@ -258,7 +303,6 @@ export default function LandingPage() {
               <a href="#features" className="block py-2 text-gray-900 font-medium" onClick={() => setMobileMenuOpen(false)}>Features</a>
               <a href="#how-it-works" className="block py-2 text-gray-900 font-medium" onClick={() => setMobileMenuOpen(false)}>How it Works</a>
               <a href="#pricing" className="block py-2 text-gray-900 font-medium" onClick={() => setMobileMenuOpen(false)}>Pricing</a>
-              <Link to="/directory" className="block py-2 text-gray-900 font-medium" onClick={() => setMobileMenuOpen(false)}>Directory</Link>
               <hr className="my-4" />
               <Link to="/login" className="block py-2 text-gray-600" onClick={() => setMobileMenuOpen(false)}>Sign In</Link>
               <Link
@@ -266,84 +310,129 @@ export default function LandingPage() {
                 className="block w-full bg-black text-white px-5 py-3 rounded-full text-center font-medium"
                 onClick={() => setMobileMenuOpen(false)}
               >
-                Get Started
+                List Your Property
               </Link>
             </div>
           </div>
         )}
       </nav>
 
-      {/* Hero Section with Animated Competitor Names */}
-      <section className="pt-28 pb-16 px-4 sm:px-6 lg:px-8 overflow-hidden">
-        <div className="max-w-7xl mx-auto">
-          <div className="text-center max-w-4xl mx-auto">
-            {/* Badge */}
-            <div className="inline-flex items-center gap-2 bg-emerald-50 text-emerald-700 px-4 py-2 rounded-full text-sm font-medium mb-8 border border-emerald-100">
-              <BadgePercent className="w-4 h-4" />
-              <span>Keep 100% of your revenue. No commission fees.</span>
-            </div>
-
-            {/* Main Headline with Animated Competitor */}
-            <h1 className="text-5xl sm:text-6xl lg:text-7xl font-bold text-gray-900 tracking-tight mb-6 leading-[1.1]">
-              Stop paying 15% to
-              <br />
-              <span className="relative inline-block">
-                <span
-                  className={`bg-gradient-to-r from-red-500 to-orange-500 bg-clip-text text-transparent transition-all duration-200 ${
-                    isAnimating ? 'opacity-0 translate-y-2' : 'opacity-100 translate-y-0'
-                  }`}
-                >
-                  {COMPETITORS[currentCompetitor]}
-                </span>
-              </span>
-            </h1>
-
-            {/* Subheadline */}
-            <p className="text-xl text-gray-600 mb-10 max-w-2xl mx-auto leading-relaxed">
-              The complete booking platform that lets you manage rooms, accept payments, and delight guests — without giving away your profits to OTAs.
-            </p>
-
-            {/* CTAs */}
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-6">
-              <Link
-                to="/pricing"
-                className="w-full sm:w-auto bg-black text-white px-8 py-4 rounded-full hover:bg-gray-800 transition-all font-semibold text-lg flex items-center justify-center gap-2 shadow-lg shadow-gray-900/10"
-              >
-                Start Saving Today
-                <ArrowRight className="w-5 h-5" />
-              </Link>
-              <a
-                href="#how-it-works"
-                className="w-full sm:w-auto bg-white text-gray-900 px-8 py-4 rounded-full hover:bg-gray-50 transition-all font-semibold text-lg border border-gray-200 flex items-center justify-center gap-2"
-              >
-                <Play className="w-5 h-5" />
-                See How It Works
-              </a>
-            </div>
-
-            <p className="text-sm text-gray-500">
-              30-day money-back guarantee. Setup in under 10 minutes.
-            </p>
+      {/* Hero Section - Video Background */}
+      <section className="relative min-h-[90vh] flex items-center overflow-hidden">
+        {/* Fallback Background - Beautiful gradient with animated elements */}
+        <div className="absolute inset-0 bg-gradient-to-br from-emerald-900 via-gray-900 to-black">
+          {/* Animated background pattern */}
+          <div className="absolute inset-0 opacity-30">
+            <div className="absolute top-0 left-0 w-96 h-96 bg-emerald-500 rounded-full filter blur-[128px] animate-pulse" />
+            <div className="absolute bottom-0 right-0 w-96 h-96 bg-teal-500 rounded-full filter blur-[128px] animate-pulse" style={{ animationDelay: '1s' }} />
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-emerald-400 rounded-full filter blur-[100px] animate-pulse" style={{ animationDelay: '0.5s' }} />
           </div>
 
-          {/* Hero Visual - Dashboard Preview */}
-          <div className="mt-16 relative">
-            <div className="absolute -inset-x-20 -top-20 -bottom-20 bg-gradient-to-b from-emerald-50/50 via-transparent to-transparent rounded-[3rem] -z-10" />
-            <div className="bg-white rounded-2xl shadow-2xl shadow-gray-900/10 border border-gray-200 overflow-hidden">
-              <div className="bg-gray-100 px-4 py-3 border-b border-gray-200 flex items-center gap-2">
-                <div className="flex gap-1.5">
-                  <div className="w-3 h-3 rounded-full bg-red-400" />
-                  <div className="w-3 h-3 rounded-full bg-yellow-400" />
-                  <div className="w-3 h-3 rounded-full bg-green-400" />
-                </div>
-                <span className="ml-4 text-sm text-gray-500 font-medium">app.vilo.co.za</span>
+          {/* Loading indicator while video loads */}
+          {!videoLoaded && !videoError && (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="w-16 h-16 border-4 border-white/20 border-t-white/80 rounded-full animate-spin" />
+            </div>
+          )}
+        </div>
+
+        {/* YouTube Video Background */}
+        <div
+          className={`absolute inset-0 overflow-hidden pointer-events-none transition-opacity duration-1000 ${
+            videoLoaded && !videoError ? 'opacity-100' : 'opacity-0'
+          }`}
+        >
+          {/* Video container with aspect ratio handling */}
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[180%] h-[180%] min-w-[180%] min-h-[180%]">
+            <div id="hero-video-player" className="w-full h-full" />
+          </div>
+        </div>
+
+        {/* Dark Overlay for text readability */}
+        <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/50 to-black/70" />
+
+        {/* Content */}
+        <div className="relative z-10 w-full pt-32 pb-20 px-4 sm:px-6 lg:px-8">
+          <div className="max-w-7xl mx-auto">
+            <div
+              ref={heroRef}
+              className={`text-center max-w-4xl mx-auto transition-all duration-1000 ${
+                heroVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'
+              }`}
+            >
+              {/* Minimal Badge */}
+              <div className="inline-flex items-center gap-2 text-emerald-400 text-sm font-medium mb-8 bg-white/10 backdrop-blur-sm px-4 py-2 rounded-full">
+                <span className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
+                <span>Zero commission fees</span>
               </div>
-              <div className="p-8 bg-gradient-to-br from-gray-50 to-white">
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
-                  <StatCard icon={<Calendar className="w-5 h-5" />} value="156" label="Total Bookings" trend="+12%" />
-                  <StatCard icon={<CreditCard className="w-5 h-5" />} value="R245,800" label="Revenue" trend="+23%" />
-                  <StatCard icon={<BarChart3 className="w-5 h-5" />} value="87%" label="Occupancy" trend="+5%" />
-                  <StatCard icon={<Star className="w-5 h-5" />} value="4.9" label="Guest Rating" trend="" />
+
+              {/* Main Headline - Clean & Direct */}
+              <h1 className="text-5xl sm:text-6xl lg:text-7xl font-bold text-white tracking-tight mb-8 leading-[1.05]">
+                Your bookings.
+                <br />
+                <span className="text-white/60">Your guests.</span>
+                <br />
+                <span className="bg-gradient-to-r from-emerald-400 to-teal-300 bg-clip-text text-transparent">Your revenue.</span>
+              </h1>
+
+              {/* Subheadline */}
+              <p className="text-xl text-white/80 mb-12 max-w-2xl mx-auto leading-relaxed">
+                The booking platform that lets accommodation owners manage properties, accept payments, and build guest relationships — without losing profits to OTAs.
+              </p>
+
+              {/* CTAs - Clean Design */}
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-4">
+                <Link
+                  to="/pricing"
+                  className="w-full sm:w-auto bg-white text-gray-900 px-8 py-4 rounded-full hover:bg-gray-100 transition-all font-medium text-base flex items-center justify-center gap-2 group shadow-lg"
+                >
+                  Get Started
+                  <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
+                </Link>
+                <a
+                  href="#how-it-works"
+                  className="w-full sm:w-auto text-white/90 px-8 py-4 rounded-full hover:text-white hover:bg-white/10 transition-all font-medium text-base flex items-center justify-center gap-2 backdrop-blur-sm border border-white/20"
+                >
+                  <Play className="w-4 h-4" />
+                  See how it works
+                </a>
+              </div>
+
+              {/* Trust Signals */}
+              <div className="flex items-center justify-center gap-6 text-sm text-white/70">
+                <span className="flex items-center gap-1.5">
+                  <Check className="w-4 h-4 text-emerald-400" />
+                  No credit card required
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <Check className="w-4 h-4 text-emerald-400" />
+                  Setup in 10 minutes
+                </span>
+              </div>
+            </div>
+
+            {/* Hero Visual - Cleaner Dashboard Preview */}
+            <div
+              className={`mt-16 relative transition-all duration-1000 delay-300 ${
+                heroVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-12'
+              }`}
+            >
+              <div className="bg-white/95 backdrop-blur-sm rounded-2xl shadow-2xl border border-white/20 overflow-hidden">
+                <div className="bg-emerald-600 px-4 py-3 border-b border-emerald-700 flex items-center gap-2">
+                  <div className="flex gap-1.5">
+                    <div className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
+                    <div className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
+                    <div className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
+                  </div>
+                  <span className="ml-3 text-xs text-white/80 font-medium">app.vilo.co.za</span>
+                </div>
+                <div className="p-6 sm:p-8 bg-white">
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
+                    <StatCard icon={<Calendar className="w-5 h-5" />} value="156" label="Total Bookings" trend="+12%" />
+                    <StatCard icon={<CreditCard className="w-5 h-5" />} value="R245,800" label="Revenue" trend="+23%" />
+                    <StatCard icon={<BarChart3 className="w-5 h-5" />} value="87%" label="Occupancy" trend="+5%" />
+                    <StatCard icon={<Star className="w-5 h-5" />} value="4.9" label="Guest Rating" trend="" />
+                  </div>
                 </div>
               </div>
             </div>
@@ -352,23 +441,29 @@ export default function LandingPage() {
       </section>
 
       {/* Social Proof Bar */}
-      <section className="py-12 px-4 sm:px-6 lg:px-8 border-y border-gray-100 bg-gray-50/50">
-        <div className="max-w-7xl mx-auto">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
-            <div>
-              <div className="text-3xl sm:text-4xl font-bold text-gray-900 mb-1">R0</div>
+      <section
+        ref={socialProofRef}
+        className={`py-16 px-4 sm:px-6 lg:px-8 border-y border-gray-100 transition-all duration-700 ${
+          socialProofVisible ? 'opacity-100' : 'opacity-0'
+        }`}
+      >
+        <div className="max-w-5xl mx-auto">
+          <p className="text-center text-sm text-gray-400 mb-8 tracking-wide uppercase">Trusted by property owners across South Africa</p>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-8 lg:gap-12 text-center">
+            <div className={`transition-all duration-500 ${socialProofVisible ? 'translate-y-0 opacity-100' : 'translate-y-4 opacity-0'}`} style={{ transitionDelay: '100ms' }}>
+              <div className="text-3xl sm:text-4xl font-semibold text-gray-900 mb-1">R0</div>
               <div className="text-sm text-gray-500">Commission Fees</div>
             </div>
-            <div>
-              <div className="text-3xl sm:text-4xl font-bold text-gray-900 mb-1">10min</div>
+            <div className={`transition-all duration-500 ${socialProofVisible ? 'translate-y-0 opacity-100' : 'translate-y-4 opacity-0'}`} style={{ transitionDelay: '200ms' }}>
+              <div className="text-3xl sm:text-4xl font-semibold text-gray-900 mb-1">10min</div>
               <div className="text-sm text-gray-500">Setup Time</div>
             </div>
-            <div>
-              <div className="text-3xl sm:text-4xl font-bold text-gray-900 mb-1">100%</div>
+            <div className={`transition-all duration-500 ${socialProofVisible ? 'translate-y-0 opacity-100' : 'translate-y-4 opacity-0'}`} style={{ transitionDelay: '300ms' }}>
+              <div className="text-3xl sm:text-4xl font-semibold text-gray-900 mb-1">100%</div>
               <div className="text-sm text-gray-500">Your Revenue</div>
             </div>
-            <div>
-              <div className="text-3xl sm:text-4xl font-bold text-gray-900 mb-1">24/7</div>
+            <div className={`transition-all duration-500 ${socialProofVisible ? 'translate-y-0 opacity-100' : 'translate-y-4 opacity-0'}`} style={{ transitionDelay: '400ms' }}>
+              <div className="text-3xl sm:text-4xl font-semibold text-gray-900 mb-1">24/7</div>
               <div className="text-sm text-gray-500">Online Bookings</div>
             </div>
           </div>
@@ -376,57 +471,59 @@ export default function LandingPage() {
       </section>
 
       {/* Problem/Solution Section */}
-      <section className="py-24 px-4 sm:px-6 lg:px-8">
+      <section
+        ref={problemRef}
+        className="py-28 px-4 sm:px-6 lg:px-8"
+      >
         <div className="max-w-7xl mx-auto">
-          <div className="grid lg:grid-cols-2 gap-16 items-center">
-            <div>
-              <div className="inline-flex items-center gap-2 bg-red-50 text-red-700 px-3 py-1.5 rounded-full text-sm font-medium mb-6">
-                <TrendingUp className="w-4 h-4" />
-                The Problem
-              </div>
-              <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-6">
-                OTAs are eating your profits
+          <div className="grid lg:grid-cols-2 gap-16 lg:gap-20 items-center">
+            <div className={`transition-all duration-700 ${problemVisible ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-8'}`}>
+              <p className="text-sm font-medium text-gray-400 uppercase tracking-wide mb-4">The Problem</p>
+              <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-6 leading-tight">
+                OTAs are eating
+                <br />your profits
               </h2>
-              <p className="text-lg text-gray-600 mb-8 leading-relaxed">
+              <p className="text-lg text-gray-500 mb-8 leading-relaxed">
                 Every booking through Booking.com, Airbnb, or other platforms costs you 15-20% in commission.
                 On a R1,000/night room, that's R150 gone — every single night.
               </p>
-              <div className="space-y-4">
+              <div className="space-y-3">
                 <ProblemItem text="15-20% commission on every booking" />
-                <ProblemItem text="No control over your guest relationships" />
+                <ProblemItem text="No control over guest relationships" />
                 <ProblemItem text="Competing with your own listing" />
                 <ProblemItem text="Hidden fees that add up fast" />
               </div>
             </div>
-            <div className="bg-gray-900 rounded-2xl p-8 text-white">
+            <div className={`bg-gray-800 rounded-3xl p-8 lg:p-10 text-white transition-all duration-700 delay-200 ${problemVisible ? 'opacity-100 translate-x-0' : 'opacity-0 translate-x-8'}`}>
               <div className="text-sm text-gray-400 mb-2">Your annual loss to OTAs</div>
-              <div className="text-5xl font-bold text-red-400 mb-6">-R54,750</div>
-              <div className="text-sm text-gray-400 mb-4">Based on 1 room at R1,000/night, 75% occupancy</div>
-              <div className="border-t border-gray-700 pt-6">
+              <div className="text-5xl font-bold text-red-400 mb-1">-R54,750</div>
+              <div className="text-sm text-gray-500 mb-8">Based on 1 room at R1,000/night, 75% occupancy</div>
+              <div className="border-t border-gray-700 pt-8">
                 <div className="text-sm text-gray-400 mb-2">With Vilo you keep</div>
-                <div className="text-4xl font-bold text-emerald-400">R54,750</div>
-                <div className="text-sm text-gray-400 mt-2">That's 100% of your booking revenue</div>
+                <div className="text-4xl font-bold text-emerald-400 mb-1">+R54,750</div>
+                <div className="text-sm text-gray-500">100% of your booking revenue</div>
               </div>
             </div>
           </div>
         </div>
       </section>
 
-      {/* Features Section - SureCart Style */}
-      <section id="features" className="py-24 px-4 sm:px-6 lg:px-8">
+      {/* Features Section - Clean & Minimal */}
+      <section
+        ref={featuresRef}
+        id="features"
+        className="py-28 px-4 sm:px-6 lg:px-8"
+      >
         {/* Section Header */}
-        <div className="max-w-7xl mx-auto text-center mb-20">
-          <div className="inline-flex items-center gap-2 bg-emerald-50 text-emerald-700 px-4 py-2 rounded-full text-sm font-medium mb-6 border border-emerald-100">
-            <Sparkles className="w-4 h-4" />
-            Powerful Features
-          </div>
-          <h2 className="text-4xl sm:text-5xl font-bold text-gray-900 mb-6">
+        <div className={`max-w-7xl mx-auto text-center mb-24 transition-all duration-700 ${featuresVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
+          <p className="text-sm font-medium text-emerald-600 uppercase tracking-wide mb-4">Features</p>
+          <h2 className="text-4xl sm:text-5xl font-bold text-gray-900 mb-6 leading-tight">
             Everything you need to
             <br />
-            <span className="bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">run your property</span>
+            <span className="text-gray-400">run your property</span>
           </h2>
-          <p className="text-xl text-gray-600 max-w-3xl mx-auto">
-            From bookings to payments, guest management to analytics — Vilo gives you complete control without the complexity.
+          <p className="text-xl text-gray-500 max-w-2xl mx-auto">
+            From bookings to payments, guest management to analytics — complete control without the complexity.
           </p>
         </div>
 
@@ -434,18 +531,18 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto mb-32">
           <div className="grid lg:grid-cols-2 gap-12 lg:gap-20 items-center">
             <div>
-              <h3 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-6 leading-tight">
-                Manage Your Rooms,
-                <br />Your Way
+              <h3 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-5 leading-tight">
+                Manage your rooms,
+                <br />your way
               </h3>
-              <p className="text-lg text-gray-600 mb-8 leading-relaxed">
-                Set up your rooms with beautiful photos, detailed amenities, flexible pricing, and real-time availability — all from one intuitive dashboard.
+              <p className="text-lg text-gray-500 mb-8 leading-relaxed">
+                Set up rooms with photos, amenities, flexible pricing, and real-time availability — all from one intuitive dashboard.
               </p>
-              <div className="grid grid-cols-2 gap-6">
+              <div className="grid grid-cols-2 gap-5">
                 <FeaturePoint icon={<BedDouble className="w-5 h-5" />} title="Multiple Room Types" description="Standard, deluxe, suites — organize however you want." />
-                <FeaturePoint icon={<ImageIcon className="w-5 h-5" />} title="Photo Galleries" description="Showcase rooms with unlimited high-quality images." />
-                <FeaturePoint icon={<Tag className="w-5 h-5" />} title="Dynamic Pricing" description="Set seasonal rates, weekday specials, and more." />
-                <FeaturePoint icon={<Settings className="w-5 h-5" />} title="Amenities Manager" description="WiFi, parking, pool — list everything guests need." />
+                <FeaturePoint icon={<ImageIcon className="w-5 h-5" />} title="Photo Galleries" description="Showcase with unlimited high-quality images." />
+                <FeaturePoint icon={<Tag className="w-5 h-5" />} title="Dynamic Pricing" description="Seasonal rates, weekday specials, and more." />
+                <FeaturePoint icon={<Settings className="w-5 h-5" />} title="Amenities Manager" description="WiFi, parking, pool — list what guests need." />
               </div>
             </div>
             <div className="relative">
@@ -461,14 +558,14 @@ export default function LandingPage() {
               <FeatureMockup variant="calendar" />
             </div>
             <div className="order-1 lg:order-2">
-              <h3 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-6 leading-tight">
-                Visual Calendar That
-                <br />Just Works
+              <h3 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-5 leading-tight">
+                Visual calendar that
+                <br />just works
               </h3>
-              <p className="text-lg text-gray-600 mb-8 leading-relaxed">
-                See all your bookings at a glance with our beautiful calendar view. Drag to create bookings, spot availability gaps, and never double-book again.
+              <p className="text-lg text-gray-500 mb-8 leading-relaxed">
+                See all bookings at a glance. Drag to create bookings, spot availability gaps, and never double-book again.
               </p>
-              <div className="grid grid-cols-2 gap-6">
+              <div className="grid grid-cols-2 gap-5">
                 <FeaturePoint icon={<CalendarDays className="w-5 h-5" />} title="Drag & Drop" description="Create and move bookings with ease." />
                 <FeaturePoint icon={<Eye className="w-5 h-5" />} title="At-a-Glance View" description="See occupancy across all rooms instantly." />
                 <FeaturePoint icon={<Ban className="w-5 h-5" />} title="No Double Bookings" description="Automatic conflict prevention built-in." />
@@ -482,14 +579,14 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto mb-32">
           <div className="grid lg:grid-cols-2 gap-12 lg:gap-20 items-center">
             <div>
-              <h3 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-6 leading-tight">
-                Accept Payments
-                <br />Directly
+              <h3 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-5 leading-tight">
+                Accept payments
+                <br />directly
               </h3>
-              <p className="text-lg text-gray-600 mb-8 leading-relaxed">
-                No middleman, no delays. Accept card payments via Paystack and get funds deposited straight to your bank account within 2-3 days.
+              <p className="text-lg text-gray-500 mb-8 leading-relaxed">
+                No middleman, no delays. Accept card payments via Paystack and get funds deposited straight to your bank account.
               </p>
-              <div className="grid grid-cols-2 gap-6">
+              <div className="grid grid-cols-2 gap-5">
                 <FeaturePoint icon={<CreditCard className="w-5 h-5" />} title="Card Payments" description="Visa, Mastercard, and local cards accepted." />
                 <FeaturePoint icon={<Wallet className="w-5 h-5" />} title="Fast Payouts" description="Money in your account within 2-3 days." />
                 <FeaturePoint icon={<Receipt className="w-5 h-5" />} title="Auto Invoices" description="Professional invoices sent automatically." />
@@ -509,14 +606,14 @@ export default function LandingPage() {
               <FeatureMockup variant="website" />
             </div>
             <div className="order-1 lg:order-2">
-              <h3 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-6 leading-tight">
-                Your Own Booking
-                <br />Website
+              <h3 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-5 leading-tight">
+                Your own booking
+                <br />website
               </h3>
-              <p className="text-lg text-gray-600 mb-8 leading-relaxed">
-                Get a beautiful, mobile-friendly booking website on your own subdomain or custom domain. No coding required — just add your content and go live.
+              <p className="text-lg text-gray-500 mb-8 leading-relaxed">
+                Get a beautiful, mobile-friendly booking website on your subdomain or custom domain. No coding required.
               </p>
-              <div className="grid grid-cols-2 gap-6">
+              <div className="grid grid-cols-2 gap-5">
                 <FeaturePoint icon={<Globe className="w-5 h-5" />} title="Custom Domain" description="Use your own domain or our subdomain." />
                 <FeaturePoint icon={<Palette className="w-5 h-5" />} title="Brand It Yours" description="Your logo, colors, and style throughout." />
                 <FeaturePoint icon={<Smartphone className="w-5 h-5" />} title="Mobile Perfect" description="Looks great on every device." />
@@ -530,16 +627,16 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto mb-32">
           <div className="grid lg:grid-cols-2 gap-12 lg:gap-20 items-center">
             <div>
-              <h3 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-6 leading-tight">
-                Build Guest
-                <br />Relationships
+              <h3 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-5 leading-tight">
+                Build guest
+                <br />relationships
               </h3>
-              <p className="text-lg text-gray-600 mb-8 leading-relaxed">
-                Own your guest data. See booking history, preferences, contact details, and notes — everything you need to provide personalized service and encourage repeat visits.
+              <p className="text-lg text-gray-500 mb-8 leading-relaxed">
+                Own your guest data. See booking history, preferences, and contact details — everything for personalized service.
               </p>
-              <div className="grid grid-cols-2 gap-6">
+              <div className="grid grid-cols-2 gap-5">
                 <FeaturePoint icon={<Users className="w-5 h-5" />} title="Guest Profiles" description="Complete history for every guest." />
-                <FeaturePoint icon={<Mail className="w-5 h-5" />} title="Direct Contact" description="Email guests without platform restrictions." />
+                <FeaturePoint icon={<Mail className="w-5 h-5" />} title="Direct Contact" description="Email guests without restrictions." />
                 <FeaturePoint icon={<Heart className="w-5 h-5" />} title="Loyalty Tracking" description="See returning guests and reward them." />
                 <FeaturePoint icon={<FileText className="w-5 h-5" />} title="Notes & Tags" description="Add notes and organize with tags." />
               </div>
@@ -557,14 +654,14 @@ export default function LandingPage() {
               <FeatureMockup variant="analytics" />
             </div>
             <div className="order-1 lg:order-2">
-              <h3 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-6 leading-tight">
-                Know Your
-                <br />Numbers
+              <h3 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-5 leading-tight">
+                Know your
+                <br />numbers
               </h3>
-              <p className="text-lg text-gray-600 mb-8 leading-relaxed">
-                Track revenue, occupancy rates, booking trends, and more with our beautiful analytics dashboard. Make data-driven decisions to grow your business.
+              <p className="text-lg text-gray-500 mb-8 leading-relaxed">
+                Track revenue, occupancy, and booking trends with beautiful analytics. Make data-driven decisions to grow.
               </p>
-              <div className="grid grid-cols-2 gap-6">
+              <div className="grid grid-cols-2 gap-5">
                 <FeaturePoint icon={<BarChart3 className="w-5 h-5" />} title="Revenue Reports" description="Track income by room, period, or source." />
                 <FeaturePoint icon={<TrendingUp className="w-5 h-5" />} title="Occupancy Trends" description="See patterns and optimize pricing." />
                 <FeaturePoint icon={<PieChart className="w-5 h-5" />} title="Booking Sources" description="Know where your guests come from." />
@@ -576,17 +673,15 @@ export default function LandingPage() {
       </section>
 
       {/* More Features Grid */}
-      <section className="py-24 px-4 sm:px-6 lg:px-8 bg-gray-50">
-        <div className="max-w-7xl mx-auto">
+      <section className="py-28 px-4 sm:px-6 lg:px-8 bg-gray-50/50">
+        <div className="max-w-6xl mx-auto">
           <div className="text-center mb-16">
+            <p className="text-sm font-medium text-gray-400 uppercase tracking-wide mb-4">And more</p>
             <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-4">
-              And so much more...
+              Everything else you need
             </h2>
-            <p className="text-xl text-gray-600">
-              Everything else you need to run a successful property
-            </p>
           </div>
-          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
             <MiniFeatureCard icon={<Plus className="w-5 h-5" />} title="Add-ons & Extras" description="Upsell breakfast, transfers, activities" />
             <MiniFeatureCard icon={<Star className="w-5 h-5" />} title="Reviews System" description="Collect and display guest reviews" />
             <MiniFeatureCard icon={<MessageSquare className="w-5 h-5" />} title="Guest Messaging" description="Communicate before and after stays" />
@@ -594,57 +689,77 @@ export default function LandingPage() {
             <MiniFeatureCard icon={<Users className="w-5 h-5" />} title="Team Access" description="Add staff with role-based permissions" />
             <MiniFeatureCard icon={<FileText className="w-5 h-5" />} title="Reports Export" description="Download data in CSV or PDF" />
             <MiniFeatureCard icon={<Headphones className="w-5 h-5" />} title="Priority Support" description="Get help when you need it" />
-            <MiniFeatureCard icon={<Shield className="w-5 h-5" />} title="Daily Backups" description="Your data is always safe" />
+            <MiniFeatureCard icon={<Lock className="w-5 h-5" />} title="Secure & Safe" description="Daily backups, SSL encryption" />
           </div>
         </div>
       </section>
 
       {/* How It Works */}
-      <section id="how-it-works" className="py-24 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-7xl mx-auto">
-          <div className="text-center mb-16">
+      <section
+        ref={howItWorksRef}
+        id="how-it-works"
+        className="py-28 px-4 sm:px-6 lg:px-8"
+      >
+        <div className="max-w-5xl mx-auto">
+          <div className={`text-center mb-16 transition-all duration-700 ${howItWorksVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
+            <p className="text-sm font-medium text-emerald-600 uppercase tracking-wide mb-4">How it works</p>
             <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-4">
               Go live in 10 minutes
             </h2>
-            <p className="text-xl text-gray-600">
+            <p className="text-xl text-gray-500">
               Three simple steps to start accepting direct bookings
             </p>
           </div>
 
-          <div className="grid md:grid-cols-3 gap-8 lg:gap-12">
-            <StepCard
-              number="01"
-              title="Create Your Account"
-              description="Sign up and add your property details — name, location, photos, and room types."
-            />
-            <StepCard
-              number="02"
-              title="Set Up Your Rooms"
-              description="Add rooms with pricing, amenities, and availability. Connect your payment account."
-            />
-            <StepCard
-              number="03"
-              title="Share & Accept Bookings"
-              description="Publish your booking site, share the link, and start receiving direct bookings."
-            />
+          <div className="relative">
+            {/* Connecting line */}
+            <div className="hidden md:block absolute top-12 left-[16.67%] right-[16.67%] h-px bg-gray-200" />
+
+            <div className="grid md:grid-cols-3 gap-8 lg:gap-12">
+              <StepCard
+                number="01"
+                title="Create your account"
+                description="Sign up and add your property details — name, location, and photos."
+                visible={howItWorksVisible}
+                delay={0}
+              />
+              <StepCard
+                number="02"
+                title="Set up your rooms"
+                description="Add rooms with pricing, amenities, and connect your payment account."
+                visible={howItWorksVisible}
+                delay={150}
+              />
+              <StepCard
+                number="03"
+                title="Start accepting bookings"
+                description="Publish your booking site, share the link, and receive bookings."
+                visible={howItWorksVisible}
+                delay={300}
+              />
+            </div>
           </div>
 
-          <div className="mt-12 text-center">
+          <div className={`mt-16 text-center transition-all duration-700 delay-500 ${howItWorksVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
             <Link
               to="/pricing"
-              className="inline-flex items-center gap-2 bg-black text-white px-8 py-4 rounded-full hover:bg-gray-800 transition-all font-semibold"
+              className="inline-flex items-center gap-2 bg-gray-900 text-white px-8 py-4 rounded-full hover:bg-black transition-all font-medium group"
             >
-              Get Started Now
-              <ChevronRight className="w-5 h-5" />
+              Get started now
+              <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
             </Link>
           </div>
         </div>
       </section>
 
       {/* Comparison Section */}
-      <section className="py-24 px-4 sm:px-6 lg:px-8 bg-gray-900 text-white">
+      <section
+        ref={comparisonRef}
+        className="py-28 px-4 sm:px-6 lg:px-8 bg-gray-900 text-white"
+      >
         <div className="max-w-5xl mx-auto">
-          <div className="text-center mb-16">
+          <div className={`text-center mb-16 transition-all duration-700 ${comparisonVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
+            <p className="text-sm font-medium text-gray-500 uppercase tracking-wide mb-4">Compare</p>
             <h2 className="text-3xl sm:text-4xl font-bold mb-4">
               See the difference
             </h2>
@@ -653,10 +768,10 @@ export default function LandingPage() {
             </p>
           </div>
 
-          <div className="grid md:grid-cols-2 gap-8">
+          <div className={`grid md:grid-cols-2 gap-6 transition-all duration-700 delay-200 ${comparisonVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
             {/* OTAs */}
-            <div className="bg-gray-800 rounded-2xl p-8">
-              <div className="text-red-400 font-semibold mb-4">OTAs (Booking.com, Airbnb)</div>
+            <div className="bg-gray-800/50 rounded-2xl p-8 border border-gray-700/50">
+              <div className="text-gray-400 font-medium text-sm uppercase tracking-wide mb-6">OTAs (Booking.com, Airbnb)</div>
               <ul className="space-y-4">
                 <ComparisonItem negative text="15-20% commission per booking" />
                 <ComparisonItem negative text="Guests belong to the platform" />
@@ -668,8 +783,8 @@ export default function LandingPage() {
             </div>
 
             {/* Vilo */}
-            <div className="bg-emerald-900/30 rounded-2xl p-8 border border-emerald-500/30">
-              <div className="text-emerald-400 font-semibold mb-4">Vilo</div>
+            <div className="bg-emerald-900/20 rounded-2xl p-8 border border-emerald-500/20">
+              <div className="text-emerald-400 font-medium text-sm uppercase tracking-wide mb-6">With Vilo</div>
               <ul className="space-y-4">
                 <ComparisonItem positive text="0% commission — keep everything" />
                 <ComparisonItem positive text="Build your own guest database" />
@@ -684,58 +799,63 @@ export default function LandingPage() {
       </section>
 
       {/* Pricing Section */}
-      <section id="pricing" className="py-24 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-7xl mx-auto">
-          <div className="text-center mb-12">
+      <section
+        ref={pricingRef}
+        id="pricing"
+        className="py-28 px-4 sm:px-6 lg:px-8"
+      >
+        <div className="max-w-6xl mx-auto">
+          <div className={`text-center mb-12 transition-all duration-700 ${pricingVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
+            <p className="text-sm font-medium text-emerald-600 uppercase tracking-wide mb-4">Pricing</p>
             <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-4">
               Simple, transparent pricing
             </h2>
-            <p className="text-xl text-gray-600 mb-8">
+            <p className="text-xl text-gray-500 mb-8">
               One flat fee. No commissions. No hidden costs.
             </p>
 
             {/* Billing Toggle */}
-            <div className="inline-flex items-center bg-gray-100 p-1 rounded-full mb-8">
+            <div className="inline-flex items-center bg-gray-100 p-1 rounded-full">
               <button
                 onClick={() => setBillingCycle('monthly')}
-                className={`px-6 py-2 text-sm font-medium rounded-full transition-all ${
+                className={`px-5 py-2 text-sm font-medium rounded-full transition-all ${
                   billingCycle === 'monthly'
                     ? 'bg-white text-gray-900 shadow-sm'
-                    : 'text-gray-600 hover:text-gray-900'
+                    : 'text-gray-500 hover:text-gray-900'
                 }`}
               >
                 Monthly
               </button>
               <button
                 onClick={() => setBillingCycle('annual')}
-                className={`px-6 py-2 text-sm font-medium rounded-full transition-all ${
+                className={`px-5 py-2 text-sm font-medium rounded-full transition-all ${
                   billingCycle === 'annual'
                     ? 'bg-white text-gray-900 shadow-sm'
-                    : 'text-gray-600 hover:text-gray-900'
+                    : 'text-gray-500 hover:text-gray-900'
                 }`}
               >
                 Annual
-                <span className="ml-2 text-xs text-emerald-600 font-semibold">Save 17%</span>
+                <span className="ml-1.5 text-xs text-emerald-600 font-medium">-17%</span>
               </button>
             </div>
           </div>
 
-          <div className="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
+          <div className={`grid md:grid-cols-3 gap-6 transition-all duration-700 delay-200 ${pricingVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
             {/* Monthly/Annual Plan */}
-            <div className="bg-white rounded-2xl p-8 border border-gray-200 hover:border-gray-300 transition-colors">
+            <div className="bg-white rounded-2xl p-8 border border-gray-100 hover:border-gray-200 hover:shadow-lg transition-all">
               <div className="mb-6">
-                <h3 className="text-xl font-semibold text-gray-900 mb-2">
+                <h3 className="text-lg font-semibold text-gray-900 mb-1">
                   {billingCycle === 'monthly' ? 'Monthly' : 'Annual'}
                 </h3>
-                <p className="text-sm text-gray-500">Flexible subscription</p>
+                <p className="text-sm text-gray-400">Flexible subscription</p>
               </div>
               <div className="mb-6">
                 <span className="text-4xl font-bold text-gray-900">
                   R{billingCycle === 'monthly' ? '499' : '4,999'}
                 </span>
-                <span className="text-gray-500">/{billingCycle === 'monthly' ? 'month' : 'year'}</span>
+                <span className="text-gray-400 text-sm">/{billingCycle === 'monthly' ? 'month' : 'year'}</span>
                 {billingCycle === 'annual' && (
-                  <p className="text-sm text-emerald-600 mt-1">R417/month, billed annually</p>
+                  <p className="text-sm text-gray-500 mt-1">R417/month billed annually</p>
                 )}
               </div>
               <ul className="space-y-3 mb-8">
@@ -748,25 +868,25 @@ export default function LandingPage() {
               </ul>
               <Link
                 to="/pricing"
-                className="block w-full text-center py-3 rounded-full font-semibold bg-gray-100 text-gray-900 hover:bg-gray-200 transition-colors"
+                className="block w-full text-center py-3 rounded-full font-medium bg-gray-100 text-gray-900 hover:bg-gray-200 transition-colors"
               >
-                Get Started
+                Get started
               </Link>
             </div>
 
             {/* Lifetime Plan - Featured */}
-            <div className="bg-black rounded-2xl p-8 text-white relative">
-              <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1 bg-emerald-500 text-white text-xs font-bold rounded-full">
-                BEST VALUE
+            <div className="bg-gray-900 rounded-2xl p-8 text-white relative">
+              <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 bg-emerald-500 text-white text-xs font-medium rounded-full">
+                Best value
               </div>
               <div className="mb-6">
-                <h3 className="text-xl font-semibold mb-2">Lifetime</h3>
+                <h3 className="text-lg font-semibold mb-1">Lifetime</h3>
                 <p className="text-sm text-gray-400">Pay once, use forever</p>
               </div>
               <div className="mb-6">
                 <div className="text-sm text-gray-500 line-through">R3,999</div>
                 <span className="text-4xl font-bold">R1,999</span>
-                <span className="text-gray-400"> once</span>
+                <span className="text-gray-400 text-sm"> once</span>
                 <p className="text-sm text-emerald-400 mt-1">Save R2,000 — limited time</p>
               </div>
               <ul className="space-y-3 mb-8">
@@ -778,17 +898,17 @@ export default function LandingPage() {
               </ul>
               <Link
                 to="/pricing"
-                className="block w-full text-center py-3 rounded-full font-semibold bg-white text-black hover:bg-gray-100 transition-colors"
+                className="block w-full text-center py-3 rounded-full font-medium bg-white text-gray-900 hover:bg-gray-100 transition-colors"
               >
-                Get Lifetime Access
+                Get lifetime access
               </Link>
             </div>
 
             {/* Enterprise */}
-            <div className="bg-white rounded-2xl p-8 border border-gray-200 hover:border-gray-300 transition-colors">
+            <div className="bg-white rounded-2xl p-8 border border-gray-100 hover:border-gray-200 hover:shadow-lg transition-all">
               <div className="mb-6">
-                <h3 className="text-xl font-semibold text-gray-900 mb-2">Enterprise</h3>
-                <p className="text-sm text-gray-500">Multiple properties</p>
+                <h3 className="text-lg font-semibold text-gray-900 mb-1">Enterprise</h3>
+                <p className="text-sm text-gray-400">Multiple properties</p>
               </div>
               <div className="mb-6">
                 <span className="text-4xl font-bold text-gray-900">Custom</span>
@@ -803,9 +923,9 @@ export default function LandingPage() {
               </ul>
               <Link
                 to="/contact"
-                className="block w-full text-center py-3 rounded-full font-semibold bg-gray-100 text-gray-900 hover:bg-gray-200 transition-colors"
+                className="block w-full text-center py-3 rounded-full font-medium bg-gray-100 text-gray-900 hover:bg-gray-200 transition-colors"
               >
-                Contact Sales
+                Contact sales
               </Link>
             </div>
           </div>
@@ -813,32 +933,37 @@ export default function LandingPage() {
       </section>
 
       {/* Testimonials */}
-      <section id="testimonials" className="py-24 px-4 sm:px-6 lg:px-8 bg-gray-50">
-        <div className="max-w-7xl mx-auto">
-          <div className="text-center mb-16">
+      <section
+        ref={testimonialsRef}
+        id="testimonials"
+        className="py-28 px-4 sm:px-6 lg:px-8 bg-gray-50/50"
+      >
+        <div className="max-w-6xl mx-auto">
+          <div className={`text-center mb-16 transition-all duration-700 ${testimonialsVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
+            <p className="text-sm font-medium text-gray-400 uppercase tracking-wide mb-4">Testimonials</p>
             <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-4">
               Trusted by property owners
             </h2>
-            <p className="text-xl text-gray-600">
+            <p className="text-xl text-gray-500">
               See why accommodation providers love Vilo
             </p>
           </div>
 
-          <div className="grid md:grid-cols-3 gap-8">
+          <div className={`grid md:grid-cols-3 gap-6 transition-all duration-700 delay-200 ${testimonialsVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
             <TestimonialCard
-              quote="I was losing R4,000 a month to OTA commissions. Vilo paid for itself in the first week. The setup was incredibly easy."
+              quote="I was losing R4,000 a month to OTA commissions. Vilo paid for itself in the first week."
               author="Sarah M."
               role="Oceanview B&B, Cape Town"
               rating={5}
             />
             <TestimonialCard
-              quote="Finally I own my guest relationships. I can email them directly, offer discounts for returning guests, and build real loyalty."
+              quote="Finally I own my guest relationships. I can email them directly and build real loyalty."
               author="John D."
               role="Mountain Lodge, Drakensberg"
               rating={5}
             />
             <TestimonialCard
-              quote="The calendar view is brilliant. No more double bookings, no more spreadsheets. And keeping 100% of my revenue is amazing."
+              quote="The calendar view is brilliant. No more double bookings, no more spreadsheets."
               author="Lisa K."
               role="Safari Suites, Kruger"
               rating={5}
@@ -848,84 +973,90 @@ export default function LandingPage() {
       </section>
 
       {/* Final CTA Section */}
-      <section className="py-24 px-4 sm:px-6 lg:px-8">
+      <section
+        ref={ctaRef}
+        className="py-28 px-4 sm:px-6 lg:px-8"
+      >
         <div className="max-w-4xl mx-auto">
-          <div className="bg-gradient-to-br from-gray-900 to-black rounded-3xl p-12 sm:p-16 text-center relative overflow-hidden">
-            <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxnIGZpbGw9IiNmZmYiIGZpbGwtb3BhY2l0eT0iMC4wMyI+PGNpcmNsZSBjeD0iMzAiIGN5PSIzMCIgcj0iMiIvPjwvZz48L2c+PC9zdmc+')] opacity-50" />
-            <div className="relative">
-              <div className="inline-flex items-center gap-2 bg-emerald-500/20 text-emerald-400 px-4 py-2 rounded-full text-sm font-medium mb-6 border border-emerald-500/30">
-                <Zap className="w-4 h-4" />
-                Start keeping 100% of your revenue
-              </div>
-              <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-white mb-6">
-                Ready to stop paying
-                <br />commission fees?
-              </h2>
-              <p className="text-xl text-gray-400 mb-10 max-w-2xl mx-auto">
-                Join property owners who've already made the switch to direct bookings.
-                Setup takes less than 10 minutes.
-              </p>
-              <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-                <Link
-                  to="/pricing"
-                  className="w-full sm:w-auto bg-white text-black px-8 py-4 rounded-full hover:bg-gray-100 transition-all font-semibold text-lg"
-                >
-                  Get Started Today
-                </Link>
-                <Link
-                  to="/directory"
-                  className="w-full sm:w-auto bg-transparent text-white px-8 py-4 rounded-full hover:bg-white/10 transition-all font-semibold text-lg border border-white/20"
-                >
-                  Browse Properties
-                </Link>
-              </div>
+          <div className={`bg-gray-900 rounded-3xl p-12 sm:p-16 text-center transition-all duration-700 ${ctaVisible ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`}>
+            <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-white mb-6 leading-tight">
+              Ready to keep 100%
+              <br />of your revenue?
+            </h2>
+            <p className="text-lg text-gray-400 mb-10 max-w-xl mx-auto">
+              Join property owners who've made the switch to direct bookings. Setup takes less than 10 minutes.
+            </p>
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+              <Link
+                to="/pricing"
+                className="w-full sm:w-auto bg-white text-gray-900 px-8 py-4 rounded-full hover:bg-gray-100 transition-all font-medium text-base"
+              >
+                Get started
+              </Link>
+              <Link
+                to="/directory"
+                className="w-full sm:w-auto text-gray-400 px-8 py-4 rounded-full hover:text-white transition-colors font-medium text-base"
+              >
+                Browse properties
+              </Link>
             </div>
+            <p className="mt-6 text-sm text-gray-500">
+              No credit card required. 30-day money-back guarantee.
+            </p>
           </div>
         </div>
       </section>
 
       {/* Footer */}
-      <footer className="bg-gray-50 border-t border-gray-100 py-16 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-7xl mx-auto">
+      <footer className="border-t border-gray-100 py-16 px-4 sm:px-6 lg:px-8">
+        <div className="max-w-6xl mx-auto">
           <div className="grid md:grid-cols-5 gap-8 mb-12">
             <div className="md:col-span-2">
               <div className="flex items-center gap-2 mb-4">
-                <div className="w-8 h-8 bg-black rounded-lg flex items-center justify-center">
-                  <span className="text-white font-bold text-sm">V</span>
+                <div className="w-7 h-7 bg-emerald-500 rounded-lg flex items-center justify-center">
+                  <span className="text-white font-bold text-xs">V</span>
                 </div>
-                <span className="text-xl font-bold text-gray-900">Vilo</span>
+                <span className="text-lg font-semibold text-gray-900">Vilo</span>
               </div>
-              <p className="text-sm text-gray-500 max-w-xs">
-                The booking platform for accommodation providers.
-                No commissions. No hidden fees. Just simple, direct bookings.
+              <p className="text-sm text-gray-400 max-w-xs leading-relaxed">
+                The booking platform for accommodation providers. No commissions. Just simple, direct bookings.
               </p>
             </div>
             <div>
-              <h4 className="text-gray-900 font-semibold mb-4">Product</h4>
-              <ul className="space-y-3 text-sm">
+              <h4 className="text-gray-900 font-medium text-sm mb-4">Product</h4>
+              <ul className="space-y-2.5 text-sm">
                 <li><a href="#features" className="text-gray-500 hover:text-gray-900 transition-colors">Features</a></li>
                 <li><a href="#pricing" className="text-gray-500 hover:text-gray-900 transition-colors">Pricing</a></li>
-                <li><Link to="/directory" className="text-gray-500 hover:text-gray-900 transition-colors">Directory</Link></li>
               </ul>
             </div>
             <div>
-              <h4 className="text-gray-900 font-semibold mb-4">Company</h4>
-              <ul className="space-y-3 text-sm">
+              <h4 className="text-gray-900 font-medium text-sm mb-4">Company</h4>
+              <ul className="space-y-2.5 text-sm">
                 <li><a href="#" className="text-gray-500 hover:text-gray-900 transition-colors">About</a></li>
                 <li><a href="#" className="text-gray-500 hover:text-gray-900 transition-colors">Blog</a></li>
                 <li><Link to="/contact" className="text-gray-500 hover:text-gray-900 transition-colors">Contact</Link></li>
               </ul>
             </div>
             <div>
-              <h4 className="text-gray-900 font-semibold mb-4">Legal</h4>
-              <ul className="space-y-3 text-sm">
-                <li><a href="#" className="text-gray-500 hover:text-gray-900 transition-colors">Privacy Policy</a></li>
-                <li><a href="#" className="text-gray-500 hover:text-gray-900 transition-colors">Terms of Service</a></li>
+              <h4 className="text-gray-900 font-medium text-sm mb-4">Legal</h4>
+              <ul className="space-y-2.5 text-sm">
+                <li><a href="#" className="text-gray-500 hover:text-gray-900 transition-colors">Privacy</a></li>
+                <li><a href="#" className="text-gray-500 hover:text-gray-900 transition-colors">Terms</a></li>
               </ul>
             </div>
           </div>
-          <div className="border-t border-gray-200 pt-8 text-center text-sm text-gray-500">
-            <p>&copy; {new Date().getFullYear()} Vilo. All rights reserved.</p>
+          <div className="border-t border-gray-100 pt-8 flex flex-col sm:flex-row justify-between items-center gap-4">
+            <p className="text-sm text-gray-400">&copy; {new Date().getFullYear()} Vilo. All rights reserved.</p>
+            <div className="flex items-center gap-4 text-sm text-gray-400">
+              <span className="flex items-center gap-1.5">
+                <Lock className="w-3.5 h-3.5" />
+                SSL Secure
+              </span>
+              <span className="flex items-center gap-1.5">
+                <Shield className="w-3.5 h-3.5" />
+                PCI Compliant
+              </span>
+            </div>
           </div>
         </div>
       </footer>
@@ -936,14 +1067,12 @@ export default function LandingPage() {
 // Component: Mega Menu Item
 function MegaMenuItem({ icon, title, description, href }: { icon: React.ReactNode; title: string; description: string; href: string }) {
   const isExternal = href.startsWith('http')
-  const Component = isExternal ? 'a' : href.startsWith('#') ? 'a' : Link
+  const isHash = href.startsWith('#')
 
-  return (
-    <Component
-      to={!isExternal && !href.startsWith('#') ? href : undefined}
-      href={isExternal || href.startsWith('#') ? href : undefined}
-      className="flex items-start gap-3 p-3 rounded-xl hover:bg-gray-50 transition-colors group"
-    >
+  const className = "flex items-start gap-3 p-3 rounded-xl hover:bg-gray-50 transition-colors group"
+
+  const content = (
+    <>
       <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center text-gray-600 group-hover:bg-black group-hover:text-white transition-colors flex-shrink-0">
         {icon}
       </div>
@@ -951,26 +1080,40 @@ function MegaMenuItem({ icon, title, description, href }: { icon: React.ReactNod
         <div className="font-medium text-gray-900 group-hover:text-black">{title}</div>
         <div className="text-sm text-gray-500">{description}</div>
       </div>
-    </Component>
+    </>
+  )
+
+  if (isExternal || isHash) {
+    return (
+      <a href={href} className={className}>
+        {content}
+      </a>
+    )
+  }
+
+  return (
+    <Link to={href} className={className}>
+      {content}
+    </Link>
   )
 }
 
 // Component: Stat Card for Dashboard Preview
 function StatCard({ icon, value, label, trend }: { icon: React.ReactNode; value: string; label: string; trend: string }) {
   return (
-    <div className="bg-white rounded-xl p-5 border border-gray-100 shadow-sm">
+    <div className="bg-gray-50 rounded-xl p-4 sm:p-5">
       <div className="flex items-center justify-between mb-3">
-        <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center text-gray-600">
+        <div className="w-9 h-9 bg-white rounded-lg flex items-center justify-center text-gray-400 border border-gray-100">
           {icon}
         </div>
         {trend && (
-          <span className="text-xs font-medium text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full">
+          <span className="text-xs font-medium text-emerald-600">
             {trend}
           </span>
         )}
       </div>
-      <div className="text-2xl font-bold text-gray-900">{value}</div>
-      <div className="text-sm text-gray-500">{label}</div>
+      <div className="text-xl sm:text-2xl font-semibold text-gray-900">{value}</div>
+      <div className="text-xs sm:text-sm text-gray-400">{label}</div>
     </div>
   )
 }
@@ -987,8 +1130,8 @@ function ProblemItem({ text }: { text: string }) {
   )
 }
 
-// Component: Feature Card
-function FeatureCard({ icon, title, description }: { icon: React.ReactNode; title: string; description: string }) {
+// Component: Feature Card (keeping for potential future use)
+function _FeatureCard({ icon, title, description }: { icon: React.ReactNode; title: string; description: string }) {
   return (
     <div className="bg-white rounded-2xl p-8 border border-gray-100 hover:border-gray-200 hover:shadow-lg transition-all group">
       <div className="w-12 h-12 rounded-xl flex items-center justify-center mb-6 bg-gray-100 text-gray-600 group-hover:bg-black group-hover:text-white transition-colors">
@@ -999,16 +1142,20 @@ function FeatureCard({ icon, title, description }: { icon: React.ReactNode; titl
     </div>
   )
 }
+void _FeatureCard
 
 // Component: Step Card
-function StepCard({ number, title, description }: { number: string; title: string; description: string }) {
+function StepCard({ number, title, description, visible = true, delay = 0 }: { number: string; title: string; description: string; visible?: boolean; delay?: number }) {
   return (
-    <div className="text-center">
-      <div className="w-16 h-16 bg-gray-100 text-gray-400 rounded-2xl flex items-center justify-center text-2xl font-bold mx-auto mb-6">
+    <div
+      className={`text-center relative transition-all duration-700 ${visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}
+      style={{ transitionDelay: `${delay}ms` }}
+    >
+      <div className="w-14 h-14 bg-emerald-600 text-white rounded-2xl flex items-center justify-center text-xl font-semibold mx-auto mb-5 relative z-10">
         {number}
       </div>
-      <h3 className="text-xl font-semibold text-gray-900 mb-3">{title}</h3>
-      <p className="text-gray-600">{description}</p>
+      <h3 className="text-lg font-semibold text-gray-900 mb-2">{title}</h3>
+      <p className="text-gray-500 text-sm leading-relaxed">{description}</p>
     </div>
   )
 }
@@ -1045,16 +1192,21 @@ function PricingFeature({ text, light }: { text: string; light?: boolean }) {
 // Component: Testimonial Card
 function TestimonialCard({ quote, author, role, rating }: { quote: string; author: string; role: string; rating: number }) {
   return (
-    <div className="bg-white rounded-2xl p-8 border border-gray-100">
-      <div className="flex gap-1 mb-4">
+    <div className="bg-white rounded-2xl p-6 border border-gray-100 hover:border-gray-200 hover:shadow-sm transition-all">
+      <div className="flex gap-0.5 mb-4">
         {Array.from({ length: rating }).map((_, i) => (
-          <Star key={i} className="w-5 h-5 text-yellow-400 fill-current" />
+          <Star key={i} className="w-4 h-4 text-yellow-400 fill-current" />
         ))}
       </div>
-      <p className="text-gray-700 mb-6 leading-relaxed">"{quote}"</p>
-      <div>
-        <div className="font-semibold text-gray-900">{author}</div>
-        <div className="text-sm text-gray-500">{role}</div>
+      <p className="text-gray-600 mb-5 leading-relaxed text-[15px]">"{quote}"</p>
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 text-sm font-medium">
+          {author.split(' ').map(n => n[0]).join('')}
+        </div>
+        <div>
+          <div className="font-medium text-gray-900 text-sm">{author}</div>
+          <div className="text-xs text-gray-400">{role}</div>
+        </div>
       </div>
     </div>
   )
@@ -1064,12 +1216,12 @@ function TestimonialCard({ quote, author, role, rating }: { quote: string; autho
 function FeaturePoint({ icon, title, description }: { icon: React.ReactNode; title: string; description: string }) {
   return (
     <div className="flex items-start gap-3">
-      <div className="w-10 h-10 rounded-lg bg-emerald-50 flex items-center justify-center text-emerald-600 flex-shrink-0">
+      <div className="w-9 h-9 rounded-lg bg-gray-100 flex items-center justify-center text-gray-500 flex-shrink-0">
         {icon}
       </div>
       <div>
-        <div className="font-semibold text-gray-900 mb-1">{title}</div>
-        <div className="text-sm text-gray-500 leading-relaxed">{description}</div>
+        <div className="font-medium text-gray-900 mb-0.5">{title}</div>
+        <div className="text-sm text-gray-400 leading-relaxed">{description}</div>
       </div>
     </div>
   )
@@ -1078,12 +1230,12 @@ function FeaturePoint({ icon, title, description }: { icon: React.ReactNode; tit
 // Component: Mini Feature Card (for the "more features" grid)
 function MiniFeatureCard({ icon, title, description }: { icon: React.ReactNode; title: string; description: string }) {
   return (
-    <div className="bg-white rounded-xl p-6 border border-gray-100 hover:border-gray-200 hover:shadow-md transition-all">
-      <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center text-gray-600 mb-4">
+    <div className="bg-white rounded-xl p-5 border border-gray-100 hover:border-gray-200 hover:shadow-sm transition-all group">
+      <div className="w-9 h-9 rounded-lg bg-gray-50 flex items-center justify-center text-gray-400 mb-3 group-hover:bg-gray-100 transition-colors">
         {icon}
       </div>
-      <h4 className="font-semibold text-gray-900 mb-1">{title}</h4>
-      <p className="text-sm text-gray-500">{description}</p>
+      <h4 className="font-medium text-gray-900 mb-0.5">{title}</h4>
+      <p className="text-sm text-gray-400">{description}</p>
     </div>
   )
 }
@@ -1139,31 +1291,15 @@ function FeatureMockup({ variant }: { variant: 'rooms' | 'calendar' | 'payments'
 
   return (
     <div className="relative">
-      {/* Background decoration */}
-      <div className="absolute -inset-4 bg-gradient-to-br from-emerald-50 to-teal-50 rounded-3xl -z-10" />
-
       {/* Main screenshot */}
-      <div className="relative z-10 bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden">
-        <div className="bg-gray-100 px-4 py-2.5 border-b border-gray-200 flex items-center gap-2">
-          <div className="flex gap-1.5">
-            <div className="w-3 h-3 rounded-full bg-red-400" />
-            <div className="w-3 h-3 rounded-full bg-yellow-400" />
-            <div className="w-3 h-3 rounded-full bg-green-400" />
-          </div>
-          <span className="ml-3 text-xs text-gray-500 font-medium">app.vilo.co.za</span>
-        </div>
+      <div className="relative z-10 bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
         <div className="p-1">
           {screens[0].content}
         </div>
       </div>
 
       {/* Secondary screenshot - offset and stacked */}
-      <div className="absolute -bottom-8 -right-8 w-2/3 z-20 bg-white rounded-xl shadow-xl border border-gray-200 overflow-hidden transform rotate-2 hover:rotate-0 transition-transform">
-        <div className="bg-gray-50 px-3 py-2 border-b border-gray-100 flex items-center gap-1.5">
-          <div className="w-2 h-2 rounded-full bg-gray-300" />
-          <div className="w-2 h-2 rounded-full bg-gray-300" />
-          <div className="w-2 h-2 rounded-full bg-gray-300" />
-        </div>
+      <div className="absolute -bottom-6 -right-6 w-2/3 z-20 bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden transform rotate-2 hover:rotate-0 transition-transform duration-300">
         <div className="p-1">
           {screens[1].content}
         </div>

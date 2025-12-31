@@ -1,103 +1,55 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { Check, Star, Zap, Shield, Clock, Users, Calendar, BarChart3, Globe, Headphones } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3002/api'
 
 export default function Pricing() {
+  const navigate = useNavigate()
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('annual')
   const [loading, setLoading] = useState<string | null>(null)
-  const [email, setEmail] = useState('')
-  const [showSignup, setShowSignup] = useState<string | null>(null)
-  const [password, setPassword] = useState('')
   const [error, setError] = useState('')
 
-  const handleGetStarted = async (plan: 'lifetime' | 'monthly' | 'annual') => {
+  const handleSelectPlan = async (plan: 'lifetime' | 'monthly' | 'annual') => {
     // Check if user is logged in
     const { data: { session } } = await supabase.auth.getSession()
 
     if (session) {
-      // User is logged in, proceed to payment
-      await handlePayment(plan)
+      // User is logged in - go directly to payment
+      setLoading(plan)
+      try {
+        const response = await fetch(`${API_URL}/payments/initialize`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ plan, currency: 'ZAR' }),
+        })
+
+        const data = await response.json()
+
+        if (data.authorization_url) {
+          window.location.href = data.authorization_url
+        } else {
+          setError(data.error || 'Failed to initialize payment')
+          setLoading(null)
+        }
+      } catch (err) {
+        setError('Payment failed. Please try again.')
+        setLoading(null)
+      }
     } else {
-      // Show signup form
-      setShowSignup(plan)
-    }
-  }
-
-  const handleSignupAndPay = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!showSignup) return
-
-    setLoading(showSignup)
-    setError('')
-
-    try {
-      // Sign up the user
-      const { data, error: signupError } = await supabase.auth.signUp({
-        email,
-        password,
-      })
-
-      if (signupError) {
-        setError(signupError.message)
-        setLoading(null)
-        return
-      }
-
-      if (data.session) {
-        // User is now logged in, proceed to payment
-        await handlePayment(showSignup as 'lifetime' | 'monthly' | 'annual')
-      } else {
-        // Email confirmation required
-        setError('Please check your email to confirm your account, then try again.')
-        setLoading(null)
-      }
-    } catch (err) {
-      setError('Something went wrong. Please try again.')
-      setLoading(null)
-    }
-  }
-
-  const handlePayment = async (plan: 'lifetime' | 'monthly' | 'annual') => {
-    setLoading(plan)
-    try {
-      const token = (await supabase.auth.getSession()).data.session?.access_token
-
-      if (!token) {
-        setError('Please sign in to continue')
-        setLoading(null)
-        return
-      }
-
-      const response = await fetch(`${API_URL}/payments/initialize`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({ plan, currency: 'ZAR' }),
-      })
-
-      const data = await response.json()
-
-      if (data.authorization_url) {
-        window.location.href = data.authorization_url
-      } else {
-        setError(data.error || 'Failed to initialize payment')
-        setLoading(null)
-      }
-    } catch (err) {
-      setError('Payment failed. Please try again.')
-      setLoading(null)
+      // User not logged in - go to signup wizard
+      navigate(`/signup?plan=${plan}`)
     }
   }
 
   const features = [
     { icon: Calendar, text: 'Unlimited bookings & rooms' },
     { icon: Users, text: 'Customer portal & management' },
-    { icon: Globe, text: 'Custom website & booking page' },
+    { icon: Globe, text: 'Listed in our property directory' },
     { icon: BarChart3, text: 'Analytics & reporting' },
     { icon: Shield, text: 'Secure payment processing' },
     { icon: Headphones, text: 'Priority support' },
@@ -110,7 +62,7 @@ export default function Pricing() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
             <Link to="/" className="flex items-center gap-2">
-              <div className="w-8 h-8 bg-black rounded-lg flex items-center justify-center">
+              <div className="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center">
                 <span className="text-white font-bold text-lg">V</span>
               </div>
               <span className="text-xl font-bold text-gray-900">Vilo</span>
@@ -127,15 +79,15 @@ export default function Pricing() {
       {/* Hero */}
       <section className="py-16 px-4 sm:px-6 lg:px-8">
         <div className="max-w-4xl mx-auto text-center">
-          <div className="inline-flex items-center gap-2 px-3 py-1 bg-green-100 text-green-700 text-sm font-medium rounded-full mb-6">
+          <div className="inline-flex items-center gap-2 px-3 py-1 bg-emerald-100 text-emerald-700 text-sm font-medium rounded-full mb-6">
             <Zap size={14} />
             <span>Launch Special - Save up to 50%</span>
           </div>
           <h1 className="text-4xl sm:text-5xl font-bold text-gray-900 mb-4">
-            Simple, transparent pricing
+            List your property today
           </h1>
           <p className="text-xl text-gray-600 mb-8">
-            Everything you need to manage your accommodation business. No hidden fees.
+            Get listed on South Africa's growing accommodation directory. Manage bookings with ease.
           </p>
         </div>
       </section>
@@ -143,6 +95,12 @@ export default function Pricing() {
       {/* Pricing Cards */}
       <section className="pb-20 px-4 sm:px-6 lg:px-8">
         <div className="max-w-5xl mx-auto">
+          {error && (
+            <div className="mb-6 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm text-center">
+              {error}
+            </div>
+          )}
+
           {/* Billing Toggle */}
           <div className="flex justify-center mb-10">
             <div className="bg-gray-100 p-1 rounded-xl inline-flex">
@@ -165,7 +123,7 @@ export default function Pricing() {
                 }`}
               >
                 Annual
-                <span className="ml-1.5 text-xs text-green-600 font-semibold">Save 17%</span>
+                <span className="ml-1.5 text-xs text-emerald-600 font-semibold">Save 17%</span>
               </button>
             </div>
           </div>
@@ -192,7 +150,7 @@ export default function Pricing() {
                   </span>
                 </div>
                 {billingCycle === 'annual' && (
-                  <p className="text-sm text-green-600 mt-1">
+                  <p className="text-sm text-emerald-600 mt-1">
                     That's just R417/month
                   </p>
                 )}
@@ -201,56 +159,19 @@ export default function Pricing() {
               <ul className="space-y-3 mb-8">
                 {features.map((feature, idx) => (
                   <li key={idx} className="flex items-center gap-3 text-sm text-gray-600">
-                    <Check size={18} className="text-green-500 flex-shrink-0" />
+                    <Check size={18} className="text-emerald-500 flex-shrink-0" />
                     <span>{feature.text}</span>
                   </li>
                 ))}
               </ul>
 
-              {showSignup === billingCycle ? (
-                <form onSubmit={handleSignupAndPay} className="space-y-3">
-                  <input
-                    type="email"
-                    placeholder="Email address"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-black focus:border-transparent"
-                    required
-                  />
-                  <input
-                    type="password"
-                    placeholder="Password (min 6 characters)"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    minLength={6}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-black focus:border-transparent"
-                    required
-                  />
-                  {error && <p className="text-red-500 text-sm">{error}</p>}
-                  <button
-                    type="submit"
-                    disabled={loading === billingCycle}
-                    className="w-full py-3 bg-gray-900 text-white rounded-lg font-medium hover:bg-gray-800 transition-colors disabled:opacity-50"
-                  >
-                    {loading === billingCycle ? 'Processing...' : 'Create Account & Pay'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowSignup(null)}
-                    className="w-full text-sm text-gray-500 hover:text-gray-700"
-                  >
-                    Cancel
-                  </button>
-                </form>
-              ) : (
-                <button
-                  onClick={() => handleGetStarted(billingCycle)}
-                  disabled={loading === billingCycle}
-                  className="w-full py-3 bg-gray-900 text-white rounded-lg font-medium hover:bg-gray-800 transition-colors disabled:opacity-50"
-                >
-                  {loading === billingCycle ? 'Processing...' : 'Get Started'}
-                </button>
-              )}
+              <button
+                onClick={() => handleSelectPlan(billingCycle)}
+                disabled={loading === billingCycle}
+                className="w-full py-3 bg-gray-900 text-white rounded-lg font-medium hover:bg-gray-800 transition-colors disabled:opacity-50"
+              >
+                {loading === billingCycle ? 'Processing...' : 'Get Started'}
+              </button>
             </div>
 
             {/* Lifetime Plan */}
@@ -275,7 +196,7 @@ export default function Pricing() {
                   <span className="text-4xl font-bold text-gray-900">R1,999</span>
                   <span className="text-gray-500">once</span>
                 </div>
-                <p className="text-sm text-green-600 mt-1">
+                <p className="text-sm text-emerald-600 mt-1">
                   Save R2,000 - Limited time offer
                 </p>
               </div>
@@ -283,64 +204,27 @@ export default function Pricing() {
               <ul className="space-y-3 mb-8">
                 {features.map((feature, idx) => (
                   <li key={idx} className="flex items-center gap-3 text-sm text-gray-600">
-                    <Check size={18} className="text-green-500 flex-shrink-0" />
+                    <Check size={18} className="text-emerald-500 flex-shrink-0" />
                     <span>{feature.text}</span>
                   </li>
                 ))}
                 <li className="flex items-center gap-3 text-sm text-gray-900 font-medium">
-                  <Check size={18} className="text-green-500 flex-shrink-0" />
+                  <Check size={18} className="text-emerald-500 flex-shrink-0" />
                   <span>All future updates included</span>
                 </li>
                 <li className="flex items-center gap-3 text-sm text-gray-900 font-medium">
-                  <Check size={18} className="text-green-500 flex-shrink-0" />
+                  <Check size={18} className="text-emerald-500 flex-shrink-0" />
                   <span>No recurring fees ever</span>
                 </li>
               </ul>
 
-              {showSignup === 'lifetime' ? (
-                <form onSubmit={handleSignupAndPay} className="space-y-3">
-                  <input
-                    type="email"
-                    placeholder="Email address"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-black focus:border-transparent"
-                    required
-                  />
-                  <input
-                    type="password"
-                    placeholder="Password (min 6 characters)"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    minLength={6}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-black focus:border-transparent"
-                    required
-                  />
-                  {error && <p className="text-red-500 text-sm">{error}</p>}
-                  <button
-                    type="submit"
-                    disabled={loading === 'lifetime'}
-                    className="w-full py-3 bg-black text-white rounded-lg font-medium hover:bg-gray-800 transition-colors disabled:opacity-50"
-                  >
-                    {loading === 'lifetime' ? 'Processing...' : 'Create Account & Pay'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowSignup(null)}
-                    className="w-full text-sm text-gray-500 hover:text-gray-700"
-                  >
-                    Cancel
-                  </button>
-                </form>
-              ) : (
-                <button
-                  onClick={() => handleGetStarted('lifetime')}
-                  disabled={loading === 'lifetime'}
-                  className="w-full py-3 bg-black text-white rounded-lg font-medium hover:bg-gray-800 transition-colors disabled:opacity-50"
-                >
-                  {loading === 'lifetime' ? 'Processing...' : 'Get Lifetime Access'}
-                </button>
-              )}
+              <button
+                onClick={() => handleSelectPlan('lifetime')}
+                disabled={loading === 'lifetime'}
+                className="w-full py-3 bg-black text-white rounded-lg font-medium hover:bg-gray-800 transition-colors disabled:opacity-50"
+              >
+                {loading === 'lifetime' ? 'Processing...' : 'Get Lifetime Access'}
+              </button>
 
               <p className="text-center text-xs text-gray-500 mt-4">
                 30-day money-back guarantee
@@ -368,7 +252,7 @@ export default function Pricing() {
             {[
               { icon: Calendar, title: 'Smart Booking Calendar', desc: 'Manage availability, prevent double-bookings, and sync with Google Calendar.' },
               { icon: Users, title: 'Guest Management', desc: 'Keep track of guest details, preferences, and booking history.' },
-              { icon: Globe, title: 'Custom Website', desc: 'Beautiful booking website with your branding. No coding required.' },
+              { icon: Globe, title: 'Directory Listing', desc: 'Get discovered by travellers searching for accommodation in your area.' },
               { icon: BarChart3, title: 'Analytics Dashboard', desc: 'Track revenue, occupancy rates, and business performance.' },
               { icon: Shield, title: 'Secure Payments', desc: 'Accept payments via Paystack, EFT, or PayPal securely.' },
               { icon: Clock, title: 'Automated Emails', desc: 'Booking confirmations, reminders, and review requests.' },
@@ -406,12 +290,12 @@ export default function Pricing() {
                 a: 'Lifetime access means you pay once and can use Vilo forever. This includes all current features and future updates at no additional cost.'
               },
               {
-                q: 'Is there a free trial?',
-                a: 'We offer a 30-day money-back guarantee on all plans. If you\'re not satisfied, we\'ll refund your payment - no questions asked.'
+                q: 'How does the directory listing work?',
+                a: 'Once you complete your profile, your property will be listed on our accommodation directory where travellers can discover and book directly with you.'
               },
               {
-                q: 'Do you offer discounts for multiple properties?',
-                a: 'Yes! Contact us for custom enterprise pricing if you manage multiple properties.'
+                q: 'What if I\'m not satisfied?',
+                a: 'We offer a 30-day money-back guarantee on all plans. If you\'re not satisfied, we\'ll refund your payment - no questions asked.'
               },
             ].map((faq, idx) => (
               <div key={idx} className="border-b border-gray-200 pb-6">
@@ -427,7 +311,7 @@ export default function Pricing() {
       <footer className="border-t border-gray-200 py-8 px-4 sm:px-6 lg:px-8">
         <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2">
-            <div className="w-6 h-6 bg-black rounded flex items-center justify-center">
+            <div className="w-6 h-6 bg-emerald-500 rounded flex items-center justify-center">
               <span className="text-white font-bold text-sm">V</span>
             </div>
             <span className="text-sm text-gray-600">© 2024 Vilo. All rights reserved.</span>

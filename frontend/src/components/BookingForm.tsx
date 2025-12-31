@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react'
 import { X } from 'lucide-react'
 import Button from './Button'
+import TermsAcceptance from './TermsAcceptance'
+import GuestSelector, { GuestData, createDefaultGuestData } from './GuestSelector'
+import DateRangePicker from './DateRangePicker'
 import { roomsApi, Room } from '../services/api'
 
 interface Booking {
@@ -30,6 +33,8 @@ interface BookingFormProps {
 export default function BookingForm({ booking, isOpen, onClose, onSubmit, isSubmitting = false }: BookingFormProps) {
   const [rooms, setRooms] = useState<Room[]>([])
   const [loadingRooms, setLoadingRooms] = useState(false)
+  const [termsAccepted, setTermsAccepted] = useState(false)
+  const [guestData, setGuestData] = useState<GuestData>(createDefaultGuestData())
   const [formData, setFormData] = useState<Booking>({
     guest_name: '',
     guest_email: undefined,
@@ -65,9 +70,25 @@ export default function BookingForm({ booking, isOpen, onClose, onSubmit, isSubm
     }
   }
 
+  // Parse guest data from notes JSON when editing
+  const parseGuestDataFromNotes = (notes?: string): GuestData => {
+    if (!notes) return createDefaultGuestData()
+    try {
+      const parsed = JSON.parse(notes)
+      return {
+        adults: parsed.adults || 2,
+        children: parsed.children || 0,
+        childrenAges: parsed.children_ages || []
+      }
+    } catch {
+      return createDefaultGuestData()
+    }
+  }
+
   useEffect(() => {
     if (booking) {
       setFormData(booking)
+      setGuestData(parseGuestDataFromNotes(booking.notes))
     } else {
       setFormData({
         guest_name: '',
@@ -83,12 +104,31 @@ export default function BookingForm({ booking, isOpen, onClose, onSubmit, isSubm
         currency: 'ZAR',
         notes: undefined
       })
+      setGuestData(createDefaultGuestData())
     }
+    setTermsAccepted(false)
   }, [booking, isOpen])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    onSubmit(formData)
+
+    // Merge guest data into notes JSON
+    const existingNotes = formData.notes ? (() => {
+      try { return JSON.parse(formData.notes!) } catch { return {} }
+    })() : {}
+
+    const notesData = {
+      ...existingNotes,
+      guests: guestData.adults + guestData.children,
+      adults: guestData.adults,
+      children: guestData.children,
+      children_ages: guestData.childrenAges
+    }
+
+    onSubmit({
+      ...formData,
+      notes: JSON.stringify(notesData)
+    })
   }
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
@@ -130,35 +170,19 @@ export default function BookingForm({ booking, isOpen, onClose, onSubmit, isSubm
     return nights > 0 ? room.base_price_per_night * nights : room.base_price_per_night
   }
 
-  // Recalculate price when dates change
-  const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target
-    const selectedRoom = rooms.find(r => r.id === formData.room_id)
-
-    const newCheckIn = name === 'check_in' ? value : formData.check_in
-    const newCheckOut = name === 'check_out' ? value : formData.check_out
-
-    setFormData(prev => ({
-      ...prev,
-      [name]: value,
-      total_amount: selectedRoom && newCheckIn && newCheckOut
-        ? calculateTotalPrice(selectedRoom, newCheckIn, newCheckOut)
-        : prev.total_amount
-    }))
-  }
 
   if (!isOpen) return null
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-        <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
-          <h2 className="text-2xl font-bold text-gray-900">
+        <div className="sticky top-0 bg-gradient-to-r from-accent-600 to-accent-500 px-6 py-5 flex items-center justify-between rounded-t-lg">
+          <h2 className="text-2xl font-bold text-white">
             {booking ? 'Edit Booking' : 'Create New Booking'}
           </h2>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
+            className="p-1.5 text-white/80 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
           >
             <X size={24} />
           </button>
@@ -209,6 +233,17 @@ export default function BookingForm({ booking, isOpen, onClose, onSubmit, isSubm
             </div>
           </div>
 
+          {/* Number of Guests */}
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Number of Guests</h3>
+            <GuestSelector
+              value={guestData}
+              onChange={setGuestData}
+              mode="full"
+              showLabels={true}
+            />
+          </div>
+
           {/* Room Information */}
           <div>
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Room Information</h3>
@@ -246,45 +281,32 @@ export default function BookingForm({ booking, isOpen, onClose, onSubmit, isSubm
           {/* Dates */}
           <div>
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Dates</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Check-in Date *
-                </label>
-                <input
-                  type="date"
-                  name="check_in"
-                  value={formData.check_in}
-                  onChange={handleDateChange}
-                  required
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Check-out Date *
-                </label>
-                <input
-                  type="date"
-                  name="check_out"
-                  value={formData.check_out}
-                  onChange={handleDateChange}
-                  required
-                  min={formData.check_in}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
-                />
-              </div>
-            </div>
-            {formData.check_in && formData.check_out && (
-              <p className="text-sm text-gray-600 mt-2">
-                {(() => {
-                  const start = new Date(formData.check_in)
-                  const end = new Date(formData.check_out)
-                  const nights = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24))
-                  return nights > 0 ? `${nights} night${nights > 1 ? 's' : ''}` : ''
-                })()}
-              </p>
-            )}
+            <DateRangePicker
+              startDate={formData.check_in}
+              endDate={formData.check_out}
+              onStartDateChange={(date) => {
+                const selectedRoom = rooms.find(r => r.id === formData.room_id)
+                setFormData(prev => ({
+                  ...prev,
+                  check_in: date,
+                  total_amount: selectedRoom && date && prev.check_out
+                    ? calculateTotalPrice(selectedRoom, date, prev.check_out)
+                    : prev.total_amount
+                }))
+              }}
+              onEndDateChange={(date) => {
+                const selectedRoom = rooms.find(r => r.id === formData.room_id)
+                setFormData(prev => ({
+                  ...prev,
+                  check_out: date,
+                  total_amount: selectedRoom && prev.check_in && date
+                    ? calculateTotalPrice(selectedRoom, prev.check_in, date)
+                    : prev.total_amount
+                }))
+              }}
+              startLabel="Check-in"
+              endLabel="Check-out"
+            />
           </div>
 
           {/* Payment & Status */}
@@ -358,27 +380,19 @@ export default function BookingForm({ booking, isOpen, onClose, onSubmit, isSubm
             </div>
           </div>
 
-          {/* Notes */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Notes
-            </label>
-            <textarea
-              name="notes"
-              value={formData.notes || ''}
-              onChange={handleChange}
-              rows={3}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
-              placeholder="Additional notes about this booking..."
-            />
-          </div>
+          {/* Terms Acceptance */}
+          <TermsAcceptance
+            accepted={termsAccepted}
+            onChange={setTermsAccepted}
+            size="sm"
+          />
 
           {/* Actions */}
           <div className="flex justify-end gap-3 pt-4 border-t border-gray-200">
             <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>
               Cancel
             </Button>
-            <Button type="submit" disabled={isSubmitting}>
+            <Button type="submit" disabled={isSubmitting || !termsAccepted}>
               {isSubmitting ? 'Saving...' : booking ? 'Update Booking' : 'Create Booking'}
             </Button>
           </div>
@@ -387,4 +401,3 @@ export default function BookingForm({ booking, isOpen, onClose, onSubmit, isSubm
     </div>
   )
 }
-

@@ -34,6 +34,8 @@ import {
 import { setCustomerToken } from '../../services/portalApi'
 import { useAuth } from '../../contexts/AuthContext'
 import BookingCalendar from '../../components/BookingCalendar'
+import TermsAcceptance from '../../components/TermsAcceptance'
+import DateRangePicker from '../../components/DateRangePicker'
 
 const STEPS = [
   { id: 1, name: 'Select Dates', short: 'Dates' },
@@ -117,6 +119,7 @@ export default function Book() {
   // Step 4: Confirmation
   const [bookingConfirmed, setBookingConfirmed] = useState(false)
   const [bookingReference, setBookingReference] = useState('')
+  const [termsAccepted, setTermsAccepted] = useState(false)
 
   // Set default dates (today + 1 to today + 3) and pre-fill guests if provided
   useEffect(() => {
@@ -479,8 +482,8 @@ export default function Book() {
       <div className="min-h-screen bg-gray-50 py-12">
         <div className="max-w-2xl mx-auto px-4">
           <div className="bg-white rounded-xl shadow-lg p-8 text-center">
-            <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
-              <CheckCircle className="w-8 h-8 text-green-600" />
+            <div className="w-16 h-16 bg-accent-100 rounded-full flex items-center justify-center mx-auto mb-6">
+              <CheckCircle className="w-8 h-8 text-accent-600" />
             </div>
             <h1 className="text-2xl font-bold text-gray-900 mb-2">Booking Confirmed!</h1>
             <p className="text-gray-600 mb-6">
@@ -572,7 +575,7 @@ export default function Book() {
                   <div
                     className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
                       step > s.id
-                        ? 'bg-green-600 text-white'
+                        ? 'bg-accent-600 text-white'
                         : step === s.id
                         ? 'bg-black text-white'
                         : 'bg-gray-200 text-gray-500'
@@ -598,7 +601,7 @@ export default function Book() {
                 {index < STEPS.length - 1 && (
                   <div
                     className={`flex-1 h-1 mx-4 rounded ${
-                      step > s.id ? 'bg-green-600' : 'bg-gray-200'
+                      step > s.id ? 'bg-accent-600' : 'bg-gray-200'
                     }`}
                   />
                 )}
@@ -785,31 +788,20 @@ export default function Book() {
                       </h3>
 
                       {/* Date Picker Fields */}
-                      <div className="grid grid-cols-2 gap-4 mb-4">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">
-                            Check-in
-                          </label>
-                          <input
-                            type="date"
-                            value={checkIn}
-                            onChange={(e) => handleCheckInInputChange(e.target.value)}
-                            min={new Date().toISOString().split('T')[0]}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">
-                            Check-out
-                          </label>
-                          <input
-                            type="date"
-                            value={checkOut}
-                            onChange={(e) => handleCheckOutInputChange(e.target.value)}
-                            min={checkIn || new Date().toISOString().split('T')[0]}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                          />
-                        </div>
+                      <div className="mb-4">
+                        <DateRangePicker
+                          startDate={checkIn}
+                          endDate={checkOut}
+                          onStartDateChange={(date) => handleCheckInInputChange(date)}
+                          onEndDateChange={(date) => handleCheckOutInputChange(date)}
+                          minDate={new Date().toISOString().split('T')[0]}
+                          startLabel="Check-in"
+                          endLabel="Check-out"
+                          unavailableDates={unavailableDates}
+                          seasonalDates={seasonalDates}
+                          minStayNights={selectedRoom.min_stay_nights}
+                          maxStayNights={selectedRoom.max_stay_nights}
+                        />
                       </div>
 
                       {/* Calendar View */}
@@ -1094,10 +1086,13 @@ export default function Book() {
                   </div>
                 </div>
 
-                {/* Terms */}
+                {/* Terms Acceptance */}
                 <div className="bg-gray-50 rounded-lg p-4">
-                  <p className="text-sm text-gray-600">
-                    By completing this booking, you agree to the property's terms and conditions.
+                  <TermsAcceptance
+                    accepted={termsAccepted}
+                    onChange={setTermsAccepted}
+                  />
+                  <p className="text-sm text-gray-500 mt-3">
                     Your booking is subject to confirmation by the property.
                   </p>
                 </div>
@@ -1136,7 +1131,7 @@ export default function Book() {
                         <span className="text-gray-600 italic">
                           {children} {children === 1 ? 'child' : 'children'} (free)
                         </span>
-                        <span className="text-green-600">Free</span>
+                        <span className="text-accent-600">Free</span>
                       </div>
                     )}
 
@@ -1185,7 +1180,7 @@ export default function Book() {
                 ) : (
                   <button
                     onClick={handleSubmit}
-                    disabled={submitting}
+                    disabled={submitting || !termsAccepted}
                     className="w-full py-3 bg-black text-white rounded-lg font-medium hover:bg-gray-800 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
                   >
                     {submitting ? (

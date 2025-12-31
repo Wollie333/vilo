@@ -49,6 +49,7 @@ interface Tenant {
   postal_code: string | null
   country: string | null
   vat_number: string | null
+  company_registration_number: string | null
   business_email: string | null
   business_phone: string | null
   website_url: string | null
@@ -71,8 +72,55 @@ interface Tenant {
   eft_account_number: string | null
   eft_branch_code: string | null
   eft_account_type: string | null
+  eft_swift_code: string | null
+  eft_reference_instructions: string | null
+  // PayPal Settings
+  paypal_enabled: boolean | null
+  paypal_mode: string | null
+  paypal_sandbox_client_id: string | null
+  paypal_sandbox_secret: string | null
+  paypal_live_client_id: string | null
+  paypal_live_secret: string | null
   // Business Hours
   business_hours: Record<string, { open: string; close: string; closed: boolean }> | null
+  // Directory Settings
+  discoverable: boolean | null
+  directory_featured: boolean | null
+  property_type: string | null
+  region: string | null
+  region_slug: string | null
+  cover_image: string | null
+  // Extended Directory Listing Fields
+  gallery_images: string[] | null
+  directory_description: string | null
+  check_in_time: string | null
+  check_out_time: string | null
+  cancellation_policies: Array<{
+    days_before: number
+    refund_percentage: number
+    label: string
+  }> | null
+  property_amenities: string[] | null
+  house_rules: string[] | null
+  whats_included: string[] | null
+  property_highlights: string[] | null
+  seasonal_message: string | null
+  special_offers: Array<{
+    title: string
+    description: string
+    valid_until?: string
+    active: boolean
+  }> | null
+  // Geographic Location
+  country_id: string | null
+  province_id: string | null
+  destination_id: string | null
+  latitude: number | null
+  longitude: number | null
+  google_place_id: string | null
+  formatted_address: string | null
+  // Categories
+  category_slugs: string[] | null
 }
 
 interface AuthContextType {
@@ -118,7 +166,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const isAccountant = role === 'accountant'
 
   // Fetch user's role in their tenant
-  const fetchRole = useCallback(async (accessToken: string) => {
+  const fetchRole = useCallback(async (accessToken: string, tenantId: string) => {
+    // Only fetch role if we have a tenant
+    if (!tenantId) {
+      setRole(null)
+      return
+    }
+
     try {
       const response = await fetch(`${API_URL}/members/me`, {
         headers: {
@@ -131,11 +185,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setRole(data.role as Role)
       } else {
         // User might be owner without tenant_members entry yet
-        // Default to owner if they have a tenant
+        // This is expected for new users - not an error
         setRole(null)
       }
     } catch (error) {
-      console.error('Error fetching role:', error)
+      // Network error - silently fail, role will be null
       setRole(null)
     }
   }, [])
@@ -163,8 +217,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setTenantId(data.tenant?.id || null)
 
         // Fetch user's role after tenant is loaded
-        if (data.tenant) {
-          await fetchRole(accessToken)
+        if (data.tenant?.id) {
+          await fetchRole(accessToken, data.tenant.id)
         } else {
           setRole(null)
         }
@@ -212,10 +266,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   useEffect(() => {
+    let isMounted = true
+
     // Timeout to ensure loading state resolves even if Supabase is slow
     const timeout = setTimeout(() => {
-      if (loading) {
-        console.warn('Auth timeout - Supabase may be unavailable')
+      if (isMounted && loading) {
+        // Silently resolve loading state - this is not an error
         setLoading(false)
       }
     }, 10000)
@@ -223,10 +279,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Get initial session
     supabase.auth.getSession()
       .then(({ data: { session } }) => {
+        if (!isMounted) return
+
         setSession(session)
         setUser(session?.user ?? null)
         setAccessToken(session?.access_token ?? null)
         setLoading(false)
+        clearTimeout(timeout)
 
         // Fetch tenant if session exists
         if (session?.access_token) {
@@ -234,8 +293,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       })
       .catch((error) => {
+        if (!isMounted) return
         console.error('Failed to get session:', error)
         setLoading(false)
+        clearTimeout(timeout)
       })
 
     // Listen for auth changes
@@ -257,6 +318,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     )
 
     return () => {
+      isMounted = false
       clearTimeout(timeout)
       subscription.unsubscribe()
     }
