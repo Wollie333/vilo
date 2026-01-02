@@ -339,25 +339,25 @@ export default function PaymentConfirmStep({
         {isLoadingPrices ? (
           <div className="text-gray-500 text-sm py-4 text-center">Calculating prices...</div>
         ) : pricingBreakdown.length > 0 ? (
-          <div className="border border-gray-200 rounded-lg overflow-hidden">
+          <div style={{ borderColor: 'var(--border-color)' }} className="border rounded-lg overflow-hidden">
             <table className="w-full">
-              <thead className="bg-gray-50 border-b border-gray-200">
+              <thead style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-color)' }} className="border-b">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  <th style={{ color: 'var(--text-muted)' }} className="px-4 py-3 text-left text-xs font-medium uppercase">
                     Date
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  <th style={{ color: 'var(--text-muted)' }} className="px-4 py-3 text-left text-xs font-medium uppercase">
                     Rate
                   </th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
+                  <th style={{ color: 'var(--text-muted)' }} className="px-4 py-3 text-right text-xs font-medium uppercase">
                     Price
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200">
+              <tbody style={{ borderColor: 'var(--border-color)' }} className="divide-y">
                 {pricingBreakdown.map((night) => (
-                  <tr key={night.date} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 text-sm text-gray-900">
+                  <tr key={night.date} className="hover:opacity-90 transition-opacity">
+                    <td style={{ color: 'var(--text-primary)' }} className="px-4 py-3 text-sm">
                       {formatDate(night.date)}
                     </td>
                     <td className="px-4 py-3 text-sm">
@@ -366,21 +366,21 @@ export default function PaymentConfirmStep({
                           {night.seasonalRate.name}
                         </span>
                       ) : (
-                        <span className="text-gray-500">Base Rate</span>
+                        <span style={{ color: 'var(--text-muted)' }}>Base Rate</span>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-sm text-right font-medium text-gray-900">
+                    <td style={{ color: 'var(--text-primary)' }} className="px-4 py-3 text-sm text-right font-medium">
                       {formatCurrency(night.price)}
                     </td>
                   </tr>
                 ))}
               </tbody>
-              <tfoot className="bg-gray-50 border-t border-gray-200">
+              <tfoot style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-color)' }} className="border-t">
                 <tr>
-                  <td colSpan={2} className="px-4 py-3 text-sm font-medium text-gray-900">
+                  <td colSpan={2} style={{ color: 'var(--text-primary)' }} className="px-4 py-3 text-sm font-medium">
                     Calculated Total
                   </td>
-                  <td className="px-4 py-3 text-right text-lg font-bold text-gray-900">
+                  <td style={{ color: 'var(--text-primary)' }} className="px-4 py-3 text-right text-lg font-bold">
                     {formatCurrency(calculatedTotal)}
                   </td>
                 </tr>

@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Search, Edit, Trash2, Eye } from 'lucide-react'
+import { Plus, Search, Edit, Trash2, Eye, RotateCcw } from 'lucide-react'
 import Button from '../components/Button'
 import ConfirmModal from '../components/ConfirmModal'
 import SourceBadge from '../components/SourceBadge'
-import { bookingsApi, Booking, BookingSource, BOOKING_SOURCE_DISPLAY } from '../services/api'
+import Table from '../components/Table'
+import { bookingsApi, Booking, BookingSource, BOOKING_SOURCE_DISPLAY, RefundStatus } from '../services/api'
 import { useNotification } from '../contexts/NotificationContext'
 import { useAuth } from '../contexts/AuthContext'
 import { statusColors as themeStatusColors, paymentStatusColors as themePaymentColors } from '../theme/colors'
@@ -24,6 +25,27 @@ const paymentStatusColors = {
   paid: themePaymentColors.paid.combined,
   partial: themePaymentColors.partial.combined,
   refunded: themePaymentColors.refunded.combined,
+}
+
+// Refund status colors and labels
+const refundStatusColors: Record<RefundStatus, string> = {
+  requested: 'bg-yellow-100 text-yellow-700',
+  under_review: 'bg-blue-100 text-blue-700',
+  approved: 'bg-accent-100 text-accent-700',
+  rejected: 'bg-red-100 text-red-700',
+  processing: 'bg-purple-100 text-purple-700',
+  completed: 'bg-green-100 text-green-700',
+  failed: 'bg-red-100 text-red-700',
+}
+
+const refundStatusLabels: Record<RefundStatus, string> = {
+  requested: 'Pending',
+  under_review: 'Review',
+  approved: 'Approved',
+  rejected: 'Rejected',
+  processing: 'Processing',
+  completed: 'Refunded',
+  failed: 'Failed',
 }
 
 export default function Bookings() {
@@ -126,11 +148,11 @@ export default function Bookings() {
   }
 
   return (
-    <div className="p-8 bg-gray-50 min-h-full">
+    <div style={{ backgroundColor: 'var(--bg-card)' }} className="p-8 min-h-full transition-colors">
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Bookings</h1>
-          <p className="text-gray-500">Manage all your accommodation bookings</p>
+          <h1 style={{ color: 'var(--text-primary)' }} className="text-3xl font-bold mb-2">Bookings</h1>
+          <p style={{ color: 'var(--text-muted)' }}>Manage all your accommodation bookings</p>
         </div>
         <Button onClick={handleCreate}>
           <Plus size={18} className="mr-2" />
@@ -141,19 +163,29 @@ export default function Bookings() {
       {/* Filters and Search */}
       <div className="mb-6 flex items-center gap-4">
         <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2" style={{ color: 'var(--text-muted)' }} size={18} />
           <input
             type="text"
             placeholder="Search bookings..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-accent-500 focus:border-accent-500 shadow-sm"
+            style={{
+              backgroundColor: 'var(--bg-secondary)',
+              borderColor: 'var(--border-color)',
+              color: 'var(--text-primary)'
+            }}
+            className="w-full pl-10 pr-4 py-2.5 border rounded-xl focus:outline-none focus:ring-2 focus:ring-accent-500 shadow-sm"
           />
         </div>
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
-          className="px-4 py-2.5 border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-accent-500 focus:border-accent-500 shadow-sm"
+          style={{
+            backgroundColor: 'var(--bg-secondary)',
+            borderColor: 'var(--border-color)',
+            color: 'var(--text-primary)'
+          }}
+          className="px-4 py-2.5 border rounded-xl focus:outline-none focus:ring-2 focus:ring-accent-500 shadow-sm"
         >
           <option value="all">All Status</option>
           <option value="pending">Pending</option>
@@ -166,7 +198,12 @@ export default function Bookings() {
         <select
           value={sourceFilter}
           onChange={(e) => setSourceFilter(e.target.value)}
-          className="px-4 py-2.5 border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-accent-500 focus:border-accent-500 shadow-sm"
+          style={{
+            backgroundColor: 'var(--bg-secondary)',
+            borderColor: 'var(--border-color)',
+            color: 'var(--text-primary)'
+          }}
+          className="px-4 py-2.5 border rounded-xl focus:outline-none focus:ring-2 focus:ring-accent-500 shadow-sm"
         >
           <option value="all">All Sources</option>
           {Object.entries(BOOKING_SOURCE_DISPLAY).map(([key, info]) => (
@@ -176,120 +213,104 @@ export default function Bookings() {
       </div>
 
       {/* Bookings Table */}
-      <div className="bg-white border border-gray-100 rounded-xl overflow-hidden shadow-sm">
-        <table className="w-full">
-          <thead className="bg-gray-50 border-b border-gray-200">
-            <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Guest
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Source
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Room
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Check-in
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Check-out
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Amount
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Status
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Payment
-              </th>
-              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Actions
-              </th>
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {loading ? (
-              <tr>
-                <td colSpan={9} className="px-6 py-12 text-center text-gray-500">
-                  Loading bookings...
-                </td>
-              </tr>
-            ) : filteredBookings.length === 0 ? (
-              <tr>
-                <td colSpan={9} className="px-6 py-12 text-center text-gray-500">
-                  No bookings found
-                </td>
-              </tr>
-            ) : (
-              filteredBookings.map((booking) => (
-                <tr key={booking.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">{booking.guest_name}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <SourceBadge
-                      source={(booking.source || 'manual') as BookingSource}
-                      type="booking"
-                      externalUrl={booking.external_url}
-                      size="sm"
-                    />
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900">{booking.room_name || booking.room_id}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900">{formatDate(booking.check_in)}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900">{formatDate(booking.check_out)}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">
-                      {formatCurrency(booking.total_amount, booking.currency)}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
+      <Table>
+        <Table.Header>
+          <tr>
+            <Table.HeaderCell>Guest</Table.HeaderCell>
+            <Table.HeaderCell>Source</Table.HeaderCell>
+            <Table.HeaderCell>Room</Table.HeaderCell>
+            <Table.HeaderCell>Check-in</Table.HeaderCell>
+            <Table.HeaderCell>Check-out</Table.HeaderCell>
+            <Table.HeaderCell>Amount</Table.HeaderCell>
+            <Table.HeaderCell>Status</Table.HeaderCell>
+            <Table.HeaderCell>Payment</Table.HeaderCell>
+            <Table.HeaderCell align="right">Actions</Table.HeaderCell>
+          </tr>
+        </Table.Header>
+        <Table.Body>
+          {loading ? (
+            <Table.Empty colSpan={9}>Loading bookings...</Table.Empty>
+          ) : filteredBookings.length === 0 ? (
+            <Table.Empty colSpan={9}>No bookings found</Table.Empty>
+          ) : (
+            filteredBookings.map((booking) => (
+              <Table.Row key={booking.id}>
+                <Table.Cell className="whitespace-nowrap">
+                  <div style={{ color: 'var(--text-primary)' }} className="text-sm font-medium">{booking.guest_name}</div>
+                </Table.Cell>
+                <Table.Cell className="whitespace-nowrap">
+                  <SourceBadge
+                    source={(booking.source || 'manual') as BookingSource}
+                    type="booking"
+                    externalUrl={booking.external_url}
+                    size="sm"
+                  />
+                </Table.Cell>
+                <Table.Cell className="whitespace-nowrap">
+                  <div style={{ color: 'var(--text-primary)' }} className="text-sm">{booking.room_name || booking.room_id}</div>
+                </Table.Cell>
+                <Table.Cell className="whitespace-nowrap">
+                  <div style={{ color: 'var(--text-primary)' }} className="text-sm">{formatDate(booking.check_in)}</div>
+                </Table.Cell>
+                <Table.Cell className="whitespace-nowrap">
+                  <div style={{ color: 'var(--text-primary)' }} className="text-sm">{formatDate(booking.check_out)}</div>
+                </Table.Cell>
+                <Table.Cell className="whitespace-nowrap">
+                  <div style={{ color: 'var(--text-primary)' }} className="text-sm font-medium">
+                    {formatCurrency(booking.total_amount, booking.currency)}
+                  </div>
+                </Table.Cell>
+                <Table.Cell className="whitespace-nowrap">
+                  <div className="flex flex-col gap-1">
                     <span className={`px-2 py-1 text-xs font-medium rounded-full ${statusColors[booking.status]}`}>
                       {booking.status}
                     </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`px-2 py-1 text-xs font-medium rounded-full ${paymentStatusColors[booking.payment_status]}`}>
-                      {booking.payment_status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <div className="flex items-center justify-end gap-2">
-                      <button
-                        onClick={() => handleView(booking)}
-                        className="text-gray-600 hover:text-gray-900 p-1"
-                        title="View Details"
-                      >
-                        <Eye size={16} />
-                      </button>
-                      <button 
-                        onClick={() => handleEdit(booking)}
-                        className="text-gray-600 hover:text-gray-900 p-1"
-                      >
-                        <Edit size={16} />
-                      </button>
-                      <button
-                        onClick={() => booking.id && handleDeleteClick(booking.id)}
-                        disabled={deletingId === booking.id}
-                        className="text-gray-600 hover:text-red-600 p-1 disabled:opacity-50"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+                    {booking.status === 'cancelled' && booking.refund_requested && (
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full ${
+                        booking.refund_status ? refundStatusColors[booking.refund_status] : 'bg-yellow-100 text-yellow-700'
+                      }`}>
+                        <RotateCcw size={10} />
+                        {booking.refund_status ? refundStatusLabels[booking.refund_status] : 'Refund'}
+                      </span>
+                    )}
+                  </div>
+                </Table.Cell>
+                <Table.Cell className="whitespace-nowrap">
+                  <span className={`px-2 py-1 text-xs font-medium rounded-full ${paymentStatusColors[booking.payment_status]}`}>
+                    {booking.payment_status}
+                  </span>
+                </Table.Cell>
+                <Table.Cell align="right" className="whitespace-nowrap text-sm font-medium">
+                  <div className="flex items-center justify-end gap-2">
+                    <button
+                      onClick={() => handleView(booking)}
+                      style={{ color: 'var(--text-muted)' }}
+                      className="hover:opacity-70 p-1"
+                      title="View Details"
+                    >
+                      <Eye size={16} />
+                    </button>
+                    <button
+                      onClick={() => handleEdit(booking)}
+                      style={{ color: 'var(--text-muted)' }}
+                      className="hover:opacity-70 p-1"
+                    >
+                      <Edit size={16} />
+                    </button>
+                    <button
+                      onClick={() => booking.id && handleDeleteClick(booking.id)}
+                      disabled={deletingId === booking.id}
+                      className="text-red-500 hover:opacity-70 p-1 disabled:opacity-50"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                </Table.Cell>
+              </Table.Row>
+            ))
+          )}
+        </Table.Body>
+      </Table>
 
       <ConfirmModal
         isOpen={confirmDelete.isOpen}

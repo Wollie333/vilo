@@ -10,7 +10,11 @@ import {
   notifyCheckOut,
   notifyPaymentReceived,
   notifyCustomerBookingConfirmed,
-  notifyCustomerBookingCancelled
+  notifyCustomerBookingCancelled,
+  notifyCustomerPaymentConfirmed,
+  notifyBookingModified,
+  notifyCustomerBookingModified,
+  notifyRoomBlocked
 } from '../services/notificationService.js'
 
 const router = Router()
@@ -49,7 +53,29 @@ router.get('/', async (req, res) => {
       return res.status(500).json({ error: 'Failed to fetch bookings', details: error.message })
     }
 
-    res.json(data || [])
+    // Fetch refund status for cancelled bookings with refund_requested
+    const bookingsWithRefund = (data || []).filter((b: any) => b.refund_requested)
+    const bookingIds = bookingsWithRefund.map((b: any) => b.id)
+    const refundStatusMap = new Map<string, string>()
+
+    if (bookingIds.length > 0) {
+      const { data: refunds } = await supabase
+        .from('refunds')
+        .select('booking_id, status')
+        .in('booking_id', bookingIds)
+
+      for (const refund of (refunds || [])) {
+        refundStatusMap.set(refund.booking_id, refund.status)
+      }
+    }
+
+    // Add refund_status to bookings
+    const bookingsWithStatus = (data || []).map((b: any) => ({
+      ...b,
+      refund_status: refundStatusMap.get(b.id) || null
+    }))
+
+    res.json(bookingsWithStatus)
   } catch (error: any) {
     console.error('Unexpected error:', error)
     res.status(500).json({ error: 'Internal server error', details: error.message })
@@ -156,6 +182,7 @@ router.post('/', async (req, res) => {
       room_name,
       check_in,
       check_out,
+      guests,
       total_amount,
       currency = 'ZAR',
       notes,
@@ -264,9 +291,20 @@ router.post('/', async (req, res) => {
     }
 
     // Log activity for customer tracking
-    console.log('[Booking] Created booking:', data.id, 'guest_email:', guest_email)
+    console.log('[Booking] Created booking:', data.id, 'guest_email:', guest_email, 'source:', source)
 
-    if (guest_email) {
+    // Check if this is a room block (not a real booking)
+    if (source === 'block' || source === 'blocked' || source === 'maintenance') {
+      // Notify about room block instead of new booking
+      console.log('[Booking] Room block created, sending block notification')
+      notifyRoomBlocked(tenantId, {
+        room_id,
+        room_name: room_name || 'Room',
+        start_date: check_in,
+        end_date: check_out,
+        reason: notes // Use notes as the block reason
+      })
+    } else if (guest_email) {
       // Get customer_id if exists
       const { data: customer } = await supabase
         .from('customers')
@@ -286,12 +324,18 @@ router.post('/', async (req, res) => {
 
       // Send notification to all team members
       console.log('[Booking] Calling notifyNewBooking for tenant:', tenantId)
-      notifyNewBooking(
-        tenantId,
-        data.id,
+      notifyNewBooking(tenantId, {
+        id: data.id,
         guest_name,
-        room_name || 'Room'
-      )
+        guest_email,
+        room_name: room_name || 'Room',
+        room_id,
+        check_in,
+        check_out,
+        guests,
+        total_amount,
+        currency
+      })
     } else {
       console.log('[Booking] Skipping notification - no guest_email')
     }
@@ -317,7 +361,7 @@ router.put('/:id', async (req, res) => {
     // Get current booking state to check status/payment changes
     const { data: existingBooking } = await supabase
       .from('bookings')
-      .select('status, payment_status, guest_email, guest_name, room_name, total_amount, currency, check_in')
+      .select('status, payment_status, guest_email, guest_name, room_name, room_id, total_amount, currency, check_in, check_out, guests')
       .eq('id', id)
       .eq('tenant_id', tenantId)
       .single()
@@ -389,36 +433,70 @@ router.put('/:id', async (req, res) => {
           updateData.status
         )
 
+        // Build booking data for notifications
+        const checkIn = data.check_in || existingBooking?.check_in
+        const checkOut = data.check_out || existingBooking?.check_out
+        const roomId = data.room_id || existingBooking?.room_id
+        const totalAmount = data.total_amount || existingBooking?.total_amount
+        const bookingCurrency = data.currency || existingBooking?.currency || 'ZAR'
+
         // Send notifications based on status change
         switch (updateData.status) {
           case 'confirmed':
             // Notify customer their booking is confirmed
             if (customerId) {
-              const checkInDate = data.check_in || existingBooking?.check_in
-              notifyCustomerBookingConfirmed(
-                tenantId,
-                customerId,
+              notifyCustomerBookingConfirmed(tenantId, customerId, {
                 id,
-                roomName,
-                new Date(checkInDate).toLocaleDateString()
-              )
+                room_name: roomName,
+                check_in: checkIn,
+                check_out: checkOut,
+                total_amount: totalAmount,
+                currency: bookingCurrency
+              })
             }
             break
           case 'cancelled':
             // Notify all team members about cancellation
-            notifyBookingCancelled(tenantId, id, guestName, roomName)
+            notifyBookingCancelled(tenantId, {
+              id,
+              guest_name: guestName,
+              guest_email: guestEmail,
+              room_name: roomName,
+              check_in: checkIn,
+              check_out: checkOut,
+              total_amount: totalAmount,
+              currency: bookingCurrency
+            })
             // Notify customer about cancellation
             if (customerId) {
-              notifyCustomerBookingCancelled(tenantId, customerId, id, roomName)
+              notifyCustomerBookingCancelled(tenantId, customerId, {
+                id,
+                room_name: roomName,
+                check_in: checkIn,
+                check_out: checkOut
+              })
             }
             break
           case 'checked_in':
             // Notify all team members about check-in
-            notifyCheckIn(tenantId, id, guestName, roomName)
+            notifyCheckIn(tenantId, {
+              id,
+              guest_name: guestName,
+              room_name: roomName,
+              check_in: checkIn,
+              check_out: checkOut,
+              guests: data.guests || existingBooking?.guests
+            })
             break
           case 'checked_out':
             // Notify all team members about check-out
-            notifyCheckOut(tenantId, id, guestName, roomName)
+            notifyCheckOut(tenantId, {
+              id,
+              guest_name: guestName,
+              room_name: roomName,
+              check_in: checkIn,
+              check_out: checkOut
+            })
             break
         }
       }
@@ -430,7 +508,63 @@ router.put('/:id', async (req, res) => {
         logPaymentReceived(tenantId, guestEmail, customerId, id, amount, currency)
 
         // Notify all team members about payment
-        notifyPaymentReceived(tenantId, id, guestName, amount, currency)
+        notifyPaymentReceived(tenantId, {
+          booking_id: id,
+          guest_name: guestName,
+          amount,
+          currency
+        })
+
+        // Notify customer that their payment is confirmed
+        if (customerId) {
+          notifyCustomerPaymentConfirmed(tenantId, customerId, {
+            booking_id: id,
+            room_name: roomName,
+            amount,
+            currency
+          })
+        }
+      }
+
+      // Check for booking modifications (dates, room changes)
+      const changes: string[] = []
+      if (updateData.check_in && updateData.check_in !== existingBooking?.check_in) {
+        changes.push(`check-in date changed to ${new Date(updateData.check_in).toLocaleDateString()}`)
+      }
+      if (updateData.check_out && updateData.check_out !== existingBooking?.check_out) {
+        changes.push(`check-out date changed to ${new Date(updateData.check_out).toLocaleDateString()}`)
+      }
+      if (updateData.room_id && updateData.room_id !== existingBooking?.room_id) {
+        changes.push('room changed')
+      }
+      if (updateData.guests !== undefined && updateData.guests !== existingBooking?.guests) {
+        changes.push(`guests updated to ${updateData.guests}`)
+      }
+
+      // Send booking modified notifications if there are relevant changes
+      if (changes.length > 0 && updateData.status !== 'cancelled') {
+        const changesSummary = changes.join(', ')
+        const checkIn = data.check_in || existingBooking?.check_in
+        const checkOut = data.check_out || existingBooking?.check_out
+
+        notifyBookingModified(tenantId, {
+          id,
+          guest_name: guestName,
+          room_name: roomName,
+          check_in: checkIn,
+          check_out: checkOut,
+          changes: changesSummary
+        })
+
+        if (customerId) {
+          notifyCustomerBookingModified(tenantId, customerId, {
+            id,
+            room_name: roomName,
+            check_in: checkIn,
+            check_out: checkOut,
+            changes: changesSummary
+          })
+        }
       }
     }
 

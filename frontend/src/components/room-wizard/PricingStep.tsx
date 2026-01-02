@@ -580,40 +580,40 @@ export default function PricingStep({
 
         {/* Rates List */}
         {seasonalRates.length === 0 ? (
-          <div className="text-center py-8 bg-gray-50 rounded-lg border border-dashed border-gray-300">
-            <Calendar className="w-10 h-10 text-gray-400 mx-auto mb-3" />
-            <p className="text-gray-500">No seasonal rates configured</p>
-            <p className="text-sm text-gray-400">Add rates to set special pricing for specific periods</p>
+          <div style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-color)' }} className="text-center py-8 rounded-lg border border-dashed">
+            <Calendar className="w-10 h-10 mx-auto mb-3" style={{ color: 'var(--text-muted)' }} />
+            <p style={{ color: 'var(--text-muted)' }}>No seasonal rates configured</p>
+            <p style={{ color: 'var(--text-muted)' }} className="text-sm">Add rates to set special pricing for specific periods</p>
           </div>
         ) : (
-          <div className="border border-gray-200 rounded-lg overflow-hidden">
+          <div style={{ borderColor: 'var(--border-color)' }} className="border rounded-lg overflow-hidden">
             <table className="w-full">
-              <thead className="bg-gray-50 border-b border-gray-200">
+              <thead style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-color)' }} className="border-b">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  <th style={{ color: 'var(--text-muted)' }} className="px-4 py-3 text-left text-xs font-medium uppercase">
                     Name
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  <th style={{ color: 'var(--text-muted)' }} className="px-4 py-3 text-left text-xs font-medium uppercase">
                     Period
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  <th style={{ color: 'var(--text-muted)' }} className="px-4 py-3 text-left text-xs font-medium uppercase">
                     Price/Night
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  <th style={{ color: 'var(--text-muted)' }} className="px-4 py-3 text-left text-xs font-medium uppercase">
                     Priority
                   </th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
+                  <th style={{ color: 'var(--text-muted)' }} className="px-4 py-3 text-right text-xs font-medium uppercase">
                     Actions
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200">
+              <tbody style={{ borderColor: 'var(--border-color)' }} className="divide-y">
                 {seasonalRates.map((rate) => (
-                  <tr key={rate.id} className="hover:bg-gray-50">
+                  <tr key={rate.id} className="hover:opacity-90 transition-opacity">
                     <td className="px-4 py-3">
-                      <span className="font-medium text-gray-900">{rate.name}</span>
+                      <span style={{ color: 'var(--text-primary)' }} className="font-medium">{rate.name}</span>
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-600">
+                    <td className="px-4 py-3 text-sm" style={{ color: 'var(--text-muted)' }}>
                       {formatDate(rate.start_date)} - {formatDate(rate.end_date)}
                     </td>
                     <td className="px-4 py-3">
@@ -623,31 +623,34 @@ export default function PricingStep({
                             ? 'text-red-600'
                             : rate.price_per_night < basePrice
                             ? 'text-accent-600'
-                            : 'text-gray-900'
+                            : ''
                         }`}
+                        style={rate.price_per_night === basePrice ? { color: 'var(--text-primary)' } : undefined}
                       >
                         {formatCurrency(rate.price_per_night)}
                       </span>
                       {rate.price_per_night !== basePrice && (
-                        <span className="text-xs text-gray-400 ml-2">
+                        <span style={{ color: 'var(--text-muted)' }} className="text-xs ml-2">
                           ({rate.price_per_night > basePrice ? '+' : ''}
                           {Math.round(((rate.price_per_night - basePrice) / basePrice) * 100)}%)
                         </span>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-600">{rate.priority}</td>
+                    <td className="px-4 py-3 text-sm" style={{ color: 'var(--text-muted)' }}>{rate.priority}</td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-2">
                         <button
                           onClick={() => handleEditRate(rate)}
-                          className="p-1 text-gray-500 hover:text-gray-700"
+                          style={{ color: 'var(--text-muted)' }}
+                          className="p-1 hover:opacity-70"
                           title="Edit"
                         >
                           <Edit2 size={16} />
                         </button>
                         <button
                           onClick={() => handleDeleteRate(rate)}
-                          className="p-1 text-gray-500 hover:text-red-600"
+                          style={{ color: 'var(--text-muted)' }}
+                          className="p-1 hover:text-red-600"
                           title="Delete"
                         >
                           <Trash2 size={16} />

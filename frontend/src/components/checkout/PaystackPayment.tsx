@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { CreditCard, Loader2, AlertCircle } from 'lucide-react'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3002/api'
@@ -44,6 +45,7 @@ export default function PaystackPayment({
   bookingRef,
   bookingId
 }: PaystackPaymentProps) {
+  const navigate = useNavigate()
   const [loading, setLoading] = useState(false)
   const [verifying, setVerifying] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -77,6 +79,51 @@ export default function PaystackPayment({
     }
   }, [])
 
+  // Mark booking as payment failed and optionally redirect to portal
+  const markPaymentFailed = async (bId: string, failureReason: string, shouldRedirect: boolean = false) => {
+    try {
+      await fetch(`${API_URL}/discovery/bookings/${bId}/payment-failed`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          failure_reason: failureReason
+        })
+      })
+      console.log(`[PaystackPayment] Booking ${bId} marked as payment_failed`)
+
+      // Redirect to portal payment failed tab
+      if (shouldRedirect) {
+        navigate('/portal/bookings?tab=payment_failed')
+      }
+    } catch (err) {
+      console.error('Error marking payment as failed:', err)
+      // Still redirect even if marking failed
+      if (shouldRedirect) {
+        navigate('/portal/bookings?tab=payment_failed')
+      }
+    }
+  }
+
+  // Mark booking as abandoned and redirect to portal
+  const markBookingAbandoned = async (bId: string) => {
+    try {
+      await fetch(`${API_URL}/discovery/bookings/${bId}/abandon`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      })
+      console.log(`[PaystackPayment] Booking ${bId} marked as cart_abandoned`)
+      navigate('/portal/bookings?tab=cart_abandoned')
+    } catch (err) {
+      console.error('Error marking booking as abandoned:', err)
+      // Still redirect even if marking failed
+      navigate('/portal/bookings?tab=cart_abandoned')
+    }
+  }
+
   // Verify payment with backend
   const verifyPayment = async (reference: string, bId: string): Promise<boolean> => {
     setVerifying(true)
@@ -94,13 +141,20 @@ export default function PaystackPayment({
       const data = await response.json()
 
       if (!response.ok) {
+        // Payment verification failed - mark as payment_failed and redirect to portal
+        await markPaymentFailed(bId, data.error || 'Payment verification failed', true)
         throw new Error(data.error || 'Payment verification failed')
       }
 
       return data.success
     } catch (err) {
       console.error('Verification error:', err)
-      setError(err instanceof Error ? err.message : 'Payment verification failed')
+      const errorMessage = err instanceof Error ? err.message : 'Payment verification failed'
+      setError(errorMessage)
+      // Mark as failed if not already marked and redirect to portal
+      if (!errorMessage.includes('already')) {
+        await markPaymentFailed(bId, errorMessage, true)
+      }
       return false
     } finally {
       setVerifying(false)
@@ -165,8 +219,13 @@ export default function PaystackPayment({
             })
         },
         onClose: function() {
-          setLoading(false)
-          onClose()
+          // User closed Paystack popup without completing payment - redirect to cart abandoned
+          if (bookingIdForCallback) {
+            markBookingAbandoned(bookingIdForCallback)
+          } else {
+            setLoading(false)
+            onClose()
+          }
         }
       })
 

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useSearchParams, useNavigate, Link } from 'react-router-dom'
-import { ArrowLeft, Loader2 } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import { discoveryApi } from '../../services/discoveryApi'
 import { useCustomerAuth } from '../../contexts/CustomerAuthContext'
 import type { AppliedCoupon } from '../../components/CouponInput'
@@ -12,7 +12,7 @@ import type {
   Addon,
   SelectedAddon
 } from '../../services/discoveryApi'
-import CheckoutProgress from '../../components/checkout/CheckoutProgress'
+import CheckoutLayout from '../../components/checkout/CheckoutLayout'
 import DateRoomStep from '../../components/checkout/DateRoomStep'
 import AddonsStep from '../../components/checkout/AddonsStep'
 import GuestDetailsStep from '../../components/checkout/GuestDetailsStep'
@@ -230,11 +230,13 @@ export default function PortalCheckout() {
     }))
   }
 
-  const handleBack = () => {
-    if (state.step === 1) {
-      navigate(`/portal/bookings/browse/${slug}`)
-    } else {
-      prevStep()
+  // Go to specific step (for clicking on completed steps)
+  const goToStep = (step: number) => {
+    if (step >= 1 && step <= 4 && step < state.step) {
+      setState(prev => ({
+        ...prev,
+        step: step as 1 | 2 | 3 | 4
+      }))
     }
   }
 
@@ -245,9 +247,9 @@ export default function PortalCheckout() {
 
   if (loading) {
     return (
-      <div className="min-h-full bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
-          <Loader2 className="w-8 h-8 animate-spin text-accent-500 mx-auto mb-3" />
+          <Loader2 className="w-8 h-8 animate-spin text-emerald-600 mx-auto mb-3" />
           <p className="text-gray-600">Loading checkout...</p>
         </div>
       </div>
@@ -256,12 +258,12 @@ export default function PortalCheckout() {
 
   if (error || !property) {
     return (
-      <div className="min-h-full bg-gray-50 flex items-center justify-center p-8">
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-8">
         <div className="text-center">
           <p className="text-red-600 mb-4">{error || 'Property not found'}</p>
           <Link
             to="/portal/bookings/browse"
-            className="text-accent-600 hover:underline"
+            className="text-emerald-600 hover:underline"
           >
             Back to Browse
           </Link>
@@ -270,85 +272,73 @@ export default function PortalCheckout() {
     )
   }
 
+  // Determine next button label and disabled state based on current step
+  const getNextConfig = () => {
+    switch (state.step) {
+      case 1:
+        const canContinue = state.selectedRooms.length > 0 &&
+          state.checkIn &&
+          state.checkOut &&
+          state.selectedRooms.every(r => r.pricing !== null)
+        return { label: 'Continue', disabled: !canContinue }
+      case 2:
+        return { label: 'Continue', disabled: false }
+      case 3:
+        const hasRequiredFields = state.guestName && state.guestEmail && state.guestPhone
+        return { label: 'Continue to Payment', disabled: !hasRequiredFields }
+      case 4:
+        return { label: 'Complete Booking', disabled: !state.selectedPaymentMethod }
+      default:
+        return { label: 'Continue', disabled: false }
+    }
+  }
+
+  const nextConfig = getNextConfig()
+
   return (
-    <div className="min-h-full bg-gray-50">
-      {/* Header */}
-      <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
-        <div className="max-w-4xl mx-auto px-4 md:px-6 py-4">
-          <div className="flex items-center gap-4">
-            <button
-              onClick={handleBack}
-              className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
-              aria-label="Go back"
-            >
-              <ArrowLeft className="w-5 h-5" />
-            </button>
-            <div>
-              <h1 className="text-xl font-bold text-gray-900">Complete your booking</h1>
-              <p className="text-sm text-gray-500">{property.name}</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Progress indicator */}
-      <div className="bg-white border-b border-gray-100">
-        <div className="max-w-4xl mx-auto px-4 md:px-6 py-3">
-          <CheckoutProgress currentStep={state.step} />
-        </div>
-      </div>
-
-      {/* Customer Info Banner */}
-      {isAuthenticated && customer && (
-        <div className="bg-accent-50 border-b border-accent-100">
-          <div className="max-w-4xl mx-auto px-4 md:px-6 py-3">
-            <p className="text-sm text-accent-700">
-              Booking as <span className="font-medium">{customer.name || customer.email}</span> - your details will be pre-filled
-            </p>
-          </div>
-        </div>
+    <CheckoutLayout
+      property={property}
+      state={state}
+      currentStep={state.step}
+      onBack={state.step === 1 ? () => navigate(`/portal/bookings/browse/${slug}`) : prevStep}
+      onNext={nextStep}
+      onStepClick={goToStep}
+      nextLabel={nextConfig.label}
+      nextDisabled={nextConfig.disabled}
+    >
+      {state.step === 1 && (
+        <DateRoomStep
+          property={property}
+          state={state}
+          updateState={updateState}
+        />
       )}
 
-      {/* Main content */}
-      <main className="max-w-4xl mx-auto px-4 md:px-6 py-6">
-        {state.step === 1 && (
-          <DateRoomStep
-            property={property}
-            state={state}
-            updateState={updateState}
-            onNext={nextStep}
-          />
-        )}
+      {state.step === 2 && (
+        <AddonsStep
+          addons={availableAddons}
+          state={state}
+          updateState={updateState}
+        />
+      )}
 
-        {state.step === 2 && (
-          <AddonsStep
-            addons={availableAddons}
-            state={state}
-            updateState={updateState}
-            onNext={nextStep}
-            onBack={prevStep}
-          />
-        )}
+      {state.step === 3 && (
+        <GuestDetailsStep
+          state={state}
+          updateState={updateState}
+          onNext={nextStep}
+        />
+      )}
 
-        {state.step === 3 && (
-          <GuestDetailsStep
-            state={state}
-            updateState={updateState}
-            onNext={nextStep}
-            onBack={prevStep}
-          />
-        )}
-
-        {state.step === 4 && (
-          <PaymentStep
-            property={property}
-            paymentMethods={paymentMethods}
-            state={state}
-            updateState={updateState}
-            onBack={prevStep}
-          />
-        )}
-      </main>
-    </div>
+      {state.step === 4 && (
+        <PaymentStep
+          property={property}
+          paymentMethods={paymentMethods}
+          state={state}
+          updateState={updateState}
+          onBack={prevStep}
+        />
+      )}
+    </CheckoutLayout>
   )
 }

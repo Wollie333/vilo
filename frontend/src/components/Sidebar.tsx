@@ -14,8 +14,11 @@ import {
   ChevronDown,
   FileText,
   Globe,
-  CreditCard
+  CreditCard,
+  BarChart3,
+  RotateCcw
 } from 'lucide-react'
+import { useAuth } from '../contexts/AuthContext'
 
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
@@ -24,6 +27,7 @@ const navigation = [
 
 const bookingsSubItems = [
   { name: 'All Bookings', href: '/dashboard/bookings', icon: Calendar },
+  { name: 'Refunds', href: '/dashboard/refunds', icon: RotateCcw },
   { name: 'Calendar', href: '/dashboard/calendar', icon: CalendarDays },
   { name: 'Customers', href: '/dashboard/customers', icon: Users },
   { name: 'Reviews', href: '/dashboard/reviews', icon: Star },
@@ -40,10 +44,14 @@ const businessSubItems = [
   { name: 'Payment Integration', href: '/dashboard/business/payments', icon: CreditCard },
 ]
 
+// Analytics is now a single unified page - no sub-items needed
+
 export default function Sidebar() {
   const location = useLocation()
+  const { tenant } = useAuth()
   const [bookingsExpanded, setBookingsExpanded] = useState(
     location.pathname.startsWith('/dashboard/bookings') ||
+    location.pathname.startsWith('/dashboard/refunds') ||
     location.pathname.startsWith('/dashboard/calendar') ||
     location.pathname.startsWith('/dashboard/customers') ||
     location.pathname.startsWith('/dashboard/reviews')
@@ -63,7 +71,10 @@ export default function Sidebar() {
           <div className="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center">
             <span className="text-white font-bold text-sm">V</span>
           </div>
-          <span className="text-xl font-bold text-gray-900">Vilo</span>
+          <div>
+            <span className="text-xl font-bold text-gray-900">Vilo</span>
+            <p className="text-xs text-gray-500">{tenant?.business_name || 'Dashboard'}</p>
+          </div>
         </Link>
       </div>
 
@@ -176,6 +187,7 @@ export default function Sidebar() {
             onClick={() => setBookingsExpanded(!bookingsExpanded)}
             className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg transition-all ${
               location.pathname.startsWith('/dashboard/bookings') ||
+              location.pathname.startsWith('/dashboard/refunds') ||
               location.pathname.startsWith('/dashboard/calendar') ||
               location.pathname.startsWith('/dashboard/customers') ||
               location.pathname.startsWith('/dashboard/reviews')
@@ -186,6 +198,7 @@ export default function Sidebar() {
             <div className="flex items-center gap-3">
               <Calendar size={18} className={
                 location.pathname.startsWith('/dashboard/bookings') ||
+                location.pathname.startsWith('/dashboard/refunds') ||
                 location.pathname.startsWith('/dashboard/calendar') ||
                 location.pathname.startsWith('/dashboard/customers') ||
                 location.pathname.startsWith('/dashboard/reviews')
@@ -222,6 +235,19 @@ export default function Sidebar() {
             </div>
           )}
         </div>
+
+        {/* Analytics link */}
+        <Link
+          to="/dashboard/analytics"
+          className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all ${
+            location.pathname.startsWith('/dashboard/analytics')
+              ? 'bg-accent-50 text-accent-700 font-medium'
+              : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+          }`}
+        >
+          <BarChart3 size={18} className={location.pathname.startsWith('/dashboard/analytics') ? 'text-accent-600' : ''} />
+          <span className="text-sm">Analytics</span>
+        </Link>
 
         {/* Remaining navigation items */}
         {navigation.slice(1).map((item) => {  // Skip Dashboard (index 0)

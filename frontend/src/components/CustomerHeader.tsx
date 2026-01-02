@@ -3,10 +3,12 @@ import { LogOut, ChevronDown, HelpCircle } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useCustomerAuth } from '../contexts/CustomerAuthContext'
 import CustomerNotificationBell from './portal/CustomerNotificationBell'
+import SupportModal from './SupportModal'
 
 export default function CustomerHeader() {
   const { customer, logout } = useCustomerAuth()
   const [dropdownOpen, setDropdownOpen] = useState(false)
+  const [showSupportModal, setShowSupportModal] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -39,13 +41,13 @@ export default function CustomerHeader() {
         </div>
 
         <div className="flex items-center gap-3">
-          <Link
-            to="/portal/support"
+          <button
+            onClick={() => setShowSupportModal(true)}
             className="flex items-center gap-2 text-gray-600 hover:text-gray-900 px-3 py-1.5 rounded-md transition-colors"
           >
             <HelpCircle size={18} />
             <span className="text-sm font-medium">Help</span>
-          </Link>
+          </button>
 
           <CustomerNotificationBell />
 
@@ -107,6 +109,12 @@ export default function CustomerHeader() {
           </div>
         </div>
       </div>
+
+      <SupportModal
+        isOpen={showSupportModal}
+        onClose={() => setShowSupportModal(false)}
+        context="portal"
+      />
     </header>
   )
 }

@@ -29,12 +29,18 @@ router.get('/:tenantId/property', async (req, res) => {
         state_province,
         postal_code,
         country,
-        business_hours
+        business_hours,
+        is_paused
       `)
       .eq('id', tenantId)
       .single()
 
     if (error || !tenant) {
+      return res.status(404).json({ error: 'Property not found' })
+    }
+
+    // Check if tenant is paused - hidden from public view
+    if (tenant.is_paused) {
       return res.status(404).json({ error: 'Property not found' })
     }
 
@@ -584,22 +590,29 @@ router.post('/:tenantId/bookings', async (req, res) => {
     console.log('[Public] Sending notifications for new booking:', booking.id)
 
     // Notify staff about the new booking
-    notifyNewBooking(
-      tenantId,
-      booking.id,
+    notifyNewBooking(tenantId, {
+      id: booking.id,
       guest_name,
-      room.name
-    )
+      guest_email,
+      room_name: room.name,
+      room_id,
+      check_in,
+      check_out,
+      guests,
+      total_amount: booking.total_amount,
+      currency: booking.currency
+    })
 
     // Notify customer if they have an account
     if (customer) {
-      notifyCustomerBookingConfirmed(
-        tenantId,
-        customer.id,
-        booking.id,
-        room.name,
-        check_in
-      )
+      notifyCustomerBookingConfirmed(tenantId, customer.id, {
+        id: booking.id,
+        room_name: room.name,
+        check_in,
+        check_out,
+        total_amount: booking.total_amount,
+        currency: booking.currency
+      })
     }
 
     // Create session token for automatic login to customer portal

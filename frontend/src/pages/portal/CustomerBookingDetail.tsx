@@ -20,13 +20,18 @@ import {
   AlertCircle,
   X,
   Download,
-  Image as ImageIcon
+  Image as ImageIcon,
+  RotateCcw,
+  CheckCircle,
+  XCircle,
+  Eye,
+  RefreshCw
 } from 'lucide-react'
 import Button from '../../components/Button'
 import ReviewImageUpload from '../../components/ReviewImageUpload'
 import QuickActionCard from '../../components/QuickActionCard'
 import PaymentProofCard from '../../components/PaymentProofCard'
-import { portalApi, CustomerBooking, Invoice } from '../../services/portalApi'
+import { portalApi, CustomerBooking, Invoice, CustomerRefund } from '../../services/portalApi'
 import { useNotification } from '../../contexts/NotificationContext'
 import type { ReviewImage } from '../../services/api'
 
@@ -44,6 +49,42 @@ const paymentStatusOptions = [
   { value: 'paid', label: 'Paid', color: 'bg-accent-100 text-accent-700' },
   { value: 'partial', label: 'Partial', color: 'bg-blue-100 text-blue-700' },
   { value: 'refunded', label: 'Refunded', color: 'bg-red-100 text-red-700' },
+]
+
+// Refund status labels for display
+const refundStatusLabels: Record<string, string> = {
+  requested: 'Pending Review',
+  under_review: 'Under Review',
+  approved: 'Approved',
+  rejected: 'Declined',
+  processing: 'Processing',
+  completed: 'Refunded',
+  failed: 'Failed',
+}
+
+// Header background styles based on booking status
+const getStatusHeaderStyles = (status: string) => {
+  const styles: Record<string, string> = {
+    pending: 'bg-yellow-50 border-yellow-200',
+    confirmed: 'bg-emerald-50 border-emerald-200',
+    checked_in: 'bg-blue-50 border-blue-200',
+    checked_out: 'bg-purple-50 border-purple-200',
+    cancelled: 'bg-red-50 border-red-200',
+    completed: 'bg-gray-50 border-gray-200',
+  }
+  return styles[status] || 'bg-white border-gray-200'
+}
+
+// Standard cancellation reason codes
+const CANCELLATION_REASONS = [
+  { value: 'change_of_plans', label: 'Change of plans / dates no longer work' },
+  { value: 'alternative_accommodation', label: 'Found alternative accommodation' },
+  { value: 'health_emergency', label: 'Health or family emergency' },
+  { value: 'travel_restrictions', label: 'Travel restrictions' },
+  { value: 'financial_reasons', label: 'Financial reasons' },
+  { value: 'duplicate_booking', label: 'Accidental/duplicate booking' },
+  { value: 'property_expectations', label: "Property doesn't meet expectations" },
+  { value: 'other', label: 'Other' }
 ]
 
 interface BookingNotes {
@@ -93,6 +134,10 @@ export default function CustomerBookingDetail() {
   // Cancel booking
   const [showCancelModal, setShowCancelModal] = useState(false)
   const [cancelling, setCancelling] = useState(false)
+  const [cancellationReason, setCancellationReason] = useState('')
+  const [cancellationDetails, setCancellationDetails] = useState('')
+  const [refundRequested, setRefundRequested] = useState(false)
+  const [cancellationError, setCancellationError] = useState('')
 
   // Invoice
   const [invoice, setInvoice] = useState<Invoice | null>(null)
@@ -106,6 +151,10 @@ export default function CustomerBookingDetail() {
   const [lightboxImages, _setLightboxImages] = useState<string[]>([])
   const [lightboxIndex, setLightboxIndex] = useState(0)
   const [showLightbox, setShowLightbox] = useState(false)
+
+  // Refund status
+  const [refund, setRefund] = useState<CustomerRefund | null>(null)
+  const [loadingRefund, setLoadingRefund] = useState(false)
 
   useEffect(() => {
     if (id) {
@@ -136,6 +185,26 @@ export default function CustomerBookingDetail() {
       loadInvoice(booking.id)
     }
   }, [booking?.id, booking?.payment_status])
+
+  // Load refund status for cancelled bookings
+  useEffect(() => {
+    if (booking?.id && booking.status === 'cancelled' && booking.refund_requested) {
+      loadRefund(booking.id)
+    }
+  }, [booking?.id, booking?.status, booking?.refund_requested])
+
+  const loadRefund = async (bookingId: string) => {
+    try {
+      setLoadingRefund(true)
+      const data = await portalApi.getRefundForBooking(bookingId)
+      setRefund(data)
+    } catch (error) {
+      console.log('Refund not available for this booking')
+      setRefund(null)
+    } finally {
+      setLoadingRefund(false)
+    }
+  }
 
   const loadInvoice = async (bookingId: string) => {
     try {
@@ -340,17 +409,43 @@ export default function CustomerBookingDetail() {
   const handleCancelBooking = async () => {
     if (!id || !booking) return
 
+    // Validate
+    setCancellationError('')
+    if (!cancellationReason) {
+      setCancellationError('Please select a reason for cancellation')
+      return
+    }
+    if (cancellationReason === 'other' && !cancellationDetails.trim()) {
+      setCancellationError('Please provide details for your cancellation')
+      return
+    }
+
     setCancelling(true)
     try {
-      await portalApi.cancelBooking(id)
-      showSuccess('Booking Cancelled', 'Your reservation has been cancelled.')
-      setShowCancelModal(false)
+      const result = await portalApi.cancelBooking(id, {
+        reason: cancellationReason,
+        details: cancellationDetails || undefined,
+        refund_requested: refundRequested
+      })
+      showSuccess('Booking Cancelled', result.message || 'Your reservation has been cancelled.')
+
+      // Reset form state
+      handleCloseCancelModal()
       await loadBooking()
     } catch (error: any) {
       showError('Error', error.message || 'Failed to cancel booking')
     } finally {
       setCancelling(false)
     }
+  }
+
+  // Reset form when modal closes
+  const handleCloseCancelModal = () => {
+    setShowCancelModal(false)
+    setCancellationReason('')
+    setCancellationDetails('')
+    setRefundRequested(false)
+    setCancellationError('')
   }
 
   // Proof of payment upload handler
@@ -404,7 +499,7 @@ export default function CustomerBookingDetail() {
   return (
     <div className="bg-gray-50 min-h-full">
       {/* Hero Header */}
-      <div className="bg-white border-b border-gray-200">
+      <div className={`border-b ${getStatusHeaderStyles(booking.status)}`}>
         <div className="max-w-6xl mx-auto px-6 py-6">
           <button
             onClick={() => navigate('/portal')}
@@ -440,6 +535,21 @@ export default function CustomerBookingDetail() {
                   {getPaymentStatusLabel(booking.payment_status)}
                 </span>
               </div>
+
+              {/* Refund Requested Banner for cancelled bookings */}
+              {booking.status === 'cancelled' && booking.refund_requested && (
+                <div className="flex items-center gap-2 mb-2 text-red-600">
+                  <RotateCcw size={16} />
+                  <span className="text-sm font-medium">
+                    Refund Requested
+                    {refund && refund.status !== 'requested' && (
+                      <span className="ml-1 text-red-500">
+                        • {refundStatusLabels[refund.status] || refund.status}
+                      </span>
+                    )}
+                  </span>
+                </div>
+              )}
 
               <h1 className="text-2xl font-bold text-gray-900 mb-1">
                 {booking.room_name || 'Room'}
@@ -906,6 +1016,106 @@ export default function CustomerBookingDetail() {
             canUpload={!!canUploadProof}
           />
 
+          {/* Refund Status - Shows for cancelled bookings with refund requested */}
+          {booking.status === 'cancelled' && booking.refund_requested && (
+            <div className="bg-white rounded-xl border border-gray-200 p-5">
+              <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide mb-4 flex items-center gap-2">
+                <RotateCcw size={16} />
+                Refund Status
+              </h2>
+              {loadingRefund ? (
+                <div className="flex items-center justify-center py-4">
+                  <Loader2 className="animate-spin text-gray-400" size={20} />
+                </div>
+              ) : refund ? (
+                <div className="space-y-4">
+                  {/* Status Badge */}
+                  <div className="flex items-center gap-2">
+                    {refund.status === 'completed' && <CheckCircle className="text-green-500" size={20} />}
+                    {refund.status === 'approved' && <CheckCircle className="text-accent-500" size={20} />}
+                    {refund.status === 'processing' && <RefreshCw className="text-purple-500 animate-spin" size={20} />}
+                    {refund.status === 'rejected' && <XCircle className="text-red-500" size={20} />}
+                    {refund.status === 'failed' && <AlertCircle className="text-red-500" size={20} />}
+                    {(refund.status === 'requested' || refund.status === 'under_review') && <Eye className="text-yellow-500" size={20} />}
+                    <span className={`font-medium ${
+                      refund.status === 'completed' ? 'text-green-700' :
+                      refund.status === 'approved' ? 'text-accent-700' :
+                      refund.status === 'processing' ? 'text-purple-700' :
+                      refund.status === 'rejected' ? 'text-red-700' :
+                      refund.status === 'failed' ? 'text-red-700' :
+                      'text-yellow-700'
+                    }`}>
+                      {refund.status === 'requested' ? 'Pending Review' :
+                       refund.status === 'under_review' ? 'Under Review' :
+                       refund.status.charAt(0).toUpperCase() + refund.status.slice(1)}
+                    </span>
+                  </div>
+
+                  {/* Status Message */}
+                  <div className="bg-gray-50 rounded-lg p-3 text-sm text-gray-600">
+                    {refund.status === 'requested' && (
+                      <p>Your refund request is being reviewed by the property. We'll notify you once a decision is made.</p>
+                    )}
+                    {refund.status === 'under_review' && (
+                      <p>Your refund request is currently being reviewed. We'll update you soon.</p>
+                    )}
+                    {refund.status === 'approved' && (
+                      <p>Your refund has been approved! The property will process it shortly.</p>
+                    )}
+                    {refund.status === 'processing' && (
+                      <p>Your refund is being processed. The funds should appear in your account within a few business days.</p>
+                    )}
+                    {refund.status === 'completed' && (
+                      <p>Your refund has been processed successfully. Please check your account.</p>
+                    )}
+                    {refund.status === 'rejected' && (
+                      <>
+                        <p>Unfortunately, your refund request was not approved.</p>
+                        {refund.rejection_reason && (
+                          <p className="mt-2"><strong>Reason:</strong> {refund.rejection_reason}</p>
+                        )}
+                      </>
+                    )}
+                    {refund.status === 'failed' && (
+                      <p>There was an issue processing your refund. Please contact support for assistance.</p>
+                    )}
+                  </div>
+
+                  {/* Amount Details */}
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-500">Original Amount</span>
+                      <span className="text-gray-900">{formatCurrency(refund.original_amount, refund.currency)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-500">Eligible Refund</span>
+                      <span className="text-gray-900">
+                        {formatCurrency(refund.eligible_amount, refund.currency)}
+                        {refund.refund_percentage !== null && (
+                          <span className="text-gray-500 ml-1">({refund.refund_percentage}%)</span>
+                        )}
+                      </span>
+                    </div>
+                    {refund.approved_amount !== null && (
+                      <div className="flex justify-between text-sm font-medium">
+                        <span className="text-accent-600">Approved Amount</span>
+                        <span className="text-accent-600">{formatCurrency(refund.approved_amount, refund.currency)}</span>
+                      </div>
+                    )}
+                    {refund.processed_amount !== null && refund.status === 'completed' && (
+                      <div className="flex justify-between text-sm font-medium pt-2 border-t border-gray-200">
+                        <span className="text-green-600">Refunded</span>
+                        <span className="text-green-600">{formatCurrency(refund.processed_amount, refund.currency)}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-gray-500">Your refund request is being processed. Check back soon for updates.</p>
+              )}
+            </div>
+          )}
+
           {/* Quick Actions */}
           <QuickActionCard
             title="Quick Actions"
@@ -943,43 +1153,131 @@ export default function CustomerBookingDetail() {
       {/* Cancel Booking Modal */}
       {showCancelModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full overflow-hidden">
-            <div className="bg-red-600 px-6 py-4">
-              <h3 className="text-lg font-semibold text-white">Cancel Reservation</h3>
+          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full overflow-hidden">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-red-600 to-red-700 px-6 py-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-white">Cancel Reservation</h3>
+                <button
+                  onClick={handleCloseCancelModal}
+                  className="text-white/80 hover:text-white transition-colors"
+                >
+                  <X size={20} />
+                </button>
+              </div>
             </div>
-            <div className="p-6">
-              <div className="flex items-start gap-3 mb-4">
+
+            {/* Body */}
+            <div className="p-6 max-h-[70vh] overflow-y-auto">
+              {/* Booking Summary */}
+              <div className="flex items-start gap-3 mb-5 pb-5 border-b border-gray-100">
                 <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
                   <AlertCircle className="w-5 h-5 text-red-600" />
                 </div>
                 <div>
-                  <p className="text-gray-900 font-medium">Are you sure you want to cancel this reservation?</p>
-                  <p className="text-sm text-gray-500 mt-1">
+                  <p className="text-gray-900 font-medium">Are you sure you want to cancel?</p>
+                  <p className="text-sm text-gray-600 mt-1">
                     <strong>{booking.room_name}</strong> at {booking.tenants?.business_name}
                   </p>
                   <p className="text-sm text-gray-500">
-                    {formatDate(booking.check_in)} - {formatDate(booking.check_out)}
+                    {new Date(booking.check_in).toLocaleDateString('en-ZA', { day: 'numeric', month: 'short' })} - {new Date(booking.check_out).toLocaleDateString('en-ZA', { day: 'numeric', month: 'short', year: 'numeric' })}
                   </p>
                 </div>
               </div>
-              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
-                <p className="text-sm text-yellow-800">
-                  <strong>Note:</strong> This action cannot be undone. You will need to make a new booking if you change your mind.
-                </p>
+
+              {/* Cancellation Form */}
+              <div className="space-y-4">
+                {/* Reason Dropdown */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                    Reason for cancellation <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={cancellationReason}
+                    onChange={(e) => {
+                      setCancellationReason(e.target.value)
+                      setCancellationError('')
+                    }}
+                    className={`w-full px-4 py-2.5 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent transition-colors ${
+                      cancellationError && !cancellationReason ? 'border-red-300 bg-red-50' : 'border-gray-300'
+                    }`}
+                  >
+                    <option value="">Select a reason...</option>
+                    {CANCELLATION_REASONS.map((reason) => (
+                      <option key={reason.value} value={reason.value}>
+                        {reason.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Details Textarea */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                    Additional details {cancellationReason === 'other' && <span className="text-red-500">*</span>}
+                  </label>
+                  <textarea
+                    value={cancellationDetails}
+                    onChange={(e) => {
+                      setCancellationDetails(e.target.value)
+                      setCancellationError('')
+                    }}
+                    placeholder={cancellationReason === 'other' ? 'Please provide details about your cancellation...' : 'Optional: Any additional information you\'d like to share...'}
+                    rows={3}
+                    className={`w-full px-4 py-2.5 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent resize-none transition-colors ${
+                      cancellationError && cancellationReason === 'other' && !cancellationDetails.trim() ? 'border-red-300 bg-red-50' : 'border-gray-300'
+                    }`}
+                  />
+                </div>
+
+                {/* Refund Request Checkbox */}
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <label className="flex items-start gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={refundRequested}
+                      onChange={(e) => setRefundRequested(e.target.checked)}
+                      className="mt-0.5 w-4 h-4 text-red-600 border-gray-300 rounded focus:ring-red-500"
+                    />
+                    <div>
+                      <span className="text-sm font-medium text-gray-900">Request a refund</span>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        If applicable based on the cancellation policy, you may be eligible for a full or partial refund.
+                      </p>
+                    </div>
+                  </label>
+                </div>
+
+                {/* Error Message */}
+                {cancellationError && (
+                  <div className="flex items-center gap-2 text-red-600 text-sm bg-red-50 px-3 py-2 rounded-lg">
+                    <AlertCircle size={16} />
+                    {cancellationError}
+                  </div>
+                )}
+
+                {/* Warning Note */}
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                  <p className="text-sm text-amber-800">
+                    <strong>Please note:</strong> This action cannot be undone. You will need to make a new booking if you change your mind.
+                  </p>
+                </div>
               </div>
             </div>
-            <div className="px-6 py-4 bg-gray-50 flex gap-3 justify-end">
+
+            {/* Footer */}
+            <div className="px-6 py-4 bg-gray-50 border-t border-gray-100 flex gap-3 justify-end">
               <button
-                onClick={() => setShowCancelModal(false)}
+                onClick={handleCloseCancelModal}
                 disabled={cancelling}
-                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-100 transition-colors disabled:opacity-50"
+                className="px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 transition-colors disabled:opacity-50 font-medium text-sm"
               >
                 Keep Reservation
               </button>
               <button
                 onClick={handleCancelBooking}
                 disabled={cancelling}
-                className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center gap-2"
+                className="px-5 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center gap-2 font-medium text-sm"
               >
                 {cancelling ? (
                   <>
@@ -989,7 +1287,7 @@ export default function CustomerBookingDetail() {
                 ) : (
                   <>
                     <X size={16} />
-                    Cancel Reservation
+                    Confirm Cancellation
                   </>
                 )}
               </button>

@@ -27,6 +27,11 @@ import {
   LogIn,
   LogOut,
   Star,
+  RotateCcw,
+  Eye,
+  ExternalLink,
+  RefreshCw,
+  XCircle,
 } from 'lucide-react'
 import Button from '../components/Button'
 import PaymentProofCard from '../components/PaymentProofCard'
@@ -35,7 +40,7 @@ import {
   generateBookingTimeline,
 } from '../components/booking-detail'
 import type { TimelineEvent } from '../components/booking-detail'
-import { bookingsApi, Booking, roomsApi, Room, ProofOfPayment, addonsApi, AddOn, reviewsApi, Review, invoicesApi, Invoice } from '../services/api'
+import { bookingsApi, Booking, roomsApi, Room, ProofOfPayment, addonsApi, AddOn, reviewsApi, Review, invoicesApi, Invoice, refundsApi, Refund, RefundStatus } from '../services/api'
 import { useNotification } from '../contexts/NotificationContext'
 import { useAuth } from '../contexts/AuthContext'
 
@@ -155,6 +160,10 @@ export default function BookingDetail() {
   const [showCancelModal, setShowCancelModal] = useState(false)
   const [cancelling, setCancelling] = useState(false)
 
+  // Refund management
+  const [refund, setRefund] = useState<Refund | null>(null)
+  const [loadingRefund, setLoadingRefund] = useState(false)
+
   // CRM: Guest stats
   const [_guestStats, setGuestStats] = useState<{
     totalBookings: number
@@ -239,6 +248,21 @@ export default function BookingDetail() {
           created_at: data.synced_at, // Use synced_at as proxy
         })
         setTimelineEvents(events)
+      }
+
+      // Load refund data if booking is cancelled
+      if (data.status === 'cancelled' && data.refund_id) {
+        try {
+          setLoadingRefund(true)
+          const refundData = await refundsApi.getById(data.refund_id)
+          setRefund(refundData)
+        } catch (error) {
+          console.error('Failed to load refund:', error)
+        } finally {
+          setLoadingRefund(false)
+        }
+      } else {
+        setRefund(null)
       }
     } catch (error) {
       console.error('Failed to load booking:', error)
@@ -1510,6 +1534,129 @@ export default function BookingDetail() {
               uploading={uploadingProof}
               canEdit={true}
             />
+
+            {/* Refund Section - Shows for cancelled bookings */}
+            {booking.status === 'cancelled' && (
+              <div className="bg-white rounded-xl border border-gray-200 p-5">
+                <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide mb-4 flex items-center gap-2">
+                  <RotateCcw size={16} />
+                  Refund Status
+                </h2>
+                {loadingRefund ? (
+                  <div className="flex items-center justify-center py-4">
+                    <Loader2 className="animate-spin text-gray-400" size={20} />
+                  </div>
+                ) : refund ? (
+                  <div className="space-y-4">
+                    {/* Status Badge with Icon */}
+                    <div className="flex items-center gap-2">
+                      {refund.status === 'completed' && <CheckCircle className="text-green-500" size={20} />}
+                      {refund.status === 'approved' && <CheckCircle className="text-accent-500" size={20} />}
+                      {refund.status === 'processing' && <RefreshCw className="text-purple-500 animate-spin" size={20} />}
+                      {refund.status === 'rejected' && <XCircle className="text-red-500" size={20} />}
+                      {refund.status === 'failed' && <AlertCircle className="text-red-500" size={20} />}
+                      {(refund.status === 'requested' || refund.status === 'under_review') && <Eye className="text-yellow-500" size={20} />}
+                      <span className={`font-medium ${
+                        refund.status === 'completed' ? 'text-green-700' :
+                        refund.status === 'approved' ? 'text-accent-700' :
+                        refund.status === 'processing' ? 'text-purple-700' :
+                        refund.status === 'rejected' ? 'text-red-700' :
+                        refund.status === 'failed' ? 'text-red-700' :
+                        'text-yellow-700'
+                      }`}>
+                        {refund.status === 'requested' ? 'Pending Review' :
+                         refund.status === 'under_review' ? 'Under Review' :
+                         refund.status.charAt(0).toUpperCase() + refund.status.slice(1)}
+                      </span>
+                    </div>
+
+                    {/* Status Message */}
+                    <div className="bg-gray-50 rounded-lg p-3 text-sm text-gray-600">
+                      {refund.status === 'requested' && (
+                        <p>Refund request submitted, pending review.</p>
+                      )}
+                      {refund.status === 'under_review' && (
+                        <p>Refund request is currently being reviewed.</p>
+                      )}
+                      {refund.status === 'approved' && (
+                        <p>Refund approved! Ready for processing.</p>
+                      )}
+                      {refund.status === 'processing' && (
+                        <p>Refund is being processed. Funds should appear in the customer's account within a few business days.</p>
+                      )}
+                      {refund.status === 'completed' && (
+                        <p>Refund has been processed successfully.</p>
+                      )}
+                      {refund.status === 'rejected' && (
+                        <>
+                          <p>Refund request was rejected.</p>
+                          {refund.rejection_reason && (
+                            <p className="mt-2"><strong>Reason:</strong> {refund.rejection_reason}</p>
+                          )}
+                        </>
+                      )}
+                      {refund.status === 'failed' && (
+                        <p>There was an issue processing this refund. Please check the refund details.</p>
+                      )}
+                    </div>
+
+                    {/* Amount Details */}
+                    <div className="space-y-2">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-500">Original Amount</span>
+                        <span className="text-gray-900">{formatCurrency(refund.original_amount || booking.total_amount, booking.currency)}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-500">Eligible Refund</span>
+                        <span className="text-gray-900">
+                          {formatCurrency(refund.eligible_amount || 0, booking.currency)}
+                          {refund.refund_percentage && (
+                            <span className="text-gray-500 ml-1">({refund.refund_percentage}%)</span>
+                          )}
+                        </span>
+                      </div>
+                      {refund.approved_amount !== null && refund.approved_amount !== undefined && (
+                        <div className="flex justify-between text-sm font-medium">
+                          <span className="text-accent-600">Approved Amount</span>
+                          <span className="text-accent-600">{formatCurrency(refund.approved_amount, booking.currency)}</span>
+                        </div>
+                      )}
+                      {refund.processed_amount !== null && refund.processed_amount !== undefined && refund.status === 'completed' && (
+                        <div className="flex justify-between text-sm font-medium pt-2 border-t border-gray-200">
+                          <span className="text-green-600">Refunded</span>
+                          <span className="text-green-600">{formatCurrency(refund.processed_amount, booking.currency)}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Manage Refund Button */}
+                    <div className="pt-3 border-t border-gray-100">
+                      <button
+                        onClick={() => navigate(`/dashboard/refunds/${refund.id}`)}
+                        className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-accent-500 text-white rounded-lg hover:bg-accent-600 transition-colors text-sm font-medium"
+                      >
+                        <Eye size={14} />
+                        Manage Refund
+                      </button>
+                    </div>
+                  </div>
+                ) : booking.refund_requested ? (
+                  <div className="text-center py-4">
+                    <p className="text-sm text-gray-500">Refund requested but not yet created.</p>
+                    <button
+                      onClick={() => navigate('/dashboard/refunds')}
+                      className="mt-2 text-sm text-accent-600 hover:text-accent-700 font-medium"
+                    >
+                      Go to Refunds
+                    </button>
+                  </div>
+                ) : (
+                  <div className="text-center py-4">
+                    <p className="text-sm text-gray-500">No refund was requested for this booking.</p>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Activity Timeline */}
             <div className="bg-white rounded-xl border border-gray-200 p-5">

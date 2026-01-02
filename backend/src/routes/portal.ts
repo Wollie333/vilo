@@ -34,9 +34,57 @@ import {
   notifyPortalWelcome,
   notifyNewBooking,
   notifyBookingCancelled,
+  notifyBookingCancelledWithTicket,
   notifyCustomerBookingConfirmed,
-  notifyPaymentProofUploaded
+  notifyPaymentProofUploaded,
+  notifyRefundRequested
 } from '../services/notificationService.js'
+import { createRefundFromCancellation } from '../services/refundService.js'
+
+// Standard cancellation reason codes
+const CANCELLATION_REASONS: Record<string, string> = {
+  change_of_plans: 'Change of plans / dates no longer work',
+  alternative_accommodation: 'Found alternative accommodation',
+  health_emergency: 'Health or family emergency',
+  travel_restrictions: 'Travel restrictions',
+  financial_reasons: 'Financial reasons',
+  duplicate_booking: 'Accidental/duplicate booking',
+  property_expectations: "Property doesn't meet expectations",
+  other: 'Other'
+}
+
+// Helper function to build cancellation ticket message
+function buildCancellationTicketMessage(
+  booking: any,
+  reasonLabel: string,
+  details: string | undefined,
+  refundRequested: boolean
+): string {
+  let message = `Booking Cancellation Request
+
+**Booking Details:**
+- Room: ${booking.room_name || 'Unknown Room'}
+- Check-in: ${booking.check_in}
+- Check-out: ${booking.check_out}
+- Total Amount: ${booking.currency || 'ZAR'} ${booking.total_amount?.toFixed(2) || '0.00'}
+
+**Cancellation Reason:**
+${reasonLabel}
+`
+
+  if (details && details.trim()) {
+    message += `
+**Additional Details:**
+${details}
+`
+  }
+
+  message += `
+**Refund Requested:** ${refundRequested ? 'Yes' : 'No'}
+`
+
+  return message
+}
 
 const router = Router()
 
@@ -413,7 +461,7 @@ router.get('/bookings', requireCustomerAuth, async (req: Request, res: Response)
     const tenantIds = [...new Set((bookings || []).map(b => b.tenant_id))]
     const { data: tenants } = await supabase
       .from('tenants')
-      .select('id, business_name, logo_url')
+      .select('id, business_name, logo_url, slug')
       .in('id', tenantIds)
 
     const tenantsMap = new Map((tenants || []).map(t => [t.id, t]))
@@ -442,12 +490,29 @@ router.get('/bookings', requireCustomerAuth, async (req: Request, res: Response)
       reviewsMap.set(review.booking_id, existing)
     }
 
-    // Attach tenant, room, and reviews info to bookings
+    // Get refund status for bookings that have refund_requested = true
+    const bookingsWithRefund = (bookings || []).filter(b => b.refund_requested)
+    const refundBookingIds = bookingsWithRefund.map(b => b.id)
+    const refundStatusMap = new Map<string, string>()
+
+    if (refundBookingIds.length > 0) {
+      const { data: refunds } = await supabase
+        .from('refunds')
+        .select('booking_id, status')
+        .in('booking_id', refundBookingIds)
+
+      for (const refund of (refunds || [])) {
+        refundStatusMap.set(refund.booking_id, refund.status)
+      }
+    }
+
+    // Attach tenant, room, reviews, and refund_status info to bookings
     const bookingsWithDetails = (bookings || []).map(b => ({
       ...b,
       tenants: tenantsMap.get(b.tenant_id) || null,
       room: roomsMap.get(b.room_id) || null,
-      reviews: reviewsMap.get(b.id) || []
+      reviews: reviewsMap.get(b.id) || [],
+      refund_status: refundStatusMap.get(b.id) || null
     }))
 
     res.json(bookingsWithDetails)
@@ -533,6 +598,216 @@ router.get('/bookings/:id', requireCustomerAuth, async (req: Request, res: Respo
     })
   } catch (error) {
     console.error('Error fetching booking:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+/**
+ * Get all refunds for a customer
+ * GET /api/portal/refunds
+ */
+router.get('/refunds', requireCustomerAuth, async (req: Request, res: Response) => {
+  try {
+    const customerId = req.customerContext!.customerId
+    const customerEmail = req.customerContext!.email
+
+    console.log('[Portal Refunds] Fetching refunds for customer:', customerId, 'email:', customerEmail)
+
+    // DEBUG: Get all refunds to see what's in the database
+    const { data: allDbRefunds } = await supabase
+      .from('refunds')
+      .select('id, booking_id, customer_id, status')
+      .limit(10)
+    console.log('[Portal Refunds] DEBUG - All refunds in DB:', JSON.stringify(allDbRefunds, null, 2))
+
+    // Step 1: Get bookings for this customer (use two queries to avoid .or() issues)
+    const { data: bookingsById } = await supabase
+      .from('bookings')
+      .select('id, guest_email, customer_id')
+      .eq('customer_id', customerId)
+
+    const { data: bookingsByEmail } = await supabase
+      .from('bookings')
+      .select('id, guest_email, customer_id')
+      .ilike('guest_email', customerEmail)
+
+    // Combine and deduplicate
+    const allBookings = [...(bookingsById || []), ...(bookingsByEmail || [])]
+    const seenBookingIds = new Set<string>()
+    const customerBookings = allBookings.filter(b => {
+      if (seenBookingIds.has(b.id)) return false
+      seenBookingIds.add(b.id)
+      return true
+    })
+
+    console.log('[Portal Refunds] Bookings by customer_id:', bookingsById?.length || 0)
+    console.log('[Portal Refunds] Bookings by email:', bookingsByEmail?.length || 0)
+    console.log('[Portal Refunds] Total unique bookings:', customerBookings.length)
+
+    const bookingIds = customerBookings.map(b => b.id)
+
+    if (bookingIds.length === 0) {
+      console.log('[Portal Refunds] No bookings found for customer')
+      return res.json([])
+    }
+
+    console.log('[Portal Refunds] Booking IDs:', bookingIds)
+
+    // Step 2: Get refunds for those bookings
+    const { data: refunds, error: refundsError } = await supabase
+      .from('refunds')
+      .select(`
+        id,
+        booking_id,
+        customer_id,
+        status,
+        original_amount,
+        eligible_amount,
+        approved_amount,
+        processed_amount,
+        currency,
+        refund_percentage,
+        days_before_checkin,
+        policy_applied,
+        rejection_reason,
+        failure_reason,
+        payment_method,
+        requested_at,
+        approved_at,
+        rejected_at,
+        failed_at,
+        completed_at,
+        bookings (
+          id,
+          guest_name,
+          guest_email,
+          customer_id,
+          room_name,
+          check_in,
+          check_out,
+          tenant_id,
+          tenants (
+            id,
+            business_name,
+            logo_url
+          )
+        )
+      `)
+      .in('booking_id', bookingIds)
+      .order('requested_at', { ascending: false })
+
+    if (refundsError) {
+      console.error('[Portal Refunds] Error fetching refunds:', refundsError)
+      return res.status(500).json({ error: 'Failed to fetch refunds' })
+    }
+
+    console.log('[Portal Refunds] Found refunds:', refunds?.length || 0)
+
+    // Transform to flatten booking info
+    const formattedRefunds = (refunds || []).map(refund => ({
+      id: refund.id,
+      booking_id: refund.booking_id,
+      status: refund.status,
+      original_amount: refund.original_amount,
+      eligible_amount: refund.eligible_amount,
+      approved_amount: refund.approved_amount,
+      processed_amount: refund.processed_amount,
+      currency: refund.currency,
+      refund_percentage: refund.refund_percentage,
+      days_before_checkin: refund.days_before_checkin,
+      policy_applied: refund.policy_applied,
+      rejection_reason: refund.rejection_reason,
+      failure_reason: refund.failure_reason,
+      payment_method: refund.payment_method,
+      requested_at: refund.requested_at,
+      approved_at: refund.approved_at,
+      rejected_at: refund.rejected_at,
+      failed_at: refund.failed_at,
+      completed_at: refund.completed_at,
+      booking: {
+        guest_name: (refund.bookings as any)?.guest_name,
+        room_name: (refund.bookings as any)?.room_name,
+        check_in: (refund.bookings as any)?.check_in,
+        check_out: (refund.bookings as any)?.check_out,
+        property: {
+          id: (refund.bookings as any)?.tenants?.id,
+          name: (refund.bookings as any)?.tenants?.business_name,
+          logo_url: (refund.bookings as any)?.tenants?.logo_url
+        }
+      }
+    }))
+
+    console.log('[Portal Refunds] Returning', formattedRefunds.length, 'formatted refunds')
+    res.json(formattedRefunds)
+  } catch (error: any) {
+    console.error('[Portal Refunds] FATAL ERROR:', error)
+    console.error('[Portal Refunds] Error message:', error?.message)
+    console.error('[Portal Refunds] Error stack:', error?.stack)
+    res.status(500).json({ error: 'Internal server error', details: error?.message })
+  }
+})
+
+/**
+ * Get refund for a booking
+ * GET /api/portal/bookings/:id/refund
+ */
+router.get('/bookings/:id/refund', requireCustomerAuth, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params
+    const customerId = req.customerContext!.customerId
+    const customerEmail = req.customerContext!.email
+
+    // First verify the customer owns this booking
+    const { data: booking, error: bookingError } = await supabase
+      .from('bookings')
+      .select('id, guest_email, customer_id, refund_id')
+      .eq('id', id)
+      .single()
+
+    if (bookingError || !booking) {
+      return res.status(404).json({ error: 'Booking not found' })
+    }
+
+    const emailMatch = booking.guest_email?.toLowerCase() === customerEmail?.toLowerCase()
+    const customerIdMatch = booking.customer_id === customerId
+    if (!emailMatch && !customerIdMatch) {
+      return res.status(404).json({ error: 'Booking not found' })
+    }
+
+    // Get refund if exists
+    if (!booking.refund_id) {
+      return res.status(404).json({ error: 'No refund found for this booking' })
+    }
+
+    const { data: refund, error: refundError } = await supabase
+      .from('refunds')
+      .select(`
+        id,
+        booking_id,
+        status,
+        original_amount,
+        eligible_amount,
+        approved_amount,
+        processed_amount,
+        currency,
+        refund_percentage,
+        days_before_checkin,
+        policy_applied,
+        rejection_reason,
+        requested_at,
+        approved_at,
+        completed_at
+      `)
+      .eq('id', booking.refund_id)
+      .single()
+
+    if (refundError || !refund) {
+      return res.status(404).json({ error: 'Refund not found' })
+    }
+
+    res.json(refund)
+  } catch (error) {
+    console.error('Error fetching refund:', error)
     res.status(500).json({ error: 'Internal server error' })
   }
 })
@@ -637,12 +912,36 @@ router.put('/bookings/:id/addons', requireCustomerAuth, async (req: Request, res
 /**
  * Cancel booking
  * POST /api/portal/bookings/:id/cancel
+ *
+ * Body:
+ * - reason: string (required) - one of CANCELLATION_REASONS keys
+ * - details: string (optional, required if reason is 'other')
+ * - refund_requested: boolean (optional, default false)
  */
 router.post('/bookings/:id/cancel', requireCustomerAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params
     const customerId = req.customerContext!.customerId
     const customerEmail = req.customerContext!.email
+    const customerName = req.customerContext!.name || 'Customer'
+
+    // Extract cancellation data from request body
+    const { reason, details, refund_requested = false } = req.body
+
+    // Validate reason is provided
+    if (!reason) {
+      return res.status(400).json({ error: 'Cancellation reason is required' })
+    }
+
+    // Validate reason is a known code
+    if (!Object.keys(CANCELLATION_REASONS).includes(reason)) {
+      return res.status(400).json({ error: 'Invalid cancellation reason' })
+    }
+
+    // Validate 'other' requires details
+    if (reason === 'other' && (!details || !details.trim())) {
+      return res.status(400).json({ error: 'Details are required when selecting "Other" as reason' })
+    }
 
     // Get the booking
     const { data: booking, error: fetchError } = await supabase
@@ -682,11 +981,56 @@ router.post('/bookings/:id/cancel', requireCustomerAuth, async (req: Request, re
       })
     }
 
-    // Update booking status to cancelled
+    // Create support ticket FIRST (to get ID for linking)
+    const reasonLabel = CANCELLATION_REASONS[reason]
+    const ticketSubject = `Cancellation Request - ${booking.room_name || 'Booking'}`
+    const ticketMessage = buildCancellationTicketMessage(booking, reasonLabel, details, refund_requested)
+
+    let supportTicketId: string | null = null
+
+    const { data: supportTicket, error: ticketError } = await supabase
+      .from('support_messages')
+      .insert({
+        tenant_id: booking.tenant_id,
+        customer_id: customerId,
+        booking_id: id,
+        subject: ticketSubject,
+        message: ticketMessage,
+        sender_email: customerEmail,
+        sender_name: customerName,
+        status: 'new',
+        priority: refund_requested ? 'high' : 'normal'
+      })
+      .select('id')
+      .single()
+
+    if (ticketError) {
+      console.error('[Portal] Error creating cancellation support ticket:', ticketError)
+      // Continue with cancellation even if ticket creation fails
+    } else {
+      supportTicketId = supportTicket.id
+      console.log('[Portal] Created cancellation support ticket:', supportTicketId)
+
+      // Log activity for support ticket creation
+      logSupportTicketCreated(
+        booking.tenant_id,
+        customerEmail || 'unknown',
+        customerId,
+        supportTicket.id,
+        ticketSubject
+      )
+    }
+
+    // Update booking status to cancelled with all cancellation data
     const { data: updatedBooking, error: updateError } = await supabase
       .from('bookings')
       .update({
         status: 'cancelled',
+        cancellation_reason: reason,
+        cancellation_details: details || null,
+        refund_requested,
+        cancelled_at: new Date().toISOString(),
+        cancellation_ticket_id: supportTicketId,
         updated_at: new Date().toISOString()
       })
       .eq('id', id)
@@ -698,19 +1042,62 @@ router.post('/bookings/:id/cancel', requireCustomerAuth, async (req: Request, re
       return res.status(500).json({ error: 'Failed to cancel booking' })
     }
 
-    // Notify staff about the cancellation
+    // Notify staff about the cancellation with link to support ticket
     console.log('[Portal] Sending cancellation notification for booking:', id)
-    notifyBookingCancelled(
-      booking.tenant_id,
+    notifyBookingCancelledWithTicket(booking.tenant_id, {
       id,
-      booking.guest_name || 'Guest',
-      booking.room_name || 'Room'
-    )
+      guest_name: booking.guest_name || 'Guest',
+      guest_email: booking.guest_email,
+      room_name: booking.room_name || 'Room',
+      check_in: booking.check_in,
+      check_out: booking.check_out,
+      total_amount: booking.total_amount,
+      currency: booking.currency,
+      cancellation_reason: reasonLabel,
+      refund_requested,
+      support_ticket_id: supportTicketId || undefined
+    })
+
+    // Auto-create refund request if customer requested refund
+    let refundId: string | undefined
+    if (refund_requested) {
+      console.log('[Portal] Auto-creating refund for booking:', id)
+      const refundResult = await createRefundFromCancellation(id, booking.tenant_id)
+      if (refundResult.success && refundResult.refund) {
+        refundId = refundResult.refund.id
+        console.log('[Portal] Created refund:', refundId)
+
+        // Notify staff about the refund request
+        try {
+          await notifyRefundRequested(booking.tenant_id, {
+            refund_id: refundId,
+            booking_id: id,
+            guest_name: booking.guest_name || 'Guest',
+            amount: refundResult.refund.eligible_amount,
+            currency: refundResult.refund.currency
+          })
+          console.log('[Portal] Refund notification sent successfully')
+        } catch (notifyError) {
+          console.error('[Portal] Failed to send refund notification:', notifyError)
+        }
+      } else {
+        // Log detailed error for debugging - refund creation failed but booking is still marked as refund_requested
+        console.error('[Portal] Failed to create refund for booking:', id)
+        console.error('[Portal] Refund creation error:', refundResult.error)
+        console.error('[Portal] Booking tenant:', booking.tenant_id)
+        console.error('[Portal] WARNING: Booking has refund_requested=true but no refund record was created.')
+        console.error('[Portal] Staff should manually create refund via dashboard or run create-missing-refunds script.')
+      }
+    }
 
     res.json({
       success: true,
       booking: updatedBooking,
-      message: 'Your reservation has been cancelled.'
+      support_ticket_id: supportTicketId,
+      refund_id: refundId,
+      message: refund_requested
+        ? 'Your reservation has been cancelled and a refund request has been submitted.'
+        : 'Your reservation has been cancelled. A support ticket has been created for your request.'
     })
   } catch (error) {
     console.error('Error cancelling booking:', error)
@@ -784,13 +1171,12 @@ router.post('/bookings/:id/proof', requireCustomerAuth, async (req: Request, res
 
     // Notify staff about the payment proof upload
     console.log('[Portal] Notifying staff about payment proof upload for booking:', id)
-    notifyPaymentProofUploaded(
-      booking.tenant_id,
-      id,
-      booking.guest_name || 'Guest',
-      booking.total_amount || 0,
-      booking.currency || 'ZAR'
-    )
+    notifyPaymentProofUploaded(booking.tenant_id, {
+      booking_id: id,
+      guest_name: booking.guest_name || 'Guest',
+      amount: booking.total_amount || 0,
+      currency: booking.currency || 'ZAR'
+    })
 
     res.json({
       success: true,
@@ -798,6 +1184,430 @@ router.post('/bookings/:id/proof', requireCustomerAuth, async (req: Request, res
     })
   } catch (error) {
     console.error('Error uploading proof:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+// ============================================
+// FAILED BOOKINGS ENDPOINTS
+// ============================================
+
+/**
+ * Get customer's failed bookings
+ * GET /api/portal/failed-bookings
+ * @deprecated Use GET /bookings with client-side filtering by status
+ */
+router.get('/failed-bookings', requireCustomerAuth, async (req: Request, res: Response) => {
+  try {
+    const customerId = req.customerContext!.customerId
+    const customerEmail = req.customerContext!.email
+
+    // Get today's date for filtering expired bookings
+    const today = new Date().toISOString().split('T')[0]
+
+    // Get failed bookings for this customer (by customer_id or guest_email)
+    // Filter: status is 'payment_failed' or 'cart_abandoned', check_in >= today
+    const { data: bookings, error } = await supabase
+      .from('bookings')
+      .select(`
+        id,
+        tenant_id,
+        guest_name,
+        guest_email,
+        guest_phone,
+        room_id,
+        room_name,
+        check_in,
+        check_out,
+        status,
+        payment_status,
+        total_amount,
+        currency,
+        notes,
+        failed_at,
+        retry_count,
+        checkout_data,
+        created_at
+      `)
+      .or(`customer_id.eq.${customerId},guest_email.ilike.${customerEmail}`)
+      .in('status', ['payment_failed', 'cart_abandoned'])
+      .gte('check_in', today)
+      .order('failed_at', { ascending: false })
+
+    if (error) {
+      console.error('Error fetching failed bookings:', error)
+      return res.status(500).json({ error: 'Failed to fetch failed bookings' })
+    }
+
+    if (!bookings || bookings.length === 0) {
+      return res.json([])
+    }
+
+    // Get tenant info for each booking
+    const tenantIds = [...new Set(bookings.map(b => b.tenant_id))]
+    const { data: tenants } = await supabase
+      .from('tenants')
+      .select('id, slug, business_name, logo_url')
+      .in('id', tenantIds)
+
+    const tenantsMap = new Map((tenants || []).map(t => [t.id, t]))
+
+    // Get room images for each booking
+    const roomIds = [...new Set(bookings.map(b => b.room_id))]
+    const { data: rooms } = await supabase
+      .from('rooms')
+      .select('id, name, images')
+      .in('id', roomIds)
+
+    const roomsMap = new Map((rooms || []).map(r => [r.id, r]))
+
+    // Transform bookings
+    const failedBookings = bookings.map(booking => {
+      const tenant = tenantsMap.get(booking.tenant_id)
+      const room = roomsMap.get(booking.room_id)
+
+      // Extract room image
+      let roomImage = null
+      if (room?.images) {
+        if (room.images.featured) {
+          roomImage = typeof room.images.featured === 'string'
+            ? room.images.featured
+            : room.images.featured.url
+        } else if (room.images.gallery?.[0]) {
+          const firstImg = room.images.gallery[0]
+          roomImage = typeof firstImg === 'string' ? firstImg : firstImg.url
+        }
+      }
+
+      // Parse notes
+      let parsedNotes: any = {}
+      try {
+        if (booking.notes) {
+          parsedNotes = typeof booking.notes === 'string'
+            ? JSON.parse(booking.notes)
+            : booking.notes
+        }
+      } catch (e) {}
+
+      // Calculate nights
+      const checkIn = new Date(booking.check_in)
+      const checkOut = new Date(booking.check_out)
+      const nights = Math.ceil((checkOut.getTime() - checkIn.getTime()) / (1000 * 60 * 60 * 24))
+
+      return {
+        id: booking.id,
+        reference: parsedNotes.booking_reference || `VILO-${booking.id.substring(0, 4).toUpperCase()}`,
+        status: booking.status,
+        payment_status: booking.payment_status,
+        failed_at: booking.failed_at,
+        retry_count: booking.retry_count || 0,
+        property: {
+          id: booking.tenant_id,
+          slug: tenant?.slug || '',
+          name: tenant?.business_name || 'Property',
+          logoUrl: tenant?.logo_url
+        },
+        room: {
+          id: booking.room_id,
+          name: booking.room_name || room?.name || 'Room',
+          image: roomImage
+        },
+        guest: {
+          name: booking.guest_name,
+          email: booking.guest_email,
+          phone: booking.guest_phone
+        },
+        dates: {
+          checkIn: booking.check_in,
+          checkOut: booking.check_out,
+          nights
+        },
+        total_amount: booking.total_amount,
+        currency: booking.currency || 'ZAR',
+        checkout_data: booking.checkout_data,
+        created_at: booking.created_at
+      }
+    })
+
+    res.json(failedBookings)
+  } catch (error) {
+    console.error('Error fetching failed bookings:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+/**
+ * Delete a failed booking
+ * DELETE /api/portal/failed-bookings/:id
+ * @deprecated Use DELETE /bookings/:id
+ */
+router.delete('/failed-bookings/:id', requireCustomerAuth, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params
+    const customerId = req.customerContext!.customerId
+    const customerEmail = req.customerContext!.email
+
+    // Get the full booking data for archiving
+    const { data: booking, error: fetchError } = await supabase
+      .from('bookings')
+      .select(`
+        *,
+        room:rooms(id, name),
+        property:properties(id, name)
+      `)
+      .eq('id', id)
+      .single()
+
+    if (fetchError || !booking) {
+      return res.status(404).json({ error: 'Booking not found' })
+    }
+
+    // Verify ownership
+    const emailMatch = booking.guest_email?.toLowerCase() === customerEmail?.toLowerCase()
+    const customerIdMatch = booking.customer_id === customerId
+    if (!emailMatch && !customerIdMatch) {
+      return res.status(404).json({ error: 'Booking not found' })
+    }
+
+    // Only allow deletion of failed bookings (payment_failed or cart_abandoned)
+    const deletableStatuses = ['payment_failed', 'cart_abandoned']
+    if (!deletableStatuses.includes(booking.status)) {
+      return res.status(400).json({ error: 'Can only delete failed bookings' })
+    }
+
+    // Don't allow deletion of paid bookings
+    if (booking.payment_status === 'paid') {
+      return res.status(400).json({ error: 'Cannot delete paid bookings' })
+    }
+
+    // Archive the booking before deleting (for staff recovery)
+    const room = booking.room as { id: string; name: string } | null
+    const property = booking.property as { id: string; name: string } | null
+
+    const { error: archiveError } = await supabase
+      .from('archived_bookings')
+      .insert({
+        original_booking_id: booking.id,
+        tenant_id: booking.tenant_id,
+        customer_id: booking.customer_id,
+        room_id: room?.id || null,
+        property_id: property?.id || null,
+        booking_ref: booking.booking_ref,
+        check_in: booking.check_in,
+        check_out: booking.check_out,
+        guests: booking.guests,
+        total_amount: booking.total_amount,
+        status: booking.status,
+        booking_data: booking,
+        checkout_data: booking.checkout_data,
+        archived_reason: 'customer_deleted'
+      })
+
+    if (archiveError) {
+      console.error('Error archiving booking:', archiveError)
+      // Continue with deletion even if archive fails
+    } else {
+      console.log(`[Portal] Booking ${id} archived before deletion`)
+    }
+
+    // Delete the booking
+    const { error: deleteError } = await supabase
+      .from('bookings')
+      .delete()
+      .eq('id', id)
+
+    if (deleteError) {
+      console.error('Error deleting failed booking:', deleteError)
+      return res.status(500).json({ error: 'Failed to delete booking' })
+    }
+
+    console.log(`[Portal] Failed booking ${id} deleted by customer ${customerId}`)
+
+    res.json({
+      success: true,
+      message: 'Failed booking removed'
+    })
+  } catch (error) {
+    console.error('Error deleting failed booking:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+/**
+ * Check retry availability for a failed booking
+ * GET /api/portal/failed-bookings/:id/retry-availability
+ * @deprecated Use GET /discovery/bookings/:id/retry-availability
+ */
+router.get('/failed-bookings/:id/retry-availability', requireCustomerAuth, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params
+    const customerId = req.customerContext!.customerId
+    const customerEmail = req.customerContext!.email
+
+    // Get booking with checkout_data
+    const { data: booking, error: bookingError } = await supabase
+      .from('bookings')
+      .select(`
+        id,
+        tenant_id,
+        customer_id,
+        guest_email,
+        status,
+        payment_status,
+        check_in,
+        check_out,
+        checkout_data,
+        retry_count
+      `)
+      .eq('id', id)
+      .single()
+
+    if (bookingError || !booking) {
+      return res.status(404).json({ error: 'Booking not found' })
+    }
+
+    // Verify ownership
+    const emailMatch = booking.guest_email?.toLowerCase() === customerEmail?.toLowerCase()
+    const customerIdMatch = booking.customer_id === customerId
+    if (!emailMatch && !customerIdMatch) {
+      return res.status(404).json({ error: 'Booking not found' })
+    }
+
+    // Check if this is a failed booking (payment_failed or cart_abandoned)
+    const failedStatuses = ['payment_failed', 'cart_abandoned']
+    if (!failedStatuses.includes(booking.status)) {
+      // Check if already confirmed
+      if (booking.status === 'confirmed' && booking.payment_status === 'paid') {
+        return res.status(400).json({
+          error: 'already_completed',
+          message: 'This booking has already been completed successfully'
+        })
+      }
+      return res.status(400).json({ error: 'This is not a failed booking' })
+    }
+
+    // Check if check-in date has passed
+    const today = new Date().toISOString().split('T')[0]
+    if (booking.check_in < today) {
+      return res.status(400).json({
+        error: 'expired',
+        message: 'The check-in date for this booking has passed'
+      })
+    }
+
+    // Check retry count
+    if ((booking.retry_count || 0) >= 3) {
+      return res.status(400).json({
+        error: 'too_many_retries',
+        message: 'Multiple payment attempts have failed. Please contact support or try a different payment method.'
+      })
+    }
+
+    // Get checkout data
+    const checkoutData = booking.checkout_data || {}
+    const roomIds = checkoutData.room_ids || [checkoutData.room_id]
+
+    // Check availability for each room
+    const unavailableRooms: string[] = []
+    let newTotal = 0
+
+    for (const roomId of roomIds) {
+      // Get room details
+      const { data: room } = await supabase
+        .from('rooms')
+        .select('id, name, base_price_per_night, is_active, total_units')
+        .eq('id', roomId)
+        .single()
+
+      if (!room || !room.is_active) {
+        unavailableRooms.push(room?.name || roomId)
+        continue
+      }
+
+      // Check for conflicting bookings
+      const { data: conflictingBookings } = await supabase
+        .from('bookings')
+        .select('id')
+        .eq('room_id', roomId)
+        .eq('tenant_id', booking.tenant_id)
+        .in('status', ['pending', 'confirmed'])
+        .neq('id', booking.id)
+        .or(`and(check_in.lt.${booking.check_out},check_out.gt.${booking.check_in})`)
+
+      const bookedCount = conflictingBookings?.length || 0
+      const totalUnits = room.total_units || 1
+
+      if (bookedCount >= totalUnits) {
+        unavailableRooms.push(room.name)
+      }
+    }
+
+    // Calculate new pricing
+    let pricingChanged = false
+    if (unavailableRooms.length === 0) {
+      for (const roomId of roomIds) {
+        const { data: room } = await supabase
+          .from('rooms')
+          .select('base_price_per_night')
+          .eq('id', roomId)
+          .single()
+
+        const { data: rates } = await supabase
+          .from('seasonal_rates')
+          .select('*')
+          .eq('room_id', roomId)
+          .eq('tenant_id', booking.tenant_id)
+          .lte('start_date', booking.check_out)
+          .gte('end_date', booking.check_in)
+          .order('priority', { ascending: false })
+
+        const currentDate = new Date(booking.check_in + 'T12:00:00')
+        const endDate = new Date(booking.check_out + 'T12:00:00')
+
+        while (currentDate < endDate) {
+          const year = currentDate.getFullYear()
+          const month = String(currentDate.getMonth() + 1).padStart(2, '0')
+          const day = String(currentDate.getDate()).padStart(2, '0')
+          const dateStr = `${year}-${month}-${day}`
+
+          const applicableRate = (rates || []).find(rate =>
+            dateStr >= rate.start_date && dateStr <= rate.end_date
+          )
+
+          newTotal += applicableRate?.price_per_night || room?.base_price_per_night || 0
+          currentDate.setDate(currentDate.getDate() + 1)
+        }
+      }
+
+      // Add addon costs
+      const addons = checkoutData.addons || []
+      for (const addon of addons) {
+        newTotal += (addon.price || 0) * (addon.quantity || 1)
+      }
+
+      const originalTotal = checkoutData.total_amount || 0
+      pricingChanged = Math.abs(newTotal - originalTotal) > 1
+    }
+
+    // Get tenant slug for redirect
+    const { data: tenant } = await supabase
+      .from('tenants')
+      .select('slug')
+      .eq('id', booking.tenant_id)
+      .single()
+
+    res.json({
+      available: unavailableRooms.length === 0,
+      unavailable_rooms: unavailableRooms,
+      pricing_changed: pricingChanged,
+      original_total: checkoutData.total_amount || 0,
+      new_total: newTotal,
+      checkout_data: checkoutData,
+      retry_count: booking.retry_count || 0,
+      property_slug: tenant?.slug || checkoutData.property_slug
+    })
+  } catch (error) {
+    console.error('Error checking retry availability:', error)
     res.status(500).json({ error: 'Internal server error' })
   }
 })
@@ -1302,12 +2112,11 @@ router.post('/support', requireCustomerAuth, async (req: Request, res: Response)
     logSupportTicketCreated(tenantId, customerEmail, customerId, ticket.id, subject)
 
     // Notify all team members about new support ticket
-    notifyNewSupportTicket(
-      tenantId,
-      ticket.id,
-      customerName || 'Customer',
+    notifyNewSupportTicket(tenantId, {
+      ticket_id: ticket.id,
+      customer_name: customerName || 'Customer',
       subject
-    )
+    })
 
     res.json({
       success: true,
@@ -1446,11 +2255,11 @@ router.post('/support/:id/reply', requireCustomerAuth, async (req: Request, res:
     logSupportTicketReplied(ticket.tenant_id, customerEmail, customerId, id, 'customer')
 
     // Notify all team members about customer reply
-    notifyCustomerReplied(
-      ticket.tenant_id,
-      id,
-      customerName || 'Customer'
-    )
+    notifyCustomerReplied(ticket.tenant_id, {
+      ticket_id: id,
+      customer_name: customerName || 'Customer',
+      subject: ticket.subject
+    })
 
     res.json({
       success: true,
@@ -2143,21 +2952,29 @@ router.post('/bookings', requireCustomerAuth, async (req: Request, res: Response
     console.log('[Portal] Sending notifications for new booking:', booking.id)
 
     // Notify staff about the new booking
-    notifyNewBooking(
-      tenantId,
-      booking.id,
-      customerName || 'Guest',
-      room.name
-    )
+    notifyNewBooking(tenantId, {
+      id: booking.id,
+      guest_name: customerName || 'Guest',
+      guest_email: customerEmail,
+      room_name: room.name,
+      room_id: roomId,
+      check_in: checkIn,
+      check_out: checkOut,
+      guests: guests || 1,
+      total_amount: booking.total_amount,
+      currency: booking.currency
+    })
 
     // Notify the customer about their booking confirmation
-    notifyCustomerBookingConfirmed(
-      tenantId,
-      customerId,
-      booking.id,
-      room.name,
-      checkIn
-    )
+    notifyCustomerBookingConfirmed(tenantId, customerId, {
+      id: booking.id,
+      room_name: room.name,
+      check_in: checkIn,
+      check_out: checkOut,
+      guests: guests || 1,
+      total_amount: booking.total_amount,
+      currency: booking.currency
+    })
 
     // Get tenant info
     const { data: tenantInfo } = await supabase

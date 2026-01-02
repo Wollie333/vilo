@@ -269,6 +269,7 @@ export function parseWebsiteInquiry(message: string): {
   stay?: StayDetails
   message?: string
 } {
+  if (!message) return { isInquiry: false }
   const isInquiry = message.includes('Inquiry from Website')
 
   if (!isInquiry) return { isInquiry: false }
@@ -310,6 +311,7 @@ export function parseCouponClaim(message: string): {
   stay?: StayDetails
   additionalNotes?: string
 } {
+  if (!message) return { isCouponClaim: false }
   const isCouponClaim = message.includes('Coupon Claim Request')
 
   if (!isCouponClaim) return { isCouponClaim: false }

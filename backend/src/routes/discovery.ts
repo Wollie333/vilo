@@ -2,7 +2,8 @@ import { Router, Request, Response } from 'express'
 import { supabase } from '../lib/supabase.js'
 import { getOrCreateCustomer, createSessionToken } from '../middleware/customerAuth.js'
 import { recordCouponUsage } from './coupons.js'
-import { notifyNewBooking, notifyCustomerBookingConfirmed } from '../services/notificationService.js'
+import { notifyNewBooking, notifyCustomerBookingConfirmed, notifyCartAbandoned } from '../services/notificationService.js'
+import { logCartAbandoned, logPaymentFailed } from '../services/activityService.js'
 
 const router = Router()
 
@@ -75,6 +76,7 @@ router.get('/properties', async (req: Request, res: Response) => {
         category_slugs
       `)
       .eq('discoverable', true)
+      .or('is_paused.is.null,is_paused.eq.false') // Exclude paused tenants
 
     // Filter by location (city or region) - text search
     if (location && typeof location === 'string') {
@@ -1252,7 +1254,29 @@ router.post('/bookings', async (req: Request, res: Response) => {
       notesData.coupon = coupon
     }
 
+    // Build checkout_data for failed booking recovery
+    const checkoutData = {
+      property_slug,
+      guest_name,
+      guest_email,
+      guest_phone,
+      room_id,
+      room_ids: room_ids || [room_id],
+      room_details: room_details || null,
+      check_in,
+      check_out,
+      guests: guests || 1,
+      addons: addons || [],
+      special_requests: special_requests || '',
+      total_amount,
+      currency: currency || 'ZAR',
+      coupon: coupon || null,
+      subtotal_before_discount: subtotal_before_discount || null,
+      discount_amount: discount_amount || null
+    }
+
     // Build booking insert data
+    // Note: checkout_data is only included if the column exists (requires migration 041)
     const bookingInsertData: any = {
       tenant_id: tenant.id,
       customer_id: customer?.id || null,
@@ -1278,12 +1302,36 @@ router.post('/bookings', async (req: Request, res: Response) => {
       bookingInsertData.subtotal_before_discount = subtotal_before_discount || (total_amount + (discount_amount || coupon.discount_amount || 0))
     }
 
-    // Create booking
-    const { data: booking, error: bookingError } = await supabase
+    // Try to create booking with checkout_data (requires migration 041_failed_bookings.sql)
+    // If that fails due to column not existing, retry without it
+    let booking: any = null
+    let bookingError: any = null
+
+    // First try with checkout_data for failed booking recovery feature
+    const insertDataWithCheckout = { ...bookingInsertData, checkout_data: checkoutData }
+    const result1 = await supabase
       .from('bookings')
-      .insert(bookingInsertData)
+      .insert(insertDataWithCheckout)
       .select()
       .single()
+
+    if (result1.error) {
+      // If error mentions checkout_data column, retry without it
+      if (result1.error.message?.includes('checkout_data') || result1.error.code === '42703') {
+        console.log('[Discovery] checkout_data column not found, retrying without it (run migration 041)')
+        const result2 = await supabase
+          .from('bookings')
+          .insert(bookingInsertData)
+          .select()
+          .single()
+        booking = result2.data
+        bookingError = result2.error
+      } else {
+        bookingError = result1.error
+      }
+    } else {
+      booking = result1.data
+    }
 
     if (bookingError) {
       console.error('Error creating booking:', bookingError)
@@ -1307,24 +1355,20 @@ router.post('/bookings', async (req: Request, res: Response) => {
     // Send notifications for new booking
     console.log('[Discovery] Sending notifications for new booking:', booking.id)
 
-    // Notify all team members about the new booking
-    notifyNewBooking(
-      tenant.id,
-      booking.id,
+    // Notify all team members about the new booking attempt
+    // (Customer notification is sent after payment is confirmed in verify-payment endpoint)
+    notifyNewBooking(tenant.id, {
+      id: booking.id,
       guest_name,
-      room.name
-    )
-
-    // Notify customer if they have an account
-    if (customer) {
-      notifyCustomerBookingConfirmed(
-        tenant.id,
-        customer.id,
-        booking.id,
-        room.name,
-        check_in
-      )
-    }
+      guest_email,
+      room_name: room.name,
+      room_id,
+      check_in,
+      check_out,
+      guests,
+      total_amount: booking.total_amount,
+      currency: booking.currency
+    })
 
     // Create session token for automatic login
     let sessionToken = null
@@ -1876,6 +1920,10 @@ router.post('/bookings/:id/verify-payment', async (req: Request, res: Response) 
       .select(`
         id,
         tenant_id,
+        customer_id,
+        room_name,
+        check_in,
+        check_out,
         total_amount,
         currency,
         status,
@@ -1965,6 +2013,8 @@ router.post('/bookings/:id/verify-payment', async (req: Request, res: Response) 
         payment_method: 'paystack',
         payment_reference: reference,
         payment_completed_at: paymentCompletedAt,
+        // Clear failed_at on successful payment (status: 'confirmed' indicates success)
+        failed_at: null,
         notes: JSON.stringify({
           ...(typeof booking.notes === 'string' ? JSON.parse(booking.notes || '{}') : booking.notes || {}),
           paystack_reference: reference,
@@ -1990,6 +2040,19 @@ router.post('/bookings/:id/verify-payment', async (req: Request, res: Response) 
       // ignore parsing errors
     }
 
+    // Send booking confirmed notification to customer now that payment is verified
+    if (booking.customer_id) {
+      console.log('[Discovery] Payment verified - sending booking confirmed notification to customer')
+      notifyCustomerBookingConfirmed(booking.tenant_id, booking.customer_id, {
+        id: booking.id,
+        room_name: booking.room_name,
+        check_in: booking.check_in,
+        check_out: booking.check_out,
+        total_amount: booking.total_amount,
+        currency: booking.currency
+      })
+    }
+
     res.json({
       success: true,
       booking: {
@@ -2001,6 +2064,470 @@ router.post('/bookings/:id/verify-payment', async (req: Request, res: Response) 
     })
   } catch (error) {
     console.error('Error verifying payment:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+/**
+ * POST /api/discovery/bookings/:id/prepare-retry
+ * Prepare a failed booking for retry - update pricing and increment retry count
+ */
+router.post('/bookings/:id/prepare-retry', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params
+    const { total_amount, room_details, addons } = req.body
+
+    // Get the booking
+    const { data: booking, error: bookingError } = await supabase
+      .from('bookings')
+      .select('id, status, notes, retry_count, total_amount')
+      .eq('id', id)
+      .single()
+
+    if (bookingError || !booking) {
+      return res.status(404).json({ error: 'Booking not found' })
+    }
+
+    // Verify this is a failed booking (payment_failed or cart_abandoned)
+    const failedStatuses = ['payment_failed', 'cart_abandoned']
+    if (!failedStatuses.includes(booking.status)) {
+      return res.status(400).json({ error: 'This booking is not in a failed state' })
+    }
+
+    // Parse existing notes
+    let parsedNotes: any = {}
+    try {
+      parsedNotes = typeof booking.notes === 'string' ? JSON.parse(booking.notes) : booking.notes || {}
+    } catch (e) {
+      parsedNotes = {}
+    }
+
+    // Update notes with new room details and addons if pricing changed
+    if (room_details) {
+      parsedNotes.room_details = room_details
+    }
+    if (addons) {
+      parsedNotes.addons = addons
+    }
+
+    // Update the booking - increment retry count, update pricing
+    // Status will be changed back to 'pending' to allow payment
+    const { data: updatedBooking, error: updateError } = await supabase
+      .from('bookings')
+      .update({
+        status: 'pending', // Reset to pending for retry
+        total_amount: total_amount || booking.total_amount,
+        retry_count: (booking.retry_count || 0) + 1,
+        last_retry_at: new Date().toISOString(),
+        notes: JSON.stringify(parsedNotes)
+      })
+      .eq('id', id)
+      .select()
+      .single()
+
+    if (updateError) {
+      console.error('Error preparing retry:', updateError)
+      return res.status(500).json({ error: 'Failed to prepare retry' })
+    }
+
+    console.log(`[Discovery] Booking ${id} prepared for retry (attempt ${updatedBooking.retry_count})`)
+
+    res.json({
+      success: true,
+      bookingId: updatedBooking.id,
+      reference: parsedNotes.booking_reference || `VILO-${updatedBooking.id.substring(0, 4).toUpperCase()}`,
+      retry_count: updatedBooking.retry_count
+    })
+  } catch (error) {
+    console.error('Error preparing retry:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+/**
+ * POST /api/discovery/bookings/:id/payment-failed
+ * Mark a booking as failed due to payment decline or error
+ */
+router.post('/bookings/:id/payment-failed', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params
+    const { failure_reason } = req.body
+
+    // Get booking with full details for activity logging
+    const { data: booking, error: bookingError } = await supabase
+      .from('bookings')
+      .select(`
+        id,
+        booking_ref,
+        status,
+        payment_status,
+        tenant_id,
+        checkout_data,
+        total_amount,
+        customer_id,
+        room:rooms(id, name),
+        customer:customers(id, email)
+      `)
+      .eq('id', id)
+      .single()
+
+    if (bookingError || !booking) {
+      return res.status(404).json({ error: 'Booking not found' })
+    }
+
+    // Only mark as failed if still pending
+    if (booking.status !== 'pending' || booking.payment_status === 'paid') {
+      return res.status(400).json({
+        error: 'Cannot mark as failed - booking is already confirmed or paid'
+      })
+    }
+
+    // Store failure reason in checkout_data for debugging
+    const checkoutData = booking.checkout_data || {}
+    const updatedCheckoutData = {
+      ...checkoutData,
+      failure_reason: failure_reason || 'Payment failed',
+      failed_at: new Date().toISOString()
+    }
+
+    // Update booking status to payment_failed
+    const { error: updateError } = await supabase
+      .from('bookings')
+      .update({
+        status: 'payment_failed',
+        checkout_data: updatedCheckoutData,
+        failed_at: new Date().toISOString()
+      })
+      .eq('id', id)
+
+    if (updateError) {
+      console.error('Error updating booking:', updateError)
+      return res.status(500).json({ error: 'Failed to update booking' })
+    }
+
+    console.log(`[Discovery] Booking ${id} marked as payment_failed`)
+
+    // Log activity for customer timeline
+    const roomData = booking.room as unknown
+    const room = (Array.isArray(roomData) ? roomData[0] : roomData) as { id: string; name: string } | null
+    const customerData = booking.customer as unknown
+    const customer = (Array.isArray(customerData) ? customerData[0] : customerData) as { id: string; email: string } | null
+
+    if (customer && room) {
+      await logPaymentFailed(
+        booking.tenant_id,
+        customer.email,
+        customer.id,
+        booking.id,
+        booking.booking_ref || '',
+        room.name,
+        booking.total_amount || 0,
+        failure_reason
+      )
+    }
+
+    // TODO: Send notifications (team and customer)
+    // await notifyPaymentFailed(booking.tenant_id, booking)
+
+    res.json({
+      success: true,
+      message: 'Booking marked as payment failed'
+    })
+  } catch (error) {
+    console.error('Error marking payment as failed:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+/**
+ * POST /api/discovery/bookings/:id/abandon
+ * Mark a booking as abandoned (user closed checkout without completing payment)
+ */
+router.post('/bookings/:id/abandon', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params
+
+    // Get booking with full details for activity logging
+    const { data: booking, error: bookingError } = await supabase
+      .from('bookings')
+      .select(`
+        id,
+        booking_ref,
+        status,
+        payment_status,
+        tenant_id,
+        checkout_data,
+        check_in,
+        check_out,
+        guests,
+        total_amount,
+        customer_id,
+        room:rooms(id, name, property:properties(id, name)),
+        customer:customers(id, email, first_name, last_name)
+      `)
+      .eq('id', id)
+      .single()
+
+    if (bookingError || !booking) {
+      return res.status(404).json({ error: 'Booking not found' })
+    }
+
+    // Only mark as abandoned if still pending
+    if (booking.status !== 'pending' || booking.payment_status === 'paid') {
+      return res.status(400).json({
+        error: 'Cannot mark as abandoned - booking is already confirmed or paid'
+      })
+    }
+
+    // Store abandon reason in checkout_data
+    const checkoutData = booking.checkout_data || {}
+    const updatedCheckoutData = {
+      ...checkoutData,
+      abandon_reason: 'User closed checkout without completing payment',
+      abandoned_at: new Date().toISOString()
+    }
+
+    // Update booking status to cart_abandoned
+    const { error: updateError } = await supabase
+      .from('bookings')
+      .update({
+        status: 'cart_abandoned',
+        checkout_data: updatedCheckoutData,
+        failed_at: new Date().toISOString()
+      })
+      .eq('id', id)
+
+    if (updateError) {
+      console.error('Error updating booking:', updateError)
+      return res.status(500).json({ error: 'Failed to update booking' })
+    }
+
+    console.log(`[Discovery] Booking ${id} marked as cart_abandoned`)
+
+    // Log activity for customer timeline
+    const roomData = booking.room as unknown
+    const room = (Array.isArray(roomData) ? roomData[0] : roomData) as { id: string; name: string; property: { id: string; name: string } } | null
+    const customerData = booking.customer as unknown
+    const customer = (Array.isArray(customerData) ? customerData[0] : customerData) as { id: string; email: string; first_name: string; last_name: string } | null
+
+    if (customer && room) {
+      await logCartAbandoned(
+        booking.tenant_id,
+        customer.email,
+        customer.id,
+        {
+          bookingId: booking.id,
+          bookingRef: booking.booking_ref || '',
+          roomName: room.name,
+          propertyName: room.property?.name || '',
+          checkIn: booking.check_in,
+          checkOut: booking.check_out,
+          totalAmount: booking.total_amount || 0,
+          guests: booking.guests || 1,
+          addons: (checkoutData as { addons?: Array<{ name: string; price: number }> }).addons
+        }
+      )
+    }
+
+    // Send staff notification with customer link for navigation
+    if (customer && room) {
+      await notifyCartAbandoned(booking.tenant_id, {
+        id: booking.id,
+        ref: booking.booking_ref || undefined,
+        customer_id: customer.id,
+        guest_name: `${customer.first_name} ${customer.last_name}`.trim() || customer.email,
+        guest_email: customer.email,
+        room_name: room.name,
+        check_in: booking.check_in,
+        check_out: booking.check_out,
+        total_amount: booking.total_amount || undefined,
+        currency: 'ZAR'
+      })
+    }
+
+    res.json({
+      success: true,
+      message: 'Booking marked as abandoned'
+    })
+  } catch (error) {
+    console.error('Error marking booking as abandoned:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+/**
+ * GET /api/discovery/bookings/:id/retry-availability
+ * Check if rooms are still available for a failed booking retry
+ */
+router.get('/bookings/:id/retry-availability', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params
+
+    // Get booking with checkout_data
+    const { data: booking, error: bookingError } = await supabase
+      .from('bookings')
+      .select(`
+        id,
+        tenant_id,
+        status,
+        payment_status,
+        check_in,
+        check_out,
+        checkout_data,
+        retry_count
+      `)
+      .eq('id', id)
+      .single()
+
+    if (bookingError || !booking) {
+      return res.status(404).json({ error: 'Booking not found' })
+    }
+
+    // Check if this is a failed booking (payment_failed or cart_abandoned)
+    const failedStatuses = ['payment_failed', 'cart_abandoned']
+    if (!failedStatuses.includes(booking.status)) {
+      // Check if already confirmed
+      if (booking.status === 'confirmed' && booking.payment_status === 'paid') {
+        return res.status(400).json({
+          error: 'already_completed',
+          message: 'This booking has already been completed successfully'
+        })
+      }
+      return res.status(400).json({ error: 'This is not a failed booking' })
+    }
+
+    // Check if check-in date has passed
+    const today = new Date().toISOString().split('T')[0]
+    if (booking.check_in < today) {
+      return res.status(400).json({
+        error: 'expired',
+        message: 'The check-in date for this booking has passed'
+      })
+    }
+
+    // Check retry count
+    if ((booking.retry_count || 0) >= 3) {
+      return res.status(400).json({
+        error: 'too_many_retries',
+        message: 'Multiple payment attempts have failed. Please contact support or try a different payment method.'
+      })
+    }
+
+    // Get checkout data
+    const checkoutData = booking.checkout_data || {}
+    const roomIds = checkoutData.room_ids || [checkoutData.room_id]
+
+    // Check availability for each room
+    const unavailableRooms: string[] = []
+    const inactiveRooms: string[] = []
+    let newTotal = 0
+
+    for (const roomId of roomIds) {
+      // Get room details
+      const { data: room } = await supabase
+        .from('rooms')
+        .select('id, name, base_price_per_night, is_active, total_units')
+        .eq('id', roomId)
+        .single()
+
+      if (!room) {
+        unavailableRooms.push(roomId)
+        console.log(`[Retry] Room ${roomId} not found`)
+        continue
+      }
+
+      if (!room.is_active) {
+        inactiveRooms.push(room.name)
+        console.log(`[Retry] Room ${room.name} is inactive`)
+        continue
+      }
+
+      // Check for conflicting bookings (exclude this booking and failed bookings)
+      const { data: conflictingBookings } = await supabase
+        .from('bookings')
+        .select('id, status, payment_status')
+        .eq('room_id', roomId)
+        .eq('tenant_id', booking.tenant_id)
+        .in('status', ['confirmed']) // Only count confirmed bookings as blocking
+        .neq('id', booking.id) // Exclude this booking
+        .or(`and(check_in.lt.${booking.check_out},check_out.gt.${booking.check_in})`)
+
+      const bookedCount = conflictingBookings?.length || 0
+      const totalUnits = room.total_units || 1
+
+      console.log(`[Retry] Room ${room.name}: ${bookedCount}/${totalUnits} booked`)
+
+      if (bookedCount >= totalUnits) {
+        unavailableRooms.push(room.name)
+      }
+    }
+
+    // Combine inactive and unavailable rooms
+    const allUnavailable = [...inactiveRooms, ...unavailableRooms]
+
+    // Calculate new pricing (may have changed due to seasonal rates)
+    let pricingChanged = false
+    if (allUnavailable.length === 0) {
+      // Get pricing for each room
+      for (const roomId of roomIds) {
+        const { data: room } = await supabase
+          .from('rooms')
+          .select('base_price_per_night')
+          .eq('id', roomId)
+          .single()
+
+        // Get seasonal rates
+        const { data: rates } = await supabase
+          .from('seasonal_rates')
+          .select('*')
+          .eq('room_id', roomId)
+          .eq('tenant_id', booking.tenant_id)
+          .lte('start_date', booking.check_out)
+          .gte('end_date', booking.check_in)
+          .order('priority', { ascending: false })
+
+        // Calculate per-night pricing
+        const currentDate = new Date(booking.check_in + 'T12:00:00')
+        const endDate = new Date(booking.check_out + 'T12:00:00')
+
+        while (currentDate < endDate) {
+          const year = currentDate.getFullYear()
+          const month = String(currentDate.getMonth() + 1).padStart(2, '0')
+          const day = String(currentDate.getDate()).padStart(2, '0')
+          const dateStr = `${year}-${month}-${day}`
+
+          const applicableRate = (rates || []).find(rate =>
+            dateStr >= rate.start_date && dateStr <= rate.end_date
+          )
+
+          newTotal += applicableRate?.price_per_night || room?.base_price_per_night || 0
+          currentDate.setDate(currentDate.getDate() + 1)
+        }
+      }
+
+      // Add addon costs
+      const addons = checkoutData.addons || []
+      for (const addon of addons) {
+        newTotal += (addon.price || 0) * (addon.quantity || 1)
+      }
+
+      // Check if pricing changed significantly (more than 1 unit difference)
+      const originalTotal = checkoutData.total_amount || 0
+      pricingChanged = Math.abs(newTotal - originalTotal) > 1
+    }
+
+    res.json({
+      available: allUnavailable.length === 0,
+      unavailable_rooms: allUnavailable,
+      inactive_rooms: inactiveRooms,
+      pricing_changed: pricingChanged,
+      original_total: checkoutData.total_amount || 0,
+      new_total: newTotal,
+      checkout_data: checkoutData,
+      retry_count: booking.retry_count || 0
+    })
+  } catch (error) {
+    console.error('Error checking retry availability:', error)
     res.status(500).json({ error: 'Internal server error' })
   }
 })

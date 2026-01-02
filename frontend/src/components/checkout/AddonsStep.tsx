@@ -1,21 +1,18 @@
-import { Plus, Minus, Check, Package } from 'lucide-react'
+import { Plus, Minus, Check, Package, Sparkles } from 'lucide-react'
 import type { Addon, SelectedAddon } from '../../services/discoveryApi'
 import type { CheckoutState } from '../../pages/discovery/Checkout'
+import StepContainer from './StepContainer'
 
 interface AddonsStepProps {
   addons: Addon[]
   state: CheckoutState
   updateState: (updates: Partial<CheckoutState>) => void
-  onNext: () => void
-  onBack: () => void
 }
 
 export default function AddonsStep({
   addons,
   state,
-  updateState,
-  onNext,
-  onBack
+  updateState
 }: AddonsStepProps) {
   const nights = state.selectedRooms[0]?.pricing?.night_count || 1
   // Calculate total guests from all rooms
@@ -96,17 +93,21 @@ export default function AddonsStep({
   }
 
   return (
-    <div className="space-y-6">
-      {/* Add-ons section */}
-      <div className="bg-white rounded-xl border border-gray-200 p-5">
-        <h2 className="font-semibold text-gray-900 mb-2">Enhance your stay</h2>
-        <p className="text-sm text-gray-500 mb-4">Optional extras to make your experience even better</p>
-
-        {addons.length === 0 ? (
-          <div className="text-center py-8 text-gray-500">
-            <p>No extras available for this property</p>
+    <StepContainer
+      title="Enhance Your Stay"
+      subtitle="Optional extras to make your experience even better"
+      icon={Sparkles}
+    >
+      {addons.length === 0 ? (
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-8 text-center">
+          <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center mx-auto mb-3">
+            <Package className="w-6 h-6 text-gray-400" />
           </div>
-        ) : (
+          <p className="text-gray-500">No extras available for this property</p>
+          <p className="text-sm text-gray-400 mt-1">You can proceed to the next step</p>
+        </div>
+      ) : (
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
           <div className="space-y-3">
             {addons.map((addon) => {
               const selected = getSelectedAddon(addon.id)
@@ -117,216 +118,107 @@ export default function AddonsStep({
                 <div
                   key={addon.id}
                   className={`
-                    p-4 rounded-xl border-2 transition-all
+                    group p-4 rounded-xl border-2 transition-all cursor-pointer
                     ${isSelected
-                      ? 'border-emerald-600 bg-emerald-50'
-                      : 'border-gray-200 bg-white'
+                      ? 'border-emerald-600 bg-emerald-50 shadow-sm'
+                      : 'border-gray-200 bg-white hover:border-gray-300 hover:shadow-sm'
                     }
                   `}
+                  onClick={() => toggleAddon(addon)}
                 >
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-start gap-3 flex-1">
-                      {/* Addon Image Thumbnail */}
-                      <div className="w-16 h-16 flex-shrink-0 rounded-lg overflow-hidden bg-gray-100">
-                        {addon.imageUrl ? (
-                          <img
-                            src={addon.imageUrl}
-                            alt={addon.name}
-                            className="w-full h-full object-cover"
-                          />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center">
-                            <Package className="w-6 h-6 text-gray-300" />
-                          </div>
-                        )}
-                      </div>
+                  <div className="flex items-start gap-4">
+                    {/* Checkbox */}
+                    <button
+                      className={`
+                        w-6 h-6 rounded-lg border-2 flex-shrink-0 flex items-center justify-center transition-all
+                        ${isSelected
+                          ? 'bg-emerald-600 border-emerald-600'
+                          : 'border-gray-300 group-hover:border-gray-400'
+                        }
+                      `}
+                    >
+                      {isSelected && <Check className="w-4 h-4 text-white" />}
+                    </button>
 
-                      {/* Checkbox */}
-                      <button
-                        onClick={() => toggleAddon(addon)}
-                        className={`
-                          w-5 h-5 rounded border-2 flex-shrink-0 flex items-center justify-center mt-0.5 transition-colors
-                          ${isSelected
-                            ? 'bg-emerald-600 border-emerald-600'
-                            : 'border-gray-300 hover:border-gray-400'
-                          }
-                        `}
-                      >
-                        {isSelected && <Check className="w-3 h-3 text-white" />}
-                      </button>
+                    {/* Addon Image Thumbnail */}
+                    <div className="w-16 h-16 flex-shrink-0 rounded-lg overflow-hidden bg-gray-100">
+                      {addon.imageUrl ? (
+                        <img
+                          src={addon.imageUrl}
+                          alt={addon.name}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center">
+                          <Package className="w-6 h-6 text-gray-300" />
+                        </div>
+                      )}
+                    </div>
 
-                      <div className="flex-1">
-                        <h3 className="font-medium text-gray-900">{addon.name}</h3>
-                        {addon.description && (
-                          <p className="text-sm text-gray-500 mt-0.5">{addon.description}</p>
-                        )}
-                        <p className="text-sm text-emerald-600 mt-1">
-                          {formatPrice(addon.price)} {getPricingLabel(addon)}
-                        </p>
+                    {/* Info */}
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-medium text-gray-900">{addon.name}</h3>
+                      {addon.description && (
+                        <p className="text-sm text-gray-500 mt-0.5 line-clamp-2">{addon.description}</p>
+                      )}
+                      <div className="flex items-center gap-2 mt-2">
+                        <span className="text-sm font-semibold text-emerald-700">
+                          {formatPrice(addon.price)}
+                        </span>
+                        <span className="text-xs text-gray-400">
+                          {getPricingLabel(addon)}
+                        </span>
                       </div>
                     </div>
 
-                    {/* Quantity selector */}
-                    {isSelected && addon.maxQuantity > 1 && (
-                      <div className="flex items-center gap-2 ml-4">
-                        <button
-                          onClick={() => updateAddonQuantity(addon, quantity - 1)}
-                          className="w-8 h-8 rounded-full border border-gray-300 flex items-center justify-center hover:bg-gray-100 transition-colors"
-                        >
-                          <Minus className="w-4 h-4" />
-                        </button>
-                        <span className="w-8 text-center font-medium">{quantity}</span>
-                        <button
-                          onClick={() => updateAddonQuantity(addon, quantity + 1)}
-                          disabled={quantity >= addon.maxQuantity}
-                          className="w-8 h-8 rounded-full border border-gray-300 flex items-center justify-center hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                        >
-                          <Plus className="w-4 h-4" />
-                        </button>
-                      </div>
-                    )}
-
-                    {/* Total for this addon */}
-                    {isSelected && (
-                      <div className="text-right ml-4 min-w-[80px]">
+                    {/* Quantity selector or Total */}
+                    <div className="flex-shrink-0 text-right" onClick={(e) => e.stopPropagation()}>
+                      {isSelected && addon.maxQuantity > 1 ? (
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => updateAddonQuantity(addon, quantity - 1)}
+                            className="w-8 h-8 rounded-full border border-gray-300 flex items-center justify-center hover:bg-gray-100 transition-colors"
+                          >
+                            <Minus className="w-4 h-4" />
+                          </button>
+                          <span className="w-6 text-center font-medium">{quantity}</span>
+                          <button
+                            onClick={() => updateAddonQuantity(addon, quantity + 1)}
+                            disabled={quantity >= addon.maxQuantity}
+                            className="w-8 h-8 rounded-full border border-gray-300 flex items-center justify-center hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                          >
+                            <Plus className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ) : isSelected ? (
                         <span className="font-semibold text-gray-900">
                           {formatPrice(calculateAddonTotal(addon, quantity))}
                         </span>
-                      </div>
-                    )}
+                      ) : null}
+                    </div>
                   </div>
                 </div>
               )
             })}
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
-      {/* Price Summary */}
-      <div className="bg-white rounded-xl border border-gray-200 p-5">
-        <h2 className="font-semibold text-gray-900 mb-3">Price summary</h2>
-
-        <div className="space-y-3">
-          {/* Room costs with per-room guest breakdown */}
-          {state.selectedRooms.map(({ room, pricing, adjustedTotal, adults, children, childrenAges }) => {
-            const roomNights = pricing?.night_count || nights
-            const hasSeasonalRate = pricing?.nights?.some(n => n.rate_name)
-            const pricingMode = room.pricingMode || 'per_unit'
-            const childFreeUntilAge = room.childFreeUntilAge || 0
-            const childAgeLimit = room.childAgeLimit || 12
-            const childPrice = room.childPricePerNight
-
-            // Use THIS ROOM's guest config
-            const roomAdults = adults || 1
-            const roomChildren = children || 0
-            const roomChildrenAges = childrenAges || []
-            const roomTotalGuests = roomAdults + roomChildren
-            const freeChildren = roomChildrenAges.filter(age => age < childFreeUntilAge).length
-            const payingChildren = roomChildrenAges.filter(age => age >= childFreeUntilAge && age < childAgeLimit).length
-            const childrenAsAdults = roomChildrenAges.filter(age => age >= childAgeLimit).length
-
-            // Use adjustedTotal if available
-            const displayTotal = adjustedTotal !== undefined ? adjustedTotal : (pricing?.subtotal || 0)
-
-            return (
-              <div key={room.id} className="pb-2 border-b border-gray-100 last:border-0">
-                <div className="flex justify-between">
-                  <span className="text-gray-900 font-medium">
-                    {room.name}
-                    <span className="ml-1 text-xs text-gray-500 font-normal">({roomTotalGuests} guest{roomTotalGuests !== 1 ? 's' : ''})</span>
-                    {hasSeasonalRate && (
-                      <span className="ml-1 text-xs text-emerald-600">(seasonal)</span>
-                    )}
-                  </span>
-                  <span className="font-semibold text-gray-900">{formatPrice(displayTotal)}</span>
-                </div>
-                <div className="text-xs text-gray-400 mt-0.5 space-y-0.5">
-                  <div>{roomNights} night{roomNights !== 1 ? 's' : ''}</div>
-                  {pricingMode !== 'per_unit' && (
-                    <>
-                      {(roomAdults + childrenAsAdults) > 0 && (
-                        <div>
-                          {roomAdults + childrenAsAdults} adult{(roomAdults + childrenAsAdults) !== 1 ? 's' : ''}
-                          {childrenAsAdults > 0 && ` (incl. ${childrenAsAdults} child${childrenAsAdults !== 1 ? 'ren' : ''} ${childAgeLimit}+)`}
-                        </div>
-                      )}
-                      {payingChildren > 0 && (
-                        <div>
-                          {payingChildren} child{payingChildren !== 1 ? 'ren' : ''}
-                          {childPrice !== undefined && childPrice !== null
-                            ? ` @ ${formatPrice(childPrice)}/night`
-                            : ' (adult rate)'}
-                        </div>
-                      )}
-                      {freeChildren > 0 && (
-                        <div className="text-emerald-600">
-                          {freeChildren} child{freeChildren !== 1 ? 'ren' : ''} under {childFreeUntilAge} stay free
-                        </div>
-                      )}
-                    </>
-                  )}
-                  {pricingMode === 'per_unit' && (
-                    <div>{roomTotalGuests} guest{roomTotalGuests !== 1 ? 's' : ''} (max {room.maxGuests})</div>
-                  )}
-                </div>
-              </div>
-            )
-          })}
-
-          {/* Rooms subtotal */}
-          <div className="flex justify-between text-sm text-gray-600 pb-2 border-b border-gray-100">
-            <span>Rooms subtotal</span>
-            <span className="font-medium">{formatPrice(state.roomTotal)}</span>
-          </div>
-
-          {/* Selected addons */}
-          {state.selectedAddons.length > 0 && (
-            <div className="pt-1">
-              <div className="text-xs text-gray-500 mb-1">Add-ons</div>
-              {state.selectedAddons.map(({ addon, quantity }) => (
-                <div key={addon.id} className="flex justify-between text-gray-600">
-                  <span>
-                    {addon.name}
-                    {quantity > 1 && ` (×${quantity})`}
-                    <span className="text-gray-400 text-xs ml-1">
-                      ({getPricingLabel(addon)})
-                    </span>
-                  </span>
-                  <span>{formatPrice(calculateAddonTotal(addon, quantity))}</span>
-                </div>
-              ))}
-              <div className="flex justify-between text-sm text-gray-600 mt-2 pt-2 border-t border-gray-100">
-                <span>Add-ons subtotal</span>
-                <span className="font-medium">{formatPrice(state.addonsTotal)}</span>
-              </div>
+      {/* Selected summary */}
+      {state.selectedAddons.length > 0 && (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <span className="text-sm font-medium text-emerald-800">
+                {state.selectedAddons.length} extra{state.selectedAddons.length !== 1 ? 's' : ''} selected
+              </span>
             </div>
-          )}
-
-          {/* Total */}
-          <div className="border-t-2 border-gray-200 pt-3 mt-2">
-            <div className="flex justify-between font-semibold text-lg text-gray-900">
-              <span>Total</span>
-              <span>{formatPrice(state.grandTotal)}</span>
-            </div>
+            <span className="font-semibold text-emerald-700">
+              +{formatPrice(state.addonsTotal)}
+            </span>
           </div>
         </div>
-      </div>
-
-      {/* Navigation buttons */}
-      <div className="flex justify-between">
-        <button
-          onClick={onBack}
-          className="px-6 py-3 rounded-xl font-medium border border-gray-200 text-gray-700 hover:bg-gray-50 transition-colors"
-        >
-          Back
-        </button>
-        <button
-          onClick={onNext}
-          className="px-8 py-3 rounded-xl font-medium bg-black text-white hover:bg-gray-800 transition-colors"
-        >
-          Continue
-        </button>
-      </div>
-    </div>
+      )}
+    </StepContainer>
   )
 }

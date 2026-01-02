@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeft, Plus, Trash2, Copy, Shield, Users, Star, Loader2, ChevronDown, ChevronUp } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
+import Table from '../../components/Table'
 import {
   getRoles,
   createRole,
@@ -305,28 +306,28 @@ export default function RolesSettings() {
 
                     {/* Permissions Matrix */}
                     <div className="p-4">
-                      <h4 className="font-medium text-gray-900 mb-4">Permissions</h4>
+                      <h4 style={{ color: 'var(--text-primary)' }} className="font-medium mb-4">Permissions</h4>
                       <div className="overflow-x-auto">
-                        <table className="w-full">
-                          <thead>
-                            <tr className="text-left text-sm text-gray-500">
-                              <th className="pb-3 pr-4 font-medium">Resource</th>
+                        <Table>
+                          <Table.Header>
+                            <tr>
+                              <Table.HeaderCell>Resource</Table.HeaderCell>
                               {PERMISSION_LEVELS.map((level) => (
-                                <th key={level.value} className="pb-3 px-4 font-medium text-center w-24">
+                                <Table.HeaderCell key={level.value} align="center" className="w-24">
                                   {level.label}
-                                </th>
+                                </Table.HeaderCell>
                               ))}
                             </tr>
-                          </thead>
-                          <tbody>
+                          </Table.Header>
+                          <Table.Body>
                             {RESOURCES.map((resource) => (
-                              <tr key={resource.key} className="border-t border-gray-100">
-                                <td className="py-3 pr-4">
-                                  <div className="font-medium text-gray-900">{resource.label}</div>
-                                  <div className="text-xs text-gray-500">{resource.description}</div>
-                                </td>
+                              <Table.Row key={resource.key}>
+                                <Table.Cell className="pr-4">
+                                  <div style={{ color: 'var(--text-primary)' }} className="font-medium">{resource.label}</div>
+                                  <div style={{ color: 'var(--text-muted)' }} className="text-xs">{resource.description}</div>
+                                </Table.Cell>
                                 {PERMISSION_LEVELS.map((level) => (
-                                  <td key={level.value} className="py-3 px-4 text-center">
+                                  <Table.Cell key={level.value} align="center">
                                     <input
                                       type="radio"
                                       name={`${role.id}-${resource.key}`}
@@ -335,12 +336,12 @@ export default function RolesSettings() {
                                       onChange={() => handlePermissionChange(role.id, resource.key, level.value)}
                                       className="w-4 h-4 text-accent-500 focus:ring-accent-500 disabled:opacity-50"
                                     />
-                                  </td>
+                                  </Table.Cell>
                                 ))}
-                              </tr>
+                              </Table.Row>
                             ))}
-                          </tbody>
-                        </table>
+                          </Table.Body>
+                        </Table>
                       </div>
                     </div>
                   </div>

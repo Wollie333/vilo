@@ -6,6 +6,9 @@ export type ActivityType =
   | 'booking_cancelled'
   | 'booking_checked_in'
   | 'booking_checked_out'
+  | 'cart_abandoned'
+  | 'payment_failed'
+  | 'booking_recovered'
   | 'payment_received'
   | 'payment_refunded'
   | 'review_submitted'
@@ -299,5 +302,89 @@ export function logNoteAdded(
     title: 'Internal note added',
     description: `By ${addedBy}`,
     metadata: { addedBy }
+  })
+}
+
+export interface CartAbandonedData {
+  bookingId: string
+  bookingRef: string
+  roomName: string
+  propertyName: string
+  checkIn: string
+  checkOut: string
+  totalAmount: number
+  guests: number
+  currency?: string
+  addons?: Array<{ name: string; price: number }>
+}
+
+export function logCartAbandoned(
+  tenantId: string,
+  customerEmail: string,
+  customerId: string | null,
+  bookingData: CartAbandonedData
+) {
+  return logActivity({
+    tenantId,
+    customerEmail,
+    customerId,
+    activityType: 'cart_abandoned',
+    title: 'Cart abandoned',
+    description: `${bookingData.roomName} - ${bookingData.checkIn} to ${bookingData.checkOut}`,
+    bookingId: bookingData.bookingId,
+    metadata: {
+      bookingRef: bookingData.bookingRef,
+      roomName: bookingData.roomName,
+      propertyName: bookingData.propertyName,
+      checkIn: bookingData.checkIn,
+      checkOut: bookingData.checkOut,
+      totalAmount: bookingData.totalAmount,
+      guests: bookingData.guests,
+      currency: bookingData.currency || 'ZAR',
+      addons: bookingData.addons || []
+    }
+  })
+}
+
+export function logPaymentFailed(
+  tenantId: string,
+  customerEmail: string,
+  customerId: string | null,
+  bookingId: string,
+  bookingRef: string,
+  roomName: string,
+  amount: number,
+  failureReason?: string
+) {
+  return logActivity({
+    tenantId,
+    customerEmail,
+    customerId,
+    activityType: 'payment_failed',
+    title: 'Payment failed',
+    description: failureReason || 'Payment could not be processed',
+    bookingId,
+    metadata: { bookingRef, roomName, amount, failureReason }
+  })
+}
+
+export function logBookingRecovered(
+  tenantId: string,
+  customerEmail: string,
+  customerId: string | null,
+  originalBookingRef: string,
+  newBookingId: string,
+  roomName: string,
+  recoveredBy: string
+) {
+  return logActivity({
+    tenantId,
+    customerEmail,
+    customerId,
+    activityType: 'booking_recovered',
+    title: 'Booking recovered',
+    description: `${roomName} - Recovered from abandoned cart`,
+    bookingId: newBookingId,
+    metadata: { originalBookingRef, recoveredBy, roomName }
   })
 }

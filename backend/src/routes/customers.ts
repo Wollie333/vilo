@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express'
 import { supabase } from '../lib/supabase.js'
 import { attachUserContext, requireAuth, requirePermission } from '../middleware/permissions.js'
-import { getCustomerActivities, logNoteAdded } from '../services/activityService.js'
+import { getCustomerActivities, logNoteAdded, logBookingRecovered } from '../services/activityService.js'
 import { notifyCustomerSupportReply, notifyCustomerSupportStatusChanged } from '../services/notificationService.js'
 
 const router = Router()
@@ -984,7 +984,7 @@ router.post('/support/tickets/:id/reply', requireAuth, async (req: Request, res:
     // Verify ticket belongs to tenant
     const { data: ticket, error: fetchError } = await supabase
       .from('support_messages')
-      .select('id, status, customer_id')
+      .select('id, status, customer_id, subject')
       .eq('id', id)
       .eq('tenant_id', tenantId)
       .single()
@@ -1030,7 +1030,10 @@ router.post('/support/tickets/:id/reply', requireAuth, async (req: Request, res:
     // Notify customer about the reply
     if (ticket.customer_id) {
       console.log('[Support] Notifying customer about staff reply:', ticket.customer_id)
-      notifyCustomerSupportReply(tenantId, ticket.customer_id, id)
+      notifyCustomerSupportReply(tenantId, ticket.customer_id, {
+        ticket_id: id,
+        subject: ticket.subject
+      })
     }
 
     res.json({
@@ -1126,7 +1129,7 @@ router.patch('/support/tickets/:id', requireAuth, async (req: Request, res: Resp
     // Get current ticket to check for status changes
     const { data: currentTicket } = await supabase
       .from('support_messages')
-      .select('status, customer_id')
+      .select('status, customer_id, subject')
       .eq('id', id)
       .eq('tenant_id', tenantId)
       .single()
@@ -1156,7 +1159,11 @@ router.patch('/support/tickets/:id', requireAuth, async (req: Request, res: Resp
     // Notify customer if status changed
     if (status && currentTicket?.status !== status && currentTicket?.customer_id) {
       console.log('[Support] Notifying customer about status change:', currentTicket.customer_id)
-      notifyCustomerSupportStatusChanged(tenantId, currentTicket.customer_id, id, status)
+      notifyCustomerSupportStatusChanged(tenantId, currentTicket.customer_id, {
+        ticket_id: id,
+        subject: currentTicket.subject,
+        status
+      })
     }
 
     res.json({
@@ -1287,5 +1294,240 @@ function mapActivityType(type: string): string {
   // Return the original type - frontend has icons for all detailed types
   return type
 }
+
+// ============================================
+// ARCHIVED BOOKINGS (For Cart Abandoned Recovery)
+// ============================================
+
+/**
+ * Get archived bookings for a customer
+ * GET /api/customers/:id/archived-bookings
+ */
+router.get('/:id/archived-bookings', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const tenantId = req.userContext!.tenantId
+    const { id: customerId } = req.params
+
+    const { data: archives, error } = await supabase
+      .from('archived_bookings')
+      .select(`
+        *,
+        room:rooms(id, name, property:properties(id, name))
+      `)
+      .eq('tenant_id', tenantId)
+      .eq('customer_id', customerId)
+      .is('recovered_at', null)
+      .order('archived_at', { ascending: false })
+
+    if (error) {
+      console.error('Error fetching archived bookings:', error)
+      return res.status(500).json({ error: 'Failed to fetch archived bookings' })
+    }
+
+    res.json(archives || [])
+  } catch (error) {
+    console.error('Error fetching archived bookings:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+/**
+ * Recover a booking from archive
+ * POST /api/customers/:id/archived-bookings/:archiveId/recover
+ */
+router.post('/:id/archived-bookings/:archiveId/recover', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const tenantId = req.userContext!.tenantId
+    const memberName = req.userContext!.email || 'Staff'
+    const { id: customerId, archiveId } = req.params
+
+    // Get archived booking
+    const { data: archive, error: archiveError } = await supabase
+      .from('archived_bookings')
+      .select('*')
+      .eq('id', archiveId)
+      .eq('tenant_id', tenantId)
+      .eq('customer_id', customerId)
+      .is('recovered_at', null)
+      .single()
+
+    if (archiveError || !archive) {
+      return res.status(404).json({ error: 'Archived booking not found' })
+    }
+
+    const bookingData = archive.booking_data as Record<string, unknown>
+
+    // Check room availability for the dates
+    const { data: conflicts } = await supabase
+      .from('bookings')
+      .select('id')
+      .eq('room_id', archive.room_id)
+      .not('status', 'in', '("cancelled","payment_failed","cart_abandoned")')
+      .or(`and(check_in.lt.${archive.check_out},check_out.gt.${archive.check_in})`)
+      .limit(1)
+
+    if (conflicts && conflicts.length > 0) {
+      return res.status(400).json({
+        error: 'Room is no longer available for these dates',
+        details: 'The room has been booked by someone else. Please choose different dates.'
+      })
+    }
+
+    // Create new booking from archived data
+    const newBookingRef = `VIL-${Date.now().toString(36).toUpperCase()}`
+
+    const { data: newBooking, error: createError } = await supabase
+      .from('bookings')
+      .insert({
+        tenant_id: tenantId,
+        room_id: archive.room_id,
+        customer_id: archive.customer_id,
+        booking_ref: newBookingRef,
+        guest_name: bookingData.guest_name as string,
+        guest_email: bookingData.guest_email as string,
+        guest_phone: bookingData.guest_phone as string,
+        check_in: archive.check_in,
+        check_out: archive.check_out,
+        guests: archive.guests,
+        total_amount: archive.total_amount,
+        currency: (bookingData.currency as string) || 'ZAR',
+        status: 'pending',
+        payment_status: 'unpaid',
+        source: 'recovered',
+        checkout_data: archive.checkout_data,
+        notes: `Recovered from archived booking ${archive.booking_ref || archive.original_booking_id} by ${memberName}`
+      })
+      .select()
+      .single()
+
+    if (createError || !newBooking) {
+      console.error('Error creating recovered booking:', createError)
+      return res.status(500).json({ error: 'Failed to create booking' })
+    }
+
+    // Mark archive as recovered
+    await supabase
+      .from('archived_bookings')
+      .update({
+        recovered_at: new Date().toISOString(),
+        recovered_booking_id: newBooking.id
+      })
+      .eq('id', archiveId)
+
+    // Get customer email for activity logging
+    const { data: customer } = await supabase
+      .from('customers')
+      .select('email')
+      .eq('id', customerId)
+      .single()
+
+    // Log activity
+    if (customer) {
+      await logBookingRecovered(
+        tenantId,
+        customer.email,
+        customerId,
+        archive.booking_ref || archive.original_booking_id,
+        newBooking.id,
+        (archive.booking_data as { room?: { name?: string } })?.room?.name || 'Room',
+        memberName
+      )
+    }
+
+    console.log(`[Customers] Booking recovered from archive ${archiveId} to new booking ${newBooking.id}`)
+
+    res.json({
+      success: true,
+      booking: newBooking,
+      message: 'Booking recovered successfully'
+    })
+  } catch (error) {
+    console.error('Error recovering booking:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+/**
+ * Create support ticket from abandoned booking
+ * POST /api/customers/:id/support-from-abandoned
+ */
+router.post('/:id/support-from-abandoned', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const tenantId = req.userContext!.tenantId
+    const { id: customerId } = req.params
+    const { bookingRef, roomName, checkIn, checkOut, totalAmount, activityId } = req.body
+
+    // Get customer details
+    const { data: customer, error: customerError } = await supabase
+      .from('customers')
+      .select('id, email, first_name, last_name')
+      .eq('id', customerId)
+      .eq('tenant_id', tenantId)
+      .single()
+
+    if (customerError || !customer) {
+      return res.status(404).json({ error: 'Customer not found' })
+    }
+
+    const customerName = `${customer.first_name || ''} ${customer.last_name || ''}`.trim() || customer.email
+
+    // Generate ticket reference
+    const ticketRef = `TKT-${Date.now().toString(36).toUpperCase()}`
+
+    // Pre-fill message template
+    const draftMessage = `Hi ${customer.first_name || 'there'},
+
+We noticed you didn't complete your booking for ${roomName}.
+
+Booking Details:
+- Check-in: ${checkIn}
+- Check-out: ${checkOut}
+- Amount: R${totalAmount?.toFixed(2) || 'N/A'}
+
+Is there anything we can help with? We'd love to assist you in completing your reservation.
+
+Best regards`
+
+    // Create support ticket in draft status
+    const { data: ticket, error: ticketError } = await supabase
+      .from('support_messages')
+      .insert({
+        tenant_id: tenantId,
+        customer_id: customerId,
+        ticket_ref: ticketRef,
+        subject: `Booking Assistance - ${bookingRef || roomName}`,
+        message: draftMessage,
+        status: 'draft',
+        priority: 'normal',
+        metadata: {
+          source: 'abandoned_cart',
+          activity_id: activityId,
+          booking_ref: bookingRef,
+          room_name: roomName,
+          check_in: checkIn,
+          check_out: checkOut,
+          total_amount: totalAmount
+        }
+      })
+      .select()
+      .single()
+
+    if (ticketError) {
+      console.error('Error creating support ticket:', ticketError)
+      return res.status(500).json({ error: 'Failed to create support ticket' })
+    }
+
+    console.log(`[Customers] Support ticket ${ticketRef} created for abandoned cart recovery`)
+
+    res.json({
+      success: true,
+      ticket: ticket,
+      message: 'Support ticket created as draft. Review and send when ready.'
+    })
+  } catch (error) {
+    console.error('Error creating support ticket:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
 
 export default router

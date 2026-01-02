@@ -25,6 +25,14 @@ import geographyRouter from './routes/geography.js'
 import categoriesRouter from './routes/categories.js'
 import verificationRouter from './routes/verification.js'
 import notificationsRouter from './routes/notifications.js'
+import trackingRouter from './routes/tracking.js'
+import analyticsRouter from './routes/analytics.js'
+import adminRouter from './routes/admin/index.js'
+import refundsRouter from './routes/refunds.js'
+import { latencyTrackingMiddleware } from './services/healthMonitoringService.js'
+import { initializeSentry, errorHandlingMiddleware, requestIdMiddleware } from './services/errorLoggingService.js'
+import { initializeSubscriptionJobs } from './cron/subscriptionJobs.js'
+import { impersonationMiddleware } from './services/impersonationService.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -41,6 +49,12 @@ initializeWebSocket(httpServer)
 
 app.use(cors())
 app.use(express.json({ limit: '50mb' }))
+app.use(requestIdMiddleware())
+app.use(latencyTrackingMiddleware())
+app.use(impersonationMiddleware())
+
+// Initialize Sentry for error tracking
+initializeSentry().catch(err => console.error('Failed to initialize Sentry:', err))
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -97,6 +111,13 @@ app.use('/api/geography', geographyRouter)
 app.use('/api/categories', categoriesRouter)
 app.use('/api/verification', verificationRouter)
 app.use('/api/notifications', notificationsRouter)
+app.use('/api/track', trackingRouter)
+app.use('/api/analytics', analyticsRouter)
+app.use('/api/admin', adminRouter)
+app.use('/api/refunds', refundsRouter)
+
+// Error handling middleware (must be after all routes)
+app.use(errorHandlingMiddleware())
 
 // In production, serve the built frontend
 if (process.env.NODE_ENV === 'production') {
@@ -114,5 +135,8 @@ if (process.env.NODE_ENV === 'production') {
 httpServer.listen(PORT, () => {
   console.log(`🚀 Vilo backend running on http://localhost:${PORT}`)
   console.log(`📡 WebSocket server listening on ws://localhost:${PORT}`)
+
+  // Initialize subscription automation cron jobs
+  initializeSubscriptionJobs()
 })
 

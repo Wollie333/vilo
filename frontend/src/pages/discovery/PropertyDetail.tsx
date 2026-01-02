@@ -36,6 +36,7 @@ import {
   MessageCircle
 } from 'lucide-react'
 import { discoveryApi, PropertyDetail as PropertyDetailType, RoomReview, ClaimableCoupon } from '../../services/discoveryApi'
+import { trackingService } from '../../services/trackingService'
 import RatesTab from '../../components/discovery/RatesTab'
 import GoogleMap from '../../components/discovery/GoogleMap'
 import RoomReviewsModal from '../../components/discovery/RoomReviewsModal'
@@ -137,6 +138,12 @@ export default function PropertyDetail() {
       try {
         const data = await discoveryApi.getProperty(slug)
         setProperty(data)
+
+        // Track page view for analytics
+        if (data.tenantId) {
+          trackingService.init({ tenantId: data.tenantId })
+          trackingService.trackPageView('listing')
+        }
 
         // Track recently viewed property
         try {

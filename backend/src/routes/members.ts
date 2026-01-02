@@ -415,7 +415,10 @@ router.post('/', async (req: Request, res: Response) => {
 
     // Notify the new member about their invitation
     console.log('[Members] Notifying new member about invitation:', newMember.id)
-    notifyMemberInvited(tenant.id, newMember.id, tenant.name)
+    notifyMemberInvited(tenant.id, newMember.id, {
+      business_name: tenant.name,
+      role_name: targetRoleSlug || undefined
+    })
 
     res.status(201).json({
       success: true,
@@ -839,7 +842,9 @@ router.delete('/:userId', async (req: Request, res: Response) => {
 
     // Notify the removed member
     console.log('[Members] Notifying member about removal:', member.id)
-    notifyMemberRemoved(tenant.id, member.id)
+    notifyMemberRemoved(tenant.id, member.id, {
+      business_name: tenant.name
+    })
 
     res.json({ success: true, message: 'Member removed' })
   } catch (error) {
@@ -945,7 +950,10 @@ router.patch('/:userId', async (req: Request, res: Response) => {
 
     // Notify the member about role change
     console.log('[Members] Notifying member about role change:', member.id)
-    notifyMemberRoleChanged(tenant.id, member.id, targetRoleSlug || 'Team Member')
+    notifyMemberRoleChanged(tenant.id, member.id, {
+      business_name: tenant.name,
+      role_name: targetRoleSlug || 'Team Member'
+    })
 
     res.json({ success: true, message: 'Role updated', new_role: targetRoleSlug, new_role_id: targetRoleId })
   } catch (error) {

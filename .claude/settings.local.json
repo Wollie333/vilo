@@ -51,7 +51,11 @@
       "Bash(awk:*)",
       "Bash(git stash:*)",
       "Bash(ls:*)",
-      "Bash(timeout 10 npx tsx:*)"
+      "Bash(timeout 10 npx tsx:*)",
+      "Bash(xargs:*)",
+      "WebFetch(domain:www.intercom.com)",
+      "WebFetch(domain:www.pencilandpaper.io)",
+      "Bash(npm ls:*)"
     ]
   }
 }

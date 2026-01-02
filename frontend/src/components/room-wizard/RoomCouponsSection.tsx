@@ -449,25 +449,25 @@ export default function RoomCouponsSection({ roomId }: RoomCouponsSectionProps) 
           <p className="text-sm text-gray-400">Click "Add Promo Code" to create your first coupon</p>
         </div>
       ) : coupons.length > 0 ? (
-        <div className="border border-gray-200 rounded-lg overflow-hidden">
+        <div style={{ borderColor: 'var(--border-color)' }} className="border rounded-lg overflow-hidden">
           <table className="w-full">
-            <thead className="bg-gray-50 border-b border-gray-200">
+            <thead style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-color)' }} className="border-b">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Code</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Discount</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden sm:table-cell">Validity</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">Usage</th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                <th style={{ color: 'var(--text-muted)' }} className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider">Code</th>
+                <th style={{ color: 'var(--text-muted)' }} className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider">Discount</th>
+                <th style={{ color: 'var(--text-muted)' }} className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider hidden sm:table-cell">Validity</th>
+                <th style={{ color: 'var(--text-muted)' }} className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider hidden md:table-cell">Usage</th>
+                <th style={{ color: 'var(--text-muted)' }} className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-200 bg-white">
+            <tbody style={{ borderColor: 'var(--border-color)', backgroundColor: 'var(--bg-card)' }} className="divide-y">
               {coupons.map((coupon) => (
-                <tr key={coupon.id} className={`hover:bg-gray-50 ${!coupon.is_active ? 'opacity-50' : ''}`}>
+                <tr key={coupon.id} className={`hover:opacity-90 transition-opacity ${!coupon.is_active ? 'opacity-50' : ''}`}>
                   <td className="px-4 py-3">
-                    <div className="font-mono font-medium text-gray-900">{coupon.code}</div>
-                    <div className="text-sm text-gray-500 truncate max-w-[150px]">{coupon.name}</div>
+                    <div style={{ color: 'var(--text-primary)' }} className="font-mono font-medium">{coupon.code}</div>
+                    <div style={{ color: 'var(--text-muted)' }} className="text-sm truncate max-w-[150px]">{coupon.name}</div>
                     {!coupon.is_active && (
-                      <span className="text-xs text-gray-400">(Inactive)</span>
+                      <span style={{ color: 'var(--text-muted)' }} className="text-xs">(Inactive)</span>
                     )}
                   </td>
                   <td className="px-4 py-3">
@@ -475,17 +475,17 @@ export default function RoomCouponsSection({ roomId }: RoomCouponsSectionProps) 
                       {getDiscountDisplay(coupon)}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-sm text-gray-600 hidden sm:table-cell">
+                  <td className="px-4 py-3 text-sm hidden sm:table-cell" style={{ color: 'var(--text-muted)' }}>
                     {coupon.valid_from || coupon.valid_until ? (
                       <div className="text-xs">
                         {coupon.valid_from && <div>From: {formatDate(coupon.valid_from)}</div>}
                         {coupon.valid_until && <div>Until: {formatDate(coupon.valid_until)}</div>}
                       </div>
                     ) : (
-                      <span className="text-gray-400">Always valid</span>
+                      <span style={{ color: 'var(--text-muted)' }}>Always valid</span>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-sm text-gray-600 hidden md:table-cell">
+                  <td className="px-4 py-3 text-sm hidden md:table-cell" style={{ color: 'var(--text-muted)' }}>
                     {coupon.current_uses}
                     {coupon.max_uses ? ` / ${coupon.max_uses}` : ''}
                   </td>
@@ -493,7 +493,8 @@ export default function RoomCouponsSection({ roomId }: RoomCouponsSectionProps) 
                     <div className="flex items-center justify-end gap-1">
                       <button
                         onClick={() => handleEdit(coupon)}
-                        className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded"
+                        style={{ color: 'var(--text-muted)' }}
+                        className="p-1.5 hover:opacity-70 rounded"
                         title="Edit coupon"
                       >
                         <Edit2 size={16} />
@@ -501,7 +502,8 @@ export default function RoomCouponsSection({ roomId }: RoomCouponsSectionProps) 
                       <button
                         onClick={() => handleDelete(coupon)}
                         disabled={deleting === coupon.id}
-                        className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded disabled:opacity-50"
+                        style={{ color: 'var(--text-muted)' }}
+                        className="p-1.5 hover:text-red-600 rounded disabled:opacity-50"
                         title="Delete coupon"
                       >
                         {deleting === coupon.id ? (

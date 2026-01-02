@@ -11,17 +11,21 @@ interface CardProps {
   }
   children?: ReactNode
   className?: string
+  action?: ReactNode
 }
 
 export type { CardProps }
 
-export default function Card({ title, value, icon, trend, children, className = '' }: CardProps) {
+export default function Card({ title, value, icon, trend, children, className = '', action }: CardProps) {
   return (
     <div className={`bg-white rounded-xl border border-gray-100 p-6 shadow-sm hover:shadow-md transition-all ${className}`}>
       <div className="flex items-start justify-between">
         <div className="flex-1">
-          {title && (
-            <h3 className="text-sm font-medium text-gray-500 mb-3">{title}</h3>
+          {(title || action) && (
+            <div className="flex items-center justify-between mb-3">
+              {title && <h3 className="text-sm font-medium text-gray-500">{title}</h3>}
+              {action}
+            </div>
           )}
           {value && (
             <div className="flex items-baseline justify-between">

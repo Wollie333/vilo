@@ -808,53 +808,53 @@ export default function RoomWizard() {
                 <p className="text-gray-500">No seasonal rates configured</p>
               </div>
             ) : (
-              <div className="border border-gray-200 rounded-lg overflow-hidden">
+              <div style={{ borderColor: 'var(--border-color)' }} className="border rounded-lg overflow-hidden">
                 <table className="w-full">
-                  <thead className="bg-gray-50 border-b border-gray-200">
+                  <thead style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-color)' }} className="border-b">
                     <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Period</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Price/Night</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
+                      <th style={{ color: 'var(--text-muted)' }} className="px-4 py-3 text-left text-xs font-medium uppercase">Name</th>
+                      <th style={{ color: 'var(--text-muted)' }} className="px-4 py-3 text-left text-xs font-medium uppercase">Period</th>
+                      <th style={{ color: 'var(--text-muted)' }} className="px-4 py-3 text-left text-xs font-medium uppercase">Price/Night</th>
+                      <th style={{ color: 'var(--text-muted)' }} className="px-4 py-3 text-right text-xs font-medium uppercase">Actions</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-200">
+                  <tbody style={{ borderColor: 'var(--border-color)' }} className="divide-y">
                     {/* Saved rates */}
                     {seasonalRates.map((rate) => (
-                      <tr key={rate.id} className="hover:bg-gray-50">
-                        <td className="px-4 py-3 font-medium text-gray-900">{rate.name}</td>
-                        <td className="px-4 py-3 text-sm text-gray-600">
+                      <tr key={rate.id} className="hover:opacity-90 transition-opacity">
+                        <td style={{ color: 'var(--text-primary)' }} className="px-4 py-3 font-medium">{rate.name}</td>
+                        <td style={{ color: 'var(--text-muted)' }} className="px-4 py-3 text-sm">
                           {formatDate(rate.start_date)} - {formatDate(rate.end_date)}
                         </td>
                         <td className="px-4 py-3">
-                          <span className={`font-medium ${rate.price_per_night > formData.base_price_per_night ? 'text-red-600' : rate.price_per_night < formData.base_price_per_night ? 'text-emerald-600' : 'text-gray-900'}`}>
+                          <span className={`font-medium ${rate.price_per_night > formData.base_price_per_night ? 'text-red-600' : rate.price_per_night < formData.base_price_per_night ? 'text-emerald-600' : ''}`} style={rate.price_per_night === formData.base_price_per_night ? { color: 'var(--text-primary)' } : undefined}>
                             {formatCurrency(rate.price_per_night)}
                           </span>
                         </td>
                         <td className="px-4 py-3 text-right">
-                          <button onClick={() => handleEditRate(rate)} className="p-1 text-gray-500 hover:text-gray-700 mr-1"><Edit2 size={16} /></button>
-                          <button onClick={() => handleDeleteRate(rate)} className="p-1 text-gray-500 hover:text-red-600"><Trash2 size={16} /></button>
+                          <button onClick={() => handleEditRate(rate)} style={{ color: 'var(--text-muted)' }} className="p-1 hover:opacity-70 mr-1"><Edit2 size={16} /></button>
+                          <button onClick={() => handleDeleteRate(rate)} style={{ color: 'var(--text-muted)' }} className="p-1 hover:text-red-600"><Trash2 size={16} /></button>
                         </td>
                       </tr>
                     ))}
                     {/* Pending rates (not yet saved to API) */}
                     {pendingRates.map((rate, index) => (
-                      <tr key={`pending-${index}`} className="hover:bg-gray-50 bg-amber-50/50">
-                        <td className="px-4 py-3 font-medium text-gray-900">
+                      <tr key={`pending-${index}`} className="hover:opacity-90 transition-opacity bg-amber-50/50">
+                        <td style={{ color: 'var(--text-primary)' }} className="px-4 py-3 font-medium">
                           {rate.name}
                           <span className="ml-2 px-1.5 py-0.5 text-xs bg-amber-100 text-amber-700 rounded">Pending</span>
                         </td>
-                        <td className="px-4 py-3 text-sm text-gray-600">
+                        <td style={{ color: 'var(--text-muted)' }} className="px-4 py-3 text-sm">
                           {formatDate(rate.start_date)} - {formatDate(rate.end_date)}
                         </td>
                         <td className="px-4 py-3">
-                          <span className={`font-medium ${rate.price_per_night > formData.base_price_per_night ? 'text-red-600' : rate.price_per_night < formData.base_price_per_night ? 'text-emerald-600' : 'text-gray-900'}`}>
+                          <span className={`font-medium ${rate.price_per_night > formData.base_price_per_night ? 'text-red-600' : rate.price_per_night < formData.base_price_per_night ? 'text-emerald-600' : ''}`} style={rate.price_per_night === formData.base_price_per_night ? { color: 'var(--text-primary)' } : undefined}>
                             {formatCurrency(rate.price_per_night)}
                           </span>
                         </td>
                         <td className="px-4 py-3 text-right">
-                          <button onClick={() => handleEditPendingRate(index)} className="p-1 text-gray-500 hover:text-gray-700 mr-1"><Edit2 size={16} /></button>
-                          <button onClick={() => handleDeletePendingRate(index)} className="p-1 text-gray-500 hover:text-red-600"><Trash2 size={16} /></button>
+                          <button onClick={() => handleEditPendingRate(index)} style={{ color: 'var(--text-muted)' }} className="p-1 hover:opacity-70 mr-1"><Edit2 size={16} /></button>
+                          <button onClick={() => handleDeletePendingRate(index)} style={{ color: 'var(--text-muted)' }} className="p-1 hover:text-red-600"><Trash2 size={16} /></button>
                         </td>
                       </tr>
                     ))}

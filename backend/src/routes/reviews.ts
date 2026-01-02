@@ -445,12 +445,11 @@ router.post('/send-request/:bookingId', async (req, res) => {
     // Notify customer about review request (in-app notification)
     if (booking.customer_id) {
       console.log('[Review] Notifying customer about review request:', booking.customer_id)
-      notifyCustomerReviewRequested(
-        tenantId,
-        booking.customer_id,
-        bookingId,
-        booking.room_name || 'Room'
-      )
+      notifyCustomerReviewRequested(tenantId, booking.customer_id, {
+        booking_id: bookingId,
+        room_name: booking.room_name || 'Room',
+        check_out: booking.check_out
+      })
     }
 
     res.json({
@@ -1013,13 +1012,14 @@ router.post('/public/submit/:tenantId/:token', async (req, res) => {
       )
 
       // Notify all team members about the new review
-      notifyNewReview(
-        tenantId,
-        booking.id,
-        booking.guest_name || 'Guest',
-        booking.room_name || 'Room',
-        Math.round(overallRating)
-      )
+      notifyNewReview(tenantId, {
+        review_id: review.id,
+        booking_id: booking.id,
+        guest_name: booking.guest_name || 'Guest',
+        room_name: booking.room_name || 'Room',
+        rating: Math.round(overallRating),
+        comment: review.comment
+      })
     }
 
     res.status(201).json({

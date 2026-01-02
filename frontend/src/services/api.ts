@@ -81,6 +81,10 @@ export interface Booking {
   external_id?: string
   external_url?: string
   synced_at?: string
+  // Refund tracking
+  refund_id?: string
+  refund_status?: RefundStatus
+  refund_requested?: boolean
 }
 
 // Room types
@@ -2080,13 +2084,42 @@ export const integrationsApi = {
   },
 }
 
-// Notification types
+// Notification types - individual notification preferences
 export interface NotificationPreferences {
-  bookings: boolean
-  payments: boolean
-  reviews: boolean
-  support: boolean
-  system: boolean
+  // Bookings - Staff
+  booking_created: boolean
+  booking_cancelled: boolean
+  booking_modified: boolean
+  booking_checked_in: boolean
+  booking_checked_out: boolean
+  room_blocked: boolean
+  low_availability: boolean
+  // Bookings - Customer
+  booking_confirmed: boolean
+  booking_modified_customer: boolean
+  booking_reminder: boolean
+  check_in_reminder: boolean
+  // Payments
+  payment_received: boolean
+  payment_proof_uploaded: boolean
+  payment_confirmed: boolean
+  payment_overdue: boolean
+  // Reviews
+  review_submitted: boolean
+  review_requested: boolean
+  review_response_added: boolean
+  // Support
+  support_ticket_created: boolean
+  support_ticket_replied: boolean
+  support_status_changed: boolean
+  // System
+  sync_completed: boolean
+  sync_failed: boolean
+  portal_welcome: boolean
+  // Members
+  member_invited: boolean
+  member_role_changed: boolean
+  member_removed: boolean
 }
 
 // Notifications API
@@ -2169,6 +2202,268 @@ export const notificationsApi = {
     })
     if (!response.ok) {
       throw new Error('Failed to update preferences')
+    }
+    return response.json()
+  },
+}
+
+// ============================================
+// REFUNDS
+// ============================================
+
+export type RefundStatus = 'requested' | 'under_review' | 'approved' | 'rejected' | 'processing' | 'completed' | 'failed'
+
+export interface Refund {
+  id: string
+  tenant_id: string
+  booking_id: string
+  customer_id: string | null
+  original_amount: number
+  eligible_amount: number
+  approved_amount: number | null
+  processed_amount: number | null
+  currency: string
+  policy_applied: {
+    days_before: number
+    refund_percentage: number
+    label: string
+  } | null
+  days_before_checkin: number | null
+  refund_percentage: number | null
+  status: RefundStatus
+  payment_method: string | null
+  original_payment_reference: string | null
+  refund_reference: string | null
+  rejection_reason: string | null
+  staff_notes: string | null
+  override_reason: string | null
+  requested_at: string
+  reviewed_at: string | null
+  approved_at: string | null
+  rejected_at: string | null
+  processed_at: string | null
+  completed_at: string | null
+  failed_at: string | null
+  failure_reason: string | null
+  // Flattened booking fields for list display
+  guest_name?: string
+  guest_email?: string
+  room_name?: string
+  check_in?: string
+  check_out?: string
+  booking_reference?: string
+  bookings?: {
+    id: string
+    guest_name: string
+    guest_email: string
+    guest_phone?: string
+    room_name: string
+    check_in: string
+    check_out: string
+    payment_method?: string
+  }
+  customers?: {
+    id: string
+    name: string
+    email: string
+    phone?: string
+  }
+}
+
+export interface RefundStats {
+  pending: number  // alias for requested
+  requested: number
+  under_review: number
+  approved: number
+  processing: number
+  completed_this_month: number
+  total_refunded_this_month: number
+  total_requested_amount: number
+  total_approved_amount: number
+  total_processed_amount: number
+}
+
+export interface RefundStatusHistoryEntry {
+  id: string
+  refund_id: string
+  previous_status: string | null
+  new_status: string
+  changed_by: string | null
+  changed_by_name: string | null
+  notes: string | null
+  created_at: string
+}
+
+export const refundsApi = {
+  getAll: async (filters?: {
+    status?: RefundStatus
+    date_from?: string
+    date_to?: string
+    search?: string
+    limit?: number
+    offset?: number
+  }): Promise<{ data: Refund[]; count: number }> => {
+    const params = new URLSearchParams()
+    if (filters?.status) params.set('status', filters.status)
+    if (filters?.date_from) params.set('date_from', filters.date_from)
+    if (filters?.date_to) params.set('date_to', filters.date_to)
+    if (filters?.search) params.set('search', filters.search)
+    if (filters?.limit) params.set('limit', filters.limit.toString())
+    if (filters?.offset) params.set('offset', filters.offset.toString())
+
+    const response = await fetch(`${API_BASE_URL}/refunds?${params}`, {
+      headers: getHeaders(),
+    })
+    if (!response.ok) {
+      throw new Error('Failed to fetch refunds')
+    }
+    return response.json()
+  },
+
+  getById: async (id: string): Promise<Refund> => {
+    const response = await fetch(`${API_BASE_URL}/refunds/${id}`, {
+      headers: getHeaders(),
+    })
+    if (!response.ok) {
+      throw new Error('Failed to fetch refund')
+    }
+    return response.json()
+  },
+
+  getStats: async (): Promise<RefundStats> => {
+    const response = await fetch(`${API_BASE_URL}/refunds/stats`, {
+      headers: getHeaders(),
+    })
+    if (!response.ok) {
+      throw new Error('Failed to fetch refund stats')
+    }
+    return response.json()
+  },
+
+  getHistory: async (id: string): Promise<RefundStatusHistoryEntry[]> => {
+    const response = await fetch(`${API_BASE_URL}/refunds/${id}/history`, {
+      headers: getHeaders(),
+    })
+    if (!response.ok) {
+      throw new Error('Failed to fetch refund history')
+    }
+    return response.json()
+  },
+
+  calculate: async (bookingId: string): Promise<{
+    booking_id: string
+    currency: string
+    originalAmount: number
+    eligibleAmount: number
+    refundPercentage: number
+    daysBeforeCheckIn: number
+    policyApplied: { days_before: number; refund_percentage: number; label: string }
+  }> => {
+    const response = await fetch(`${API_BASE_URL}/refunds/calculate`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ booking_id: bookingId }),
+    })
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || 'Failed to calculate refund')
+    }
+    return response.json()
+  },
+
+  create: async (bookingId: string): Promise<Refund> => {
+    const response = await fetch(`${API_BASE_URL}/refunds`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ booking_id: bookingId }),
+    })
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || 'Failed to create refund')
+    }
+    return response.json()
+  },
+
+  markUnderReview: async (id: string): Promise<{ success: boolean }> => {
+    const response = await fetch(`${API_BASE_URL}/refunds/${id}/review`, {
+      method: 'PATCH',
+      headers: getHeaders(),
+    })
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || 'Failed to mark refund as under review')
+    }
+    return response.json()
+  },
+
+  approve: async (id: string, data: {
+    approved_amount: number
+    override_reason?: string
+    notes?: string
+  }): Promise<{ success: boolean }> => {
+    const response = await fetch(`${API_BASE_URL}/refunds/${id}/approve`, {
+      method: 'PATCH',
+      headers: getHeaders(),
+      body: JSON.stringify(data),
+    })
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || 'Failed to approve refund')
+    }
+    return response.json()
+  },
+
+  reject: async (id: string, rejectionReason: string): Promise<{ success: boolean }> => {
+    const response = await fetch(`${API_BASE_URL}/refunds/${id}/reject`, {
+      method: 'PATCH',
+      headers: getHeaders(),
+      body: JSON.stringify({ rejection_reason: rejectionReason }),
+    })
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || 'Failed to reject refund')
+    }
+    return response.json()
+  },
+
+  process: async (id: string, method: 'paystack' | 'eft' | 'paypal' | 'manual'): Promise<{ success: boolean; data?: unknown; message?: string }> => {
+    const response = await fetch(`${API_BASE_URL}/refunds/${id}/process`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ method }),
+    })
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || 'Failed to process refund')
+    }
+    return response.json()
+  },
+
+  complete: async (id: string, data: {
+    processed_amount: number
+    refund_reference?: string
+  }): Promise<{ success: boolean }> => {
+    const response = await fetch(`${API_BASE_URL}/refunds/${id}/complete`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(data),
+    })
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || 'Failed to complete refund')
+    }
+    return response.json()
+  },
+
+  updateNotes: async (id: string, staffNotes: string): Promise<{ success: boolean }> => {
+    const response = await fetch(`${API_BASE_URL}/refunds/${id}/notes`, {
+      method: 'PATCH',
+      headers: getHeaders(),
+      body: JSON.stringify({ staff_notes: staffNotes }),
+    })
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || 'Failed to update staff notes')
     }
     return response.json()
   },

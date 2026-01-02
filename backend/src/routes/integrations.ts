@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { supabase } from '../lib/supabase.js'
 import crypto from 'crypto'
 import { fetchICalFeed, parseICalFeed, validateICalUrl } from '../services/icalService.js'
+import { notifySyncCompleted, notifySyncFailed } from '../services/notificationService.js'
 import type {
   Integration,
   RoomMapping,
@@ -510,10 +511,10 @@ router.post('/:id/sync', async (req, res) => {
       return res.status(400).json({ error: 'Integration is not active' })
     }
 
-    // Get room mappings with iCal URLs
+    // Get room mappings with iCal URLs and room names
     const { data: mappings, error: mappingsError } = await supabase
       .from('room_mappings')
-      .select('*')
+      .select('*, rooms(name)')
       .eq('integration_id', id)
       .eq('tenant_id', tenantId)
 
@@ -685,6 +686,32 @@ router.post('/:id/sync', async (req, res) => {
         last_error: errors.length > 0 ? errors[0] : (conflicts.length > 0 ? `${conflicts.length} booking conflicts` : null)
       })
       .eq('id', id)
+
+    // Send sync notifications
+    const totalSynced = recordsCreated + recordsUpdated
+    const roomNames = (mappings || [])
+      .filter((m: any) => m.ical_url)
+      .map((m: any) => (m.rooms as any)?.name || 'Room')
+      .filter((name: string, index: number, arr: string[]) => arr.indexOf(name) === index) // unique
+    const roomSummary = roomNames.length > 1
+      ? `${roomNames.length} rooms`
+      : (roomNames[0] || 'Calendar')
+
+    if (errors.length > 0 && totalSynced === 0) {
+      // Complete failure
+      notifySyncFailed(tenantId, {
+        room_name: roomSummary,
+        source: integration.platform,
+        error: errors[0]
+      })
+    } else if (totalSynced > 0) {
+      // Success (even with some errors)
+      notifySyncCompleted(tenantId, {
+        room_name: roomSummary,
+        source: integration.platform,
+        bookings_imported: totalSynced
+      })
+    }
 
     res.json({
       success: true,

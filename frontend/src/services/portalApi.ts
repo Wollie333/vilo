@@ -56,6 +56,20 @@ export interface Customer {
   useBusinessDetailsOnInvoice?: boolean
 }
 
+// Booking status types
+export type BookingStatus =
+  | 'pending'
+  | 'confirmed'
+  | 'payment_failed'
+  | 'cart_abandoned'
+  | 'checked_in'
+  | 'checked_out'
+  | 'cancelled'
+  | 'completed'
+
+// Customer refund status type
+export type CustomerRefundStatus = 'requested' | 'under_review' | 'approved' | 'rejected' | 'processing' | 'completed' | 'failed'
+
 export interface CustomerBooking {
   id: string
   guest_name: string
@@ -65,11 +79,15 @@ export interface CustomerBooking {
   room_name: string
   check_in: string
   check_out: string
-  status: string
+  status: BookingStatus
   payment_status: string
   total_amount: number
   currency: string
   notes: string | null
+  // Failed booking info (stored in checkout_data)
+  failed_at?: string | null
+  retry_count?: number
+  checkout_data?: any
   // Payment tracking fields
   payment_method?: 'paystack' | 'paypal' | 'eft' | 'manual' | null
   payment_reference?: string | null
@@ -84,6 +102,7 @@ export interface CustomerBooking {
     id: string
     business_name: string
     logo_url: string | null
+    slug?: string
   }
   room?: {
     id: string
@@ -105,6 +124,50 @@ export interface CustomerBooking {
   }>
   availableAddons?: any[]
   canModifyAddons?: boolean
+  // Cancellation fields
+  cancellation_reason?: string
+  cancellation_details?: string
+  refund_requested?: boolean
+  refund_status?: CustomerRefundStatus
+  cancelled_at?: string
+  cancellation_ticket_id?: string
+}
+
+// Failed booking type for incomplete/abandoned bookings
+export interface FailedBooking {
+  id: string
+  reference: string
+  status: string
+  payment_status: string
+  failure_type: string
+  failure_reason: string | null
+  failed_at: string | null
+  retry_count: number
+  property: {
+    id: string
+    slug: string
+    name: string
+    logoUrl: string | null
+  }
+  room: {
+    id: string
+    name: string
+    image: string | null
+  }
+  guest: {
+    name: string
+    email: string
+    phone: string | null
+  }
+  dates: {
+    checkIn: string
+    checkOut: string
+    nights: number
+  }
+  total_amount: number
+  currency: string
+  checkout_data: any
+  created_at: string
 }
 
 export interface ReviewImage {
@@ -341,6 +404,48 @@ export const portalApi = {
     return response.json()
   },
 
+  // Failed Bookings
+  getFailedBookings: async (): Promise<FailedBooking[]> => {
+    const response = await fetch(`${API_BASE_URL}/portal/failed-bookings`, {
+      headers: getHeaders(),
+    })
+    if (!response.ok) {
+      throw new Error('Failed to fetch failed bookings')
+    }
+    return response.json()
+  },
+
+  deleteFailedBooking: async (id: string): Promise<{ success: boolean }> => {
+    const response = await fetch(`${API_BASE_URL}/portal/failed-bookings/${id}`, {
+      method: 'DELETE',
+      headers: getHeaders(),
+    })
+    if (!response.ok) {
+      throw new Error('Failed to delete booking')
+    }
+    return response.json()
+  },
+
+  checkRetryAvailability: async (id: string): Promise<{
+    available: boolean
+    unavailable_rooms: string[]
+    pricing_changed: boolean
+    original_total: number
+    new_total: number
+    checkout_data: any
+    retry_count: number
+    property_slug: string
+  }> => {
+    const response = await fetch(`${API_BASE_URL}/portal/failed-bookings/${id}/retry-availability`, {
+      headers: getHeaders(),
+    })
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.message || 'Failed to check availability')
+    }
+    return response.json()
+  },
+
   getBooking: async (id: string): Promise<CustomerBooking> => {
     const response = await fetch(`${API_BASE_URL}/portal/bookings/${id}`, {
       headers: getHeaders(),
@@ -364,10 +469,18 @@ export const portalApi = {
     return response.json()
   },
 
-  cancelBooking: async (id: string): Promise<{ success: boolean; booking: CustomerBooking }> => {
+  cancelBooking: async (
+    id: string,
+    data: {
+      reason: string
+      details?: string
+      refund_requested?: boolean
+    }
+  ): Promise<{ success: boolean; booking: CustomerBooking; support_ticket_id?: string; message: string }> => {
     const response = await fetch(`${API_BASE_URL}/portal/bookings/${id}/cancel`, {
       method: 'POST',
       headers: getHeaders(),
+      body: JSON.stringify(data),
     })
     if (!response.ok) {
       const error = await response.json()
@@ -760,13 +873,7 @@ export const portalApi = {
     return response.json()
   },
 
-  getNotificationPreferences: async (): Promise<{
-    bookings: boolean
-    payments: boolean
-    reviews: boolean
-    support: boolean
-    system: boolean
-  }> => {
+  getNotificationPreferences: async (): Promise<CustomerNotificationPreferences> => {
     const response = await fetch(`${API_BASE_URL}/portal/notifications/preferences`, {
       headers: getHeaders(),
     })
@@ -776,19 +883,7 @@ export const portalApi = {
     return response.json()
   },
 
-  updateNotificationPreferences: async (preferences: Partial<{
-    bookings: boolean
-    payments: boolean
-    reviews: boolean
-    support: boolean
-    system: boolean
-  }>): Promise<{
-    bookings: boolean
-    payments: boolean
-    reviews: boolean
-    support: boolean
-    system: boolean
-  }> => {
+  updateNotificationPreferences: async (preferences: Partial<CustomerNotificationPreferences>): Promise<CustomerNotificationPreferences> => {
     const response = await fetch(`${API_BASE_URL}/portal/notifications/preferences`, {
       method: 'PUT',
       headers: getHeaders(),
@@ -799,4 +894,92 @@ export const portalApi = {
     }
     return response.json()
   },
+
+  // ============================================
+  // REFUND METHODS
+  // ============================================
+
+  getRefundForBooking: async (bookingId: string): Promise<CustomerRefund | null> => {
+    const response = await fetch(`${API_BASE_URL}/portal/bookings/${bookingId}/refund`, {
+      headers: getHeaders(),
+    })
+    if (!response.ok) {
+      if (response.status === 404) {
+        return null
+      }
+      throw new Error('Failed to fetch refund')
+    }
+    return response.json()
+  },
+
+  // Get all refunds for the customer
+  getRefunds: async (): Promise<CustomerRefundWithBooking[]> => {
+    const response = await fetch(`${API_BASE_URL}/portal/refunds`, {
+      headers: getHeaders(),
+    })
+    if (!response.ok) {
+      throw new Error('Failed to fetch refunds')
+    }
+    return response.json()
+  },
+}
+
+// Customer notification preferences - individual types
+export interface CustomerNotificationPreferences {
+  // Bookings
+  booking_confirmed: boolean
+  booking_modified_customer: boolean
+  booking_reminder: boolean
+  check_in_reminder: boolean
+  cart_abandoned_customer: boolean
+  // Payments
+  payment_confirmed: boolean
+  payment_overdue: boolean
+  payment_failed_customer: boolean
+  // Reviews
+  review_requested: boolean
+  review_response_added: boolean
+  // Support
+  support_ticket_replied: boolean
+  support_status_changed: boolean
+  // System
+  portal_welcome: boolean
+}
+
+// Customer refund type (CustomerRefundStatus defined above near BookingStatus)
+export interface CustomerRefund {
+  id: string
+  booking_id: string
+  status: CustomerRefundStatus
+  original_amount: number
+  eligible_amount: number
+  approved_amount: number | null
+  processed_amount: number | null
+  currency: string
+  refund_percentage: number | null
+  days_before_checkin: number | null
+  policy_applied: any
+  rejection_reason: string | null
+  requested_at: string
+  approved_at: string | null
+  completed_at: string | null
+}
+
+// Customer refund with booking details for listing
+export interface CustomerRefundWithBooking extends CustomerRefund {
+  payment_method: string | null
+  failure_reason: string | null
+  rejected_at: string | null
+  failed_at: string | null
+  booking: {
+    guest_name: string
+    room_name: string
+    check_in: string
+    check_out: string
+    property: {
+      id: string
+      name: string
+      logo_url: string | null
+    }
+  }
 }

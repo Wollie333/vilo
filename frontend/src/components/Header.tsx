@@ -3,11 +3,13 @@ import { Search, ChevronLeft, ChevronRight, HelpCircle, ChevronDown, LogOut, Use
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import NotificationBell from './notifications/NotificationBell'
+import SupportModal from './SupportModal'
 
 export default function Header() {
   const navigate = useNavigate()
   const { user, signOut, can } = useAuth()
   const [dropdownOpen, setDropdownOpen] = useState(false)
+  const [showSupportModal, setShowSupportModal] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -70,6 +72,7 @@ export default function Header() {
         </div>
         <div className="flex items-center gap-2">
           <button
+            onClick={() => setShowSupportModal(true)}
             style={{ color: 'var(--text-secondary)' }}
             className="flex items-center gap-2 hover:opacity-80 px-3 py-1.5 rounded-md transition-colors"
           >
@@ -194,6 +197,12 @@ export default function Header() {
           </div>
         </div>
       </div>
+
+      <SupportModal
+        isOpen={showSupportModal}
+        onClose={() => setShowSupportModal(false)}
+        context="dashboard"
+      />
     </header>
   )
 }

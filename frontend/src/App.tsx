@@ -15,6 +15,8 @@ import AddOnWizard from './pages/AddOnWizard'
 import Bookings from './pages/Bookings'
 import BookingWizard from './pages/BookingWizard'
 import BookingDetail from './pages/BookingDetail'
+import Refunds from './pages/Refunds'
+import RefundDetail from './pages/RefundDetail'
 import Calendar from './pages/Calendar'
 import Reviews from './pages/Reviews'
 import Settings from './pages/Settings'
@@ -26,6 +28,7 @@ import RolesSettings from './pages/settings/RolesSettings'
 import Customers from './pages/Customers'
 import CustomerDetail from './pages/CustomerDetail'
 import Support from './pages/Support'
+import UnifiedAnalytics from './pages/UnifiedAnalytics'
 import Layout from './components/Layout'
 import Login from './pages/Login'
 import Payment from './pages/Payment'
@@ -44,6 +47,7 @@ import CustomerVerify from './pages/portal/CustomerVerify'
 import CustomerDashboard from './pages/portal/CustomerDashboard'
 import CustomerBookings from './pages/portal/CustomerBookings'
 import CustomerBookingDetail from './pages/portal/CustomerBookingDetail'
+import CustomerRefunds from './pages/portal/CustomerRefunds'
 import CustomerReviews from './pages/portal/CustomerReviews'
 import CustomerSupport from './pages/portal/CustomerSupport'
 import CustomerSupportThread from './pages/portal/CustomerSupportThread'
@@ -67,16 +71,43 @@ import LandingPage from './pages/landing/LandingPage'
 import EarningsDisclaimer from './pages/legal/EarningsDisclaimer'
 import TermsAndConditions from './pages/legal/TermsAndConditions'
 import PrivacyPolicy from './pages/legal/PrivacyPolicy'
+// Super Admin pages
+import { SuperAdminProvider } from './contexts/SuperAdminContext'
+import { AdminProtectedRoute } from './components/admin/AdminProtectedRoute'
+import { AdminLayout } from './pages/admin/AdminLayout'
+import { AdminLogin } from './pages/admin/AdminLogin'
+import UnifiedDashboard from './pages/admin/UnifiedDashboard'
+import { TenantList } from './pages/admin/TenantList'
+import { TenantDetail } from './pages/admin/TenantDetail'
+import { TenantEdit } from './pages/admin/TenantEdit'
+import { AdminRoomWizard } from './pages/admin/AdminRoomWizard'
+import AdminBookingWizard from './pages/admin/AdminBookingWizard'
+import { SystemHealth } from './pages/admin/SystemHealth'
+import { ErrorLogs } from './pages/admin/ErrorLogs'
+import { BackupManager } from './pages/admin/BackupManager'
+import { UserList } from './pages/admin/UserList'
+import { BillingDashboard } from './pages/admin/BillingDashboard'
+// UnifiedAnalyticsDashboard consolidated into UnifiedDashboard
+import { FeatureFlags } from './pages/admin/FeatureFlags'
+import { AnnouncementManager } from './pages/admin/AnnouncementManager'
+import { ActivityLogs } from './pages/admin/ActivityLogs'
+import { AdminSettings } from './pages/admin/AdminSettings'
+// Revenue pages
+import { RevenueOverview } from './pages/admin/RevenueOverview'
+import { SubscriptionList } from './pages/admin/SubscriptionList'
+import { PlanManagement } from './pages/admin/PlanManagement'
+import { GracePeriods } from './pages/admin/GracePeriods'
 
 function App() {
   return (
     <AuthProvider>
       <CustomerAuthProvider>
-        <WebSocketProvider>
-          <CustomerWebSocketProvider>
-            <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-              <ScrollToTop />
-              <Routes>
+        <SuperAdminProvider>
+          <WebSocketProvider>
+            <CustomerWebSocketProvider>
+              <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+                <ScrollToTop />
+                <Routes>
             {/* Discovery Platform (public) */}
             <Route path="/" element={<DiscoveryLayout />}>
               <Route index element={<DiscoveryHome />} />
@@ -137,13 +168,52 @@ function App() {
               <Route path="bookings/browse/:slug" element={<PortalPropertyDetail />} />
               <Route path="bookings/checkout/:slug" element={<PortalCheckout />} />
               <Route path="bookings/:id" element={<CustomerBookingDetail />} />
+              <Route path="refunds" element={<CustomerRefunds />} />
               <Route path="reviews" element={<CustomerReviews />} />
               <Route path="support" element={<CustomerSupport />} />
               <Route path="support/:id" element={<CustomerSupportThread />} />
               <Route path="profile" element={<CustomerProfile />} />
             </Route>
 
-            {/* Admin dashboard routes (protected) */}
+            {/* Super Admin Portal routes */}
+            <Route path="/admin/login" element={<AdminLogin />} />
+            <Route path="/admin" element={
+              <AdminProtectedRoute>
+                <AdminLayout />
+              </AdminProtectedRoute>
+            }>
+              <Route index element={<UnifiedDashboard />} />
+              <Route path="tenants" element={<TenantList />} />
+              <Route path="tenants/:id" element={<TenantDetail />} />
+              <Route path="tenants/:id/edit" element={<TenantEdit />} />
+              <Route path="tenants/:tenantId/rooms/new" element={<AdminRoomWizard />} />
+              <Route path="tenants/:tenantId/rooms/:roomId/edit" element={<AdminRoomWizard />} />
+              <Route path="tenants/:tenantId/bookings/new" element={<AdminBookingWizard />} />
+              <Route path="tenants/:tenantId/bookings/:bookingId/edit" element={<AdminBookingWizard />} />
+              <Route path="users" element={<UserList />} />
+              <Route path="billing" element={<BillingDashboard />} />
+              {/* Revenue sub-pages */}
+              <Route path="revenue" element={<RevenueOverview />} />
+              <Route path="subscriptions" element={<SubscriptionList />} />
+              <Route path="plans" element={<PlanManagement />} />
+              <Route path="grace-periods" element={<GracePeriods />} />
+              {/* Analytics now consolidated into main dashboard */}
+              <Route path="analytics" element={<Navigate to="/admin" replace />} />
+              <Route path="analytics/revenue" element={<Navigate to="/admin" replace />} />
+              <Route path="analytics/customers" element={<Navigate to="/admin" replace />} />
+              <Route path="analytics/growth" element={<Navigate to="/admin" replace />} />
+              <Route path="analytics/usage" element={<Navigate to="/admin" replace />} />
+              <Route path="analytics/reports" element={<Navigate to="/admin" replace />} />
+              <Route path="features" element={<FeatureFlags />} />
+              <Route path="announcements" element={<AnnouncementManager />} />
+              <Route path="activity" element={<ActivityLogs />} />
+              <Route path="settings" element={<AdminSettings />} />
+              <Route path="health" element={<SystemHealth />} />
+              <Route path="errors" element={<ErrorLogs />} />
+              <Route path="backups" element={<BackupManager />} />
+            </Route>
+
+            {/* Tenant dashboard routes (protected) */}
             <Route path="/dashboard" element={
               <ProtectedRoute>
                 <Layout />
@@ -160,11 +230,18 @@ function App() {
               <Route path="bookings/new" element={<BookingWizard />} />
               <Route path="bookings/:id" element={<BookingDetail />} />
               <Route path="bookings/:id/edit" element={<BookingWizard />} />
+              <Route path="refunds" element={<Refunds />} />
+              <Route path="refunds/:id" element={<RefundDetail />} />
               <Route path="calendar" element={<Calendar />} />
               <Route path="reviews" element={<Reviews />} />
               <Route path="customers" element={<Customers />} />
               <Route path="customers/:email" element={<CustomerDetail />} />
               <Route path="support" element={<Support />} />
+              <Route path="analytics" element={<UnifiedAnalytics />} />
+              <Route path="analytics/revenue" element={<Navigate to="/dashboard/analytics" replace />} />
+              <Route path="analytics/bookings" element={<Navigate to="/dashboard/analytics" replace />} />
+              <Route path="analytics/traffic" element={<Navigate to="/dashboard/analytics" replace />} />
+              <Route path="analytics/reports" element={<Navigate to="/dashboard/analytics" replace />} />
               <Route path="settings" element={<Settings />} />
               <Route path="business" element={<Navigate to="/dashboard/business/details" replace />} />
               <Route path="business/details" element={<BusinessDetails />} />
@@ -173,12 +250,13 @@ function App() {
               <Route path="settings/integrations" element={<IntegrationsSettings />} />
               <Route path="settings/roles" element={<RolesSettings />} />
             </Route>
-              </Routes>
-            </BrowserRouter>
-          </CustomerWebSocketProvider>
-        </WebSocketProvider>
-      </CustomerAuthProvider>
-    </AuthProvider>
+                  </Routes>
+                </BrowserRouter>
+              </CustomerWebSocketProvider>
+            </WebSocketProvider>
+          </SuperAdminProvider>
+        </CustomerAuthProvider>
+      </AuthProvider>
   )
 }
 

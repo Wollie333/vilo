@@ -40,6 +40,7 @@ function parseCouponClaimDetails(message: string): {
   guestEmail?: string
   guestPhone?: string
 } {
+  if (!message) return { isCouponClaim: false }
   const isCouponClaim = message.includes('Coupon Claim Request')
   if (!isCouponClaim) return { isCouponClaim: false }
 
@@ -118,6 +119,7 @@ const sourceConfig: Record<string, { label: string; icon: typeof Globe; color: s
 
 // Utility to make links, phones, and emails clickable
 function linkifyText(text: string): React.ReactNode[] {
+  if (!text) return ['']
   const parts: React.ReactNode[] = []
   const combinedRegex = /(https?:\/\/[^\s]+)|([\w.-]+@[\w.-]+\.\w+)|(\+?[\d\s()-]{10,})/gi
 
@@ -351,7 +353,11 @@ export default function Support() {
   const loadTeamMembers = async () => {
     try {
       const members = await supportApi.getTeamMembers()
-      setTeamMembers(members)
+      // Deduplicate by ID to avoid React key warnings
+      const uniqueMembers = members.filter((member, index, self) =>
+        index === self.findIndex(m => m.id === member.id)
+      )
+      setTeamMembers(uniqueMembers)
     } catch (error) {
       console.error('Failed to load team members:', error)
     }

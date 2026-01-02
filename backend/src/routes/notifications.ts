@@ -8,6 +8,7 @@ import {
   markAllAsRead,
   getPreferences,
   updatePreferences,
+  runScheduledNotifications,
   NotificationPreferences
 } from '../services/notificationService.js'
 
@@ -209,6 +210,41 @@ router.put('/preferences', requireAuth, async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error('Error updating preferences:', error)
     res.status(500).json({ error: 'Failed to update preferences', details: error.message })
+  }
+})
+
+// ============================================
+// SCHEDULED NOTIFICATIONS (CRON JOB ENDPOINT)
+// ============================================
+
+/**
+ * POST /api/notifications/run-scheduled
+ * Run scheduled notifications (booking reminders, check-in reminders, payment overdue)
+ *
+ * This endpoint should be called by a cron job (e.g., daily at 8am)
+ * Protected by a simple API key check for cron jobs
+ */
+router.post('/run-scheduled', async (req: Request, res: Response) => {
+  try {
+    // Simple auth for cron jobs - check for secret key
+    const cronSecret = req.headers['x-cron-secret'] || req.query.secret
+    const expectedSecret = process.env.CRON_SECRET || 'vilo-cron-secret'
+
+    if (cronSecret !== expectedSecret) {
+      return res.status(401).json({ error: 'Unauthorized' })
+    }
+
+    console.log('[Cron] Running scheduled notifications...')
+    const results = await runScheduledNotifications()
+
+    res.json({
+      success: true,
+      results,
+      message: `Sent ${results.bookingReminders} booking reminders, ${results.checkInReminders} check-in reminders, ${results.paymentOverdue} payment overdue notifications`
+    })
+  } catch (error: any) {
+    console.error('Error running scheduled notifications:', error)
+    res.status(500).json({ error: 'Failed to run scheduled notifications', details: error.message })
   }
 })
 

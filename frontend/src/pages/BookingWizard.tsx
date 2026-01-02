@@ -691,18 +691,18 @@ export default function BookingWizard() {
           <SectionHeader icon={DollarSign} title="Pricing" description="Booking cost breakdown" />
           <div className="space-y-4">
             {pricingBreakdown.length > 0 && (
-              <div className="border border-gray-200 rounded-lg overflow-hidden">
+              <div style={{ borderColor: 'var(--border-color)' }} className="border rounded-lg overflow-hidden">
                 <table className="w-full text-sm">
-                  <thead className="bg-gray-50 border-b border-gray-200">
+                  <thead style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-color)' }} className="border-b">
                     <tr>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Date</th>
-                      <th className="px-4 py-2 text-right text-xs font-medium text-gray-500">Rate</th>
+                      <th style={{ color: 'var(--text-muted)' }} className="px-4 py-2 text-left text-xs font-medium">Date</th>
+                      <th style={{ color: 'var(--text-muted)' }} className="px-4 py-2 text-right text-xs font-medium">Rate</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-100">
+                  <tbody style={{ borderColor: 'var(--border-color)' }} className="divide-y">
                     {pricingBreakdown.map((night, i) => (
-                      <tr key={i}>
-                        <td className="px-4 py-2">
+                      <tr key={i} className="hover:opacity-90 transition-opacity">
+                        <td style={{ color: 'var(--text-primary)' }} className="px-4 py-2">
                           {formatDate(night.date)}
                           {night.seasonalRate && (
                             <span className="ml-2 px-1.5 py-0.5 bg-blue-100 text-blue-700 text-xs rounded">
@@ -710,14 +710,14 @@ export default function BookingWizard() {
                             </span>
                           )}
                         </td>
-                        <td className="px-4 py-2 text-right font-medium">{formatCurrency(night.price)}</td>
+                        <td style={{ color: 'var(--text-primary)' }} className="px-4 py-2 text-right font-medium">{formatCurrency(night.price)}</td>
                       </tr>
                     ))}
                   </tbody>
-                  <tfoot className="bg-gray-50 border-t border-gray-200">
+                  <tfoot style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-color)' }} className="border-t">
                     <tr>
-                      <td className="px-4 py-2 font-medium">Subtotal ({nights} nights)</td>
-                      <td className="px-4 py-2 text-right font-bold">{formatCurrency(calculatedTotal)}</td>
+                      <td style={{ color: 'var(--text-primary)' }} className="px-4 py-2 font-medium">Subtotal ({nights} nights)</td>
+                      <td style={{ color: 'var(--text-primary)' }} className="px-4 py-2 text-right font-bold">{formatCurrency(calculatedTotal)}</td>
                     </tr>
                   </tfoot>
                 </table>

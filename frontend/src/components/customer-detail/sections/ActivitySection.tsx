@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import {
   Calendar,
   CalendarPlus,
@@ -13,7 +14,12 @@ import {
   CreditCard,
   StickyNote,
   DoorOpen,
-  DoorClosed
+  DoorClosed,
+  ShoppingCart,
+  AlertCircle,
+  RotateCcw,
+  Send,
+  Loader2
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 
@@ -30,11 +36,21 @@ interface ActivityItem {
     support_ticket_id?: string
     amount?: number
     currency?: string
+    // Cart abandoned metadata
+    bookingRef?: string
+    roomName?: string
+    propertyName?: string
+    checkIn?: string
+    checkOut?: string
+    totalAmount?: number
+    guests?: number
   }
 }
 
 interface ActivitySectionProps {
   activities: ActivityItem[]
+  customerId?: string
+  onRefresh?: () => void
 }
 
 const activityIcons: Record<string, typeof Calendar> = {
@@ -45,6 +61,10 @@ const activityIcons: Record<string, typeof Calendar> = {
   booking_cancelled: CalendarX,
   booking_checked_in: DoorOpen,
   booking_checked_out: DoorClosed,
+  booking_recovered: RotateCcw,
+  // Cart/Payment failures
+  cart_abandoned: ShoppingCart,
+  payment_failed: AlertCircle,
   // Payment
   payment: CreditCard,
   payment_received: CreditCard,

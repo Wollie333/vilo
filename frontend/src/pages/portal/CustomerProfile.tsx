@@ -1,62 +1,25 @@
 import { useState, useEffect, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { User, Mail, Lock, Check, Camera, Trash2, Loader2, Building2, Shield, Circle, AlertCircle, ChevronDown, Bell, Calendar, CreditCard, Star, MessageSquare, Settings } from 'lucide-react'
+import { User, Mail, Lock, Check, Camera, Trash2, Loader2, Building2, Shield, Circle, AlertCircle, ChevronDown, ChevronRight, Bell, Calendar, CreditCard, Star, MessageSquare, Settings, Info } from 'lucide-react'
 import Button from '../../components/Button'
 import PhoneInput from '../../components/PhoneInput'
 import VatNumberInput from '../../components/VatNumberInput'
 import RegistrationNumberInput from '../../components/RegistrationNumberInput'
 import { useCustomerAuth } from '../../contexts/CustomerAuthContext'
-import { portalApi } from '../../services/portalApi'
+import { portalApi, CustomerNotificationPreferences } from '../../services/portalApi'
 import { useNotification } from '../../contexts/NotificationContext'
+import { CUSTOMER_NOTIFICATION_CATEGORIES, NotificationCategory, getRecipientLabel } from '../../components/notifications/notificationTypes'
 
-// Notification preferences types
-interface NotificationPreferences {
-  bookings: boolean
-  payments: boolean
-  reviews: boolean
-  support: boolean
-  system: boolean
+// Default customer notification preferences
+const getDefaultCustomerPreferences = (): CustomerNotificationPreferences => {
+  const defaults: Record<string, boolean> = {}
+  CUSTOMER_NOTIFICATION_CATEGORIES.forEach(cat => {
+    cat.types.forEach(t => {
+      defaults[t.type] = true
+    })
+  })
+  return defaults as unknown as CustomerNotificationPreferences
 }
-
-interface PreferenceCategory {
-  key: keyof NotificationPreferences
-  label: string
-  description: string
-  icon: typeof Calendar
-}
-
-const notificationCategories: PreferenceCategory[] = [
-  {
-    key: 'bookings',
-    label: 'Bookings',
-    description: 'Confirmations, reminders, and cancellations',
-    icon: Calendar
-  },
-  {
-    key: 'payments',
-    label: 'Payments',
-    description: 'Payment confirmations and receipts',
-    icon: CreditCard
-  },
-  {
-    key: 'reviews',
-    label: 'Reviews',
-    description: 'Review requests and responses',
-    icon: Star
-  },
-  {
-    key: 'support',
-    label: 'Support',
-    description: 'Ticket replies and updates',
-    icon: MessageSquare
-  },
-  {
-    key: 'system',
-    label: 'System',
-    description: 'Account and security alerts',
-    icon: Settings
-  }
-]
 
 // Section configuration
 interface SectionItem {
@@ -193,15 +156,10 @@ export default function CustomerProfile() {
   const [savingBusinessDetails, setSavingBusinessDetails] = useState(false)
 
   // Notification preferences
-  const [notificationPrefs, setNotificationPrefs] = useState<NotificationPreferences>({
-    bookings: true,
-    payments: true,
-    reviews: true,
-    support: true,
-    system: true
-  })
+  const [notificationPrefs, setNotificationPrefs] = useState<CustomerNotificationPreferences>(getDefaultCustomerPreferences())
   const [loadingNotificationPrefs, setLoadingNotificationPrefs] = useState(true)
   const [savingNotificationKey, setSavingNotificationKey] = useState<string | null>(null)
+  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     if (customer) {
@@ -225,7 +183,7 @@ export default function CustomerProfile() {
     const fetchNotificationPrefs = async () => {
       try {
         const prefs = await portalApi.getNotificationPreferences()
-        setNotificationPrefs(prefs)
+        setNotificationPrefs({ ...getDefaultCustomerPreferences(), ...prefs })
       } catch (error) {
         console.error('Failed to fetch notification preferences:', error)
       } finally {
@@ -398,23 +356,65 @@ export default function CustomerProfile() {
     }
   }
 
-  const handleNotificationToggle = async (key: keyof NotificationPreferences) => {
-    const newValue = !notificationPrefs[key]
-    setSavingNotificationKey(key)
+  const handleNotificationToggle = async (type: string) => {
+    const typeKey = type as keyof CustomerNotificationPreferences
+    const newValue = !notificationPrefs[typeKey]
+    setSavingNotificationKey(type)
 
     // Optimistic update
-    setNotificationPrefs(prev => ({ ...prev, [key]: newValue }))
+    setNotificationPrefs(prev => ({ ...prev, [type]: newValue }))
 
     try {
-      await portalApi.updateNotificationPreferences({ [key]: newValue })
-      showSuccess('Preference Updated', `${key.charAt(0).toUpperCase() + key.slice(1)} notifications ${newValue ? 'enabled' : 'disabled'}`)
+      await portalApi.updateNotificationPreferences({ [type]: newValue })
     } catch (error) {
       // Revert on error
-      setNotificationPrefs(prev => ({ ...prev, [key]: !newValue }))
+      setNotificationPrefs(prev => ({ ...prev, [type]: !newValue }))
       showError('Error', 'Failed to update notification preference')
     } finally {
       setSavingNotificationKey(null)
     }
+  }
+
+  const handleCategoryToggle = async (categoryKey: string, enabled: boolean) => {
+    const category = CUSTOMER_NOTIFICATION_CATEGORIES.find(c => c.key === categoryKey)
+    if (!category) return
+
+    setSavingNotificationKey(`category:${categoryKey}`)
+
+    // Build update object for all types in this category
+    const updates: Partial<CustomerNotificationPreferences> = {}
+    category.types.forEach(t => {
+      (updates as Record<string, boolean>)[t.type] = enabled
+    })
+
+    // Optimistic update
+    setNotificationPrefs(prev => ({ ...prev, ...updates }))
+
+    try {
+      await portalApi.updateNotificationPreferences(updates)
+    } catch (error) {
+      // Revert on error
+      const revert: Partial<CustomerNotificationPreferences> = {}
+      category.types.forEach(t => {
+        (revert as Record<string, boolean>)[t.type] = !enabled
+      })
+      setNotificationPrefs(prev => ({ ...prev, ...revert }))
+      showError('Error', 'Failed to update notification preferences')
+    } finally {
+      setSavingNotificationKey(null)
+    }
+  }
+
+  const toggleCategoryExpanded = (categoryKey: string) => {
+    setExpandedCategories(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(categoryKey)) {
+        newSet.delete(categoryKey)
+      } else {
+        newSet.add(categoryKey)
+      }
+      return newSet
+    })
   }
 
   const currentSectionName = sectionGroups
@@ -897,7 +897,7 @@ export default function CustomerProfile() {
               <div className="space-y-6">
                 <div>
                   <h2 className="text-lg font-semibold text-gray-900">Notification Settings</h2>
-                  <p className="text-sm text-gray-500 mt-1">Choose which notifications you want to receive</p>
+                  <p className="text-sm text-gray-500 mt-1">Choose which notifications you want to receive. Click a category to expand and configure individual notifications.</p>
                 </div>
 
                 {loadingNotificationPrefs ? (
@@ -906,48 +906,122 @@ export default function CustomerProfile() {
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    {notificationCategories.map(category => {
+                    {CUSTOMER_NOTIFICATION_CATEGORIES.map(category => {
                       const Icon = category.icon
-                      const isEnabled = notificationPrefs[category.key]
-                      const isSaving = savingNotificationKey === category.key
+                      const isExpanded = expandedCategories.has(category.key)
+                      const enabledCount = category.types.filter(t => notificationPrefs[t.type as keyof CustomerNotificationPreferences]).length
+                      const totalCount = category.types.length
+                      const allEnabled = enabledCount === totalCount
+                      const someEnabled = enabledCount > 0 && enabledCount < totalCount
+                      const isSavingCategory = savingNotificationKey === `category:${category.key}`
 
                       return (
                         <div
                           key={category.key}
-                          className="flex items-center justify-between p-4 bg-gray-50 rounded-xl"
+                          className="border border-gray-200 rounded-xl overflow-hidden"
                         >
-                          <div className="flex items-center gap-3">
-                            <div
-                              className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                                isEnabled ? 'bg-emerald-100 text-emerald-600' : 'bg-gray-200 text-gray-400'
-                              }`}
+                          {/* Category Header */}
+                          <div className="flex items-center justify-between p-4 bg-gray-50">
+                            <button
+                              onClick={() => toggleCategoryExpanded(category.key)}
+                              className="flex items-center gap-3 flex-1 text-left"
                             >
-                              <Icon size={20} />
-                            </div>
-                            <div>
-                              <p className="font-medium text-gray-900">{category.label}</p>
-                              <p className="text-sm text-gray-500">{category.description}</p>
-                            </div>
+                              <div
+                                className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                                  enabledCount > 0 ? 'bg-emerald-100 text-emerald-600' : 'bg-gray-200 text-gray-400'
+                                }`}
+                              >
+                                <Icon size={20} />
+                              </div>
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-medium text-gray-900">{category.label}</span>
+                                  <span className="text-xs px-2 py-0.5 rounded-full bg-gray-200 text-gray-600">
+                                    {enabledCount}/{totalCount}
+                                  </span>
+                                </div>
+                                <p className="text-sm text-gray-500">{category.description}</p>
+                              </div>
+                              {isExpanded ? (
+                                <ChevronDown size={20} className="text-gray-400" />
+                              ) : (
+                                <ChevronRight size={20} className="text-gray-400" />
+                              )}
+                            </button>
+
+                            {/* Master Toggle */}
+                            <button
+                              onClick={() => handleCategoryToggle(category.key, !allEnabled)}
+                              disabled={isSavingCategory}
+                              className={`relative w-11 h-6 rounded-full transition-colors ml-3 ${
+                                allEnabled ? 'bg-emerald-500' : someEnabled ? 'bg-emerald-300' : 'bg-gray-300'
+                              } ${isSavingCategory ? 'opacity-50' : ''}`}
+                            >
+                              <span
+                                className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${
+                                  allEnabled || someEnabled ? 'translate-x-5' : 'translate-x-0'
+                                }`}
+                              />
+                              {isSavingCategory && (
+                                <span className="absolute inset-0 flex items-center justify-center">
+                                  <Loader2 className="w-3 h-3 animate-spin text-white" />
+                                </span>
+                              )}
+                            </button>
                           </div>
 
-                          <button
-                            onClick={() => handleNotificationToggle(category.key)}
-                            disabled={isSaving}
-                            className={`relative w-11 h-6 rounded-full transition-colors ${
-                              isEnabled ? 'bg-emerald-500' : 'bg-gray-300'
-                            } ${isSaving ? 'opacity-50' : ''}`}
-                          >
-                            <span
-                              className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${
-                                isEnabled ? 'translate-x-5' : 'translate-x-0'
-                              }`}
-                            />
-                            {isSaving && (
-                              <span className="absolute inset-0 flex items-center justify-center">
-                                <Loader2 className="w-3 h-3 animate-spin text-white" />
-                              </span>
-                            )}
-                          </button>
+                          {/* Expanded Content */}
+                          {isExpanded && (
+                            <div className="border-t border-gray-200 bg-white px-4 py-2">
+                              {category.types.map((notifType, index) => {
+                                const typeKey = notifType.type as keyof CustomerNotificationPreferences
+                                const isEnabled = notificationPrefs[typeKey] ?? true
+                                const isSaving = savingNotificationKey === notifType.type
+
+                                return (
+                                  <div
+                                    key={notifType.type}
+                                    className={`flex items-center justify-between py-3 ${
+                                      index < category.types.length - 1 ? 'border-b border-gray-100' : ''
+                                    }`}
+                                  >
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-gray-900">{notifType.label}</span>
+                                      <div className="relative group">
+                                        <Info
+                                          size={14}
+                                          className="text-gray-400 hover:text-gray-600 cursor-help"
+                                        />
+                                        <div className="absolute z-50 bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 text-xs bg-gray-900 text-white rounded-lg shadow-lg whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                                          {notifType.description}
+                                          <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1 w-2 h-2 rotate-45 bg-gray-900" />
+                                        </div>
+                                      </div>
+                                    </div>
+
+                                    <button
+                                      onClick={() => handleNotificationToggle(notifType.type)}
+                                      disabled={isSaving}
+                                      className={`relative w-10 h-5 rounded-full transition-colors ${
+                                        isEnabled ? 'bg-emerald-500' : 'bg-gray-300'
+                                      } ${isSaving ? 'opacity-50' : ''}`}
+                                    >
+                                      <span
+                                        className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${
+                                          isEnabled ? 'translate-x-5' : 'translate-x-0'
+                                        }`}
+                                      />
+                                      {isSaving && (
+                                        <span className="absolute inset-0 flex items-center justify-center">
+                                          <Loader2 className="w-2.5 h-2.5 animate-spin text-white" />
+                                        </span>
+                                      )}
+                                    </button>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          )}
                         </div>
                       )
                     })}

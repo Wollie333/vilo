@@ -1,22 +1,21 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Check, BedDouble, Bath, Loader2, Users, Info, AlertCircle, Plus, Minus, Tag } from 'lucide-react'
+import { Check, BedDouble, Bath, Loader2, Users, Info, AlertCircle, Plus, Minus, Tag, Calendar } from 'lucide-react'
 import { discoveryApi } from '../../services/discoveryApi'
 import type { PropertyDetail, Room } from '../../services/discoveryApi'
 import type { CheckoutState, SelectedRoomWithPricing } from '../../pages/discovery/Checkout'
 import DateRangePicker from '../DateRangePicker'
+import StepContainer from './StepContainer'
 
 interface DateRoomStepProps {
   property: PropertyDetail
   state: CheckoutState
   updateState: (updates: Partial<CheckoutState>) => void
-  onNext: () => void
 }
 
 export default function DateRoomStep({
   property,
   state,
-  updateState,
-  onNext
+  updateState
 }: DateRoomStepProps) {
   const [loadingPricing, setLoadingPricing] = useState(false)
   const [availabilityStatus, setAvailabilityStatus] = useState<Map<string, {
@@ -368,78 +367,37 @@ export default function DateRoomStep({
   const today = new Date().toISOString().split('T')[0]
 
   return (
-    <div className="space-y-6">
-      {/* Property & Dates Card */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        {/* Property Header */}
-        <div className="flex gap-4 p-4 border-b border-gray-100">
-          {/* Property Image */}
-          {property.images[0] && (
-            <div className="w-24 h-24 rounded-lg overflow-hidden flex-shrink-0 bg-gray-100">
-              <img
-                src={property.images[0]}
-                alt={property.name}
-                className="w-full h-full object-cover"
-              />
-            </div>
-          )}
-          {/* Property Info */}
-          <div className="flex-1 min-w-0">
-            <h2 className="font-semibold text-gray-900 text-lg">{property.name}</h2>
-            <p className="text-sm text-gray-500 mt-0.5">
-              {property.location.city}{property.location.region ? `, ${property.location.region}` : ''}
-            </p>
-            {/* Review stars */}
-            {property.reviewCount !== undefined && property.reviewCount > 0 && (
-              <div className="flex items-center gap-1 mt-1">
-                <div className="flex items-center">
-                  {[1, 2, 3, 4, 5].map((star) => {
-                    const rating = property.rating || 0
-                    const filled = star <= Math.floor(rating)
-                    const partial = !filled && star <= rating
-                    return (
-                      <svg
-                        key={star}
-                        className={`w-4 h-4 ${filled ? 'text-amber-400' : partial ? 'text-amber-400' : 'text-gray-300'}`}
-                        fill="currentColor"
-                        viewBox="0 0 20 20"
-                      >
-                        <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                      </svg>
-                    )
-                  })}
-                </div>
-                <span className="text-sm font-medium text-gray-700">{property.rating?.toFixed(1)}</span>
-                <span className="text-sm text-gray-500">({property.reviewCount} review{property.reviewCount !== 1 ? 's' : ''})</span>
-              </div>
-            )}
-          </div>
-        </div>
+    <StepContainer
+      title="Select Your Dates & Room"
+      subtitle="When are you traveling?"
+      icon={Calendar}
+    >
+      {/* Date Selection Card */}
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">Travel Dates</h3>
+        <DateRangePicker
+          startDate={state.checkIn}
+          endDate={state.checkOut}
+          onStartDateChange={(date) => updateState({ checkIn: date })}
+          onEndDateChange={(date) => updateState({ checkOut: date })}
+          minDate={today}
+          startLabel="Check-in"
+          endLabel="Check-out"
+        />
 
-        {/* Date Selection */}
-        <div className="p-5">
-          <h3 className="font-medium text-gray-900 mb-3">When are you staying?</h3>
-          <DateRangePicker
-            startDate={state.checkIn}
-            endDate={state.checkOut}
-            onStartDateChange={(date) => updateState({ checkIn: date })}
-            onEndDateChange={(date) => updateState({ checkOut: date })}
-            minDate={today}
-            startLabel="Check-in"
-            endLabel="Check-out"
-          />
-
-          {state.checkIn && state.checkOut && (
-            <p className="mt-3 text-sm text-gray-500">
-              {calculateNights(state.checkIn, state.checkOut)} night{calculateNights(state.checkIn, state.checkOut) !== 1 ? 's' : ''} · {formatDate(state.checkIn)} to {formatDate(state.checkOut)}
-            </p>
-          )}
-        </div>
+        {state.checkIn && state.checkOut && (
+          <p className="mt-4 text-sm text-gray-500 flex items-center gap-2">
+            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">
+              {calculateNights(state.checkIn, state.checkOut)} night{calculateNights(state.checkIn, state.checkOut) !== 1 ? 's' : ''}
+            </span>
+            <span>{formatDate(state.checkIn)} — {formatDate(state.checkOut)}</span>
+          </p>
+        )}
       </div>
 
-      {/* Room Selection */}
-      <div className="bg-white rounded-xl border border-gray-200 p-5">
-        <h2 className="font-semibold text-gray-900 mb-4">Select your room</h2>
+      {/* Room Selection Card */}
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">Choose Your Room</h3>
 
         {!state.checkIn || !state.checkOut ? (
           <p className="text-gray-500 text-sm">Please select your dates first</p>
@@ -777,195 +735,20 @@ export default function DateRoomStep({
         )}
       </div>
 
-      {/* Selected Rooms Summary */}
-      {state.selectedRooms.length > 0 && state.checkIn && state.checkOut && (
-        <div className="bg-white rounded-xl border border-gray-200 p-5">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="font-semibold text-gray-900">Selected rooms</h2>
-            {/* Total guests from all rooms */}
-            {(() => {
-              const totalGuests = state.selectedRooms.reduce(
-                (sum, r) => sum + r.adults + r.children, 0
-              )
-              return (
-                <div className="text-sm font-medium px-2 py-1 rounded-full bg-emerald-100 text-emerald-700">
-                  {totalGuests} guest{totalGuests !== 1 ? 's' : ''} total
-                </div>
-              )
-            })()}
-          </div>
-
-          {loadingPricing ? (
-            <div className="flex items-center justify-center py-4">
-              <Loader2 className="w-5 h-5 animate-spin text-emerald-600" />
-            </div>
-          ) : pricingError ? (
-            <p className="text-red-600 text-sm">{pricingError}</p>
-          ) : (
-            <div className="space-y-4">
-              {state.selectedRooms.map(({ room, pricing, adjustedTotal, adults, children, childrenAges }) => {
-                const nights = pricing?.night_count || 0
-                const avgNightlyRate = pricing && nights > 0 ? pricing.subtotal / nights : room.basePrice
-                const hasSeasonalRate = pricing?.nights?.some(n => n.rate_name)
-                const pricingMode = room.pricingMode || 'per_unit'
-                const childAgeLimit = room.childAgeLimit || 12
-                const childFreeUntilAge = room.childFreeUntilAge || 0
-                const childPrice = room.childPricePerNight
-
-                // Calculate guest breakdown using THIS ROOM's guests
-                const roomChildrenAges = childrenAges || []
-                const freeChildren = roomChildrenAges.filter(age => age < childFreeUntilAge).length
-                const payingChildren = roomChildrenAges.filter(age => age >= childFreeUntilAge && age < childAgeLimit).length
-                const childrenAsAdults = roomChildrenAges.filter(age => age >= childAgeLimit).length
-                const totalAdults = (adults || 1) + childrenAsAdults
-                const roomTotalGuests = (adults || 1) + (children || 0)
-
-                // Use adjustedTotal if available, otherwise fall back to backend subtotal
-                const displayTotal = adjustedTotal !== undefined ? adjustedTotal : (pricing?.subtotal || 0)
-
-                return (
-                  <div key={room.id} className="border-b border-gray-100 pb-3 last:border-0 last:pb-0">
-                    <div className="flex justify-between items-start mb-2">
-                      <div>
-                        <span className="font-medium text-gray-900">{room.name}</span>
-                        <span className="ml-2 text-xs text-gray-500">
-                          ({roomTotalGuests} guest{roomTotalGuests !== 1 ? 's' : ''})
-                        </span>
-                        {hasSeasonalRate && (
-                          <span className="ml-2 text-xs bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded">
-                            Seasonal rate
-                          </span>
-                        )}
-                      </div>
-                      <span className="font-semibold text-gray-900">
-                        {pricing ? formatPrice(displayTotal) : '...'}
-                      </span>
-                    </div>
-
-                    {/* Detailed breakdown */}
-                    <div className="text-sm text-gray-500 space-y-1 pl-2 border-l-2 border-gray-100">
-                      <div className="flex justify-between">
-                        <span>{nights} night{nights !== 1 ? 's' : ''} × {formatPrice(avgNightlyRate)}/night</span>
-                      </div>
-
-                      {/* Guest breakdown for per_person modes */}
-                      {pricingMode !== 'per_unit' && (
-                        <>
-                          {totalAdults > 0 && (
-                            <div className="flex justify-between text-xs">
-                              <span className="text-gray-400">
-                                {totalAdults} adult{totalAdults !== 1 ? 's' : ''}
-                                {childrenAsAdults > 0 && ` (incl. ${childrenAsAdults} child${childrenAsAdults !== 1 ? 'ren' : ''} ${childAgeLimit}+)`}
-                              </span>
-                            </div>
-                          )}
-                          {payingChildren > 0 && (
-                            <div className="flex justify-between text-xs">
-                              <span className="text-gray-400">
-                                {payingChildren} child{payingChildren !== 1 ? 'ren' : ''}
-                                {childPrice !== undefined && childPrice !== null
-                                  ? ` @ ${formatPrice(childPrice)}/night`
-                                  : ' (adult rate)'}
-                              </span>
-                            </div>
-                          )}
-                          {freeChildren > 0 && (
-                            <div className="flex justify-between text-xs">
-                              <span className="text-emerald-600">
-                                {freeChildren} child{freeChildren !== 1 ? 'ren' : ''} under {childFreeUntilAge} stay free
-                              </span>
-                            </div>
-                          )}
-                        </>
-                      )}
-
-                      {/* Per unit mode - show this room's guests */}
-                      {pricingMode === 'per_unit' && (
-                        <div className="flex justify-between text-xs">
-                          <span className="text-gray-400">
-                            {roomTotalGuests} guest{roomTotalGuests !== 1 ? 's' : ''} (max {room.maxGuests})
-                          </span>
-                        </div>
-                      )}
-
-                      {/* Show varied rates if applicable */}
-                      {pricing?.nights?.some((n, i, arr) => i > 0 && n.price !== arr[0].price) && (
-                        <div className="mt-1 pt-1 border-t border-gray-100">
-                          <span className="text-xs text-gray-400">Rate breakdown:</span>
-                          {pricing.nights.map((night, idx) => (
-                            <div key={idx} className="flex justify-between text-xs text-gray-400">
-                              <span>
-                                {new Date(night.date).toLocaleDateString('en-ZA', { weekday: 'short', day: 'numeric', month: 'short' })}
-                                {night.rate_name && <span className="text-emerald-600 ml-1">({night.rate_name})</span>}
-                              </span>
-                              <span>{formatPrice(night.price)}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )
-              })}
-
-              {/* Per-room guest breakdown */}
-              {state.selectedRooms.length > 1 && (
-                <div className="bg-gray-50 rounded-lg p-3 text-sm">
-                  <div className="font-medium text-gray-700 mb-2">Guests per room</div>
-                  <div className="space-y-1.5">
-                    {state.selectedRooms.map(({ room, adults, children, childrenAges }) => {
-                      const roomAdults = adults || 1
-                      const roomChildren = children || 0
-                      const roomChildrenAges = childrenAges || []
-
-                      return (
-                        <div key={room.id} className="flex justify-between items-center">
-                          <span className="text-gray-600">{room.name}</span>
-                          <span className="text-gray-500 text-xs">
-                            {roomAdults} adult{roomAdults !== 1 ? 's' : ''}
-                            {roomChildren > 0 && (
-                              <>, {roomChildren} child{roomChildren !== 1 ? 'ren' : ''}
-                              ({roomChildrenAges.join(', ')} yrs)</>
-                            )}
-                          </span>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              )}
-
-              <div className="border-t border-gray-200 pt-3">
-                <div className="flex justify-between font-semibold text-gray-900">
-                  <span>Rooms subtotal</span>
-                  <span>
-                    {formatPrice(state.selectedRooms.reduce((sum, { pricing, adjustedTotal }) =>
-                      sum + (adjustedTotal !== undefined ? adjustedTotal : (pricing?.subtotal || 0)), 0
-                    ))}
-                  </span>
-                </div>
-              </div>
-            </div>
-          )}
+      {/* Loading indicator for pricing */}
+      {loadingPricing && state.selectedRooms.length > 0 && (
+        <div className="flex items-center justify-center py-4">
+          <Loader2 className="w-5 h-5 animate-spin text-emerald-600 mr-2" />
+          <span className="text-sm text-gray-500">Loading prices...</span>
         </div>
       )}
 
-      {/* Continue Button */}
-      <div className="flex justify-end">
-        <button
-          onClick={onNext}
-          disabled={!canContinue}
-          className={`
-            px-8 py-3 rounded-xl font-medium transition-all
-            ${canContinue
-              ? 'bg-black text-white hover:bg-gray-800'
-              : 'bg-gray-200 text-gray-400 cursor-not-allowed'
-            }
-          `}
-        >
-          Continue
-        </button>
-      </div>
-    </div>
+      {/* Error message for pricing */}
+      {pricingError && (
+        <div className="p-4 bg-red-50 border border-red-200 rounded-xl">
+          <p className="text-red-600 text-sm">{pricingError}</p>
+        </div>
+      )}
+    </StepContainer>
   )
 }

@@ -14,6 +14,7 @@ import {
   Share2,
   Download
 } from 'lucide-react'
+import { trackingService } from '../../services/trackingService'
 
 // DataLayer type declaration for analytics tracking
 declare global {
@@ -132,6 +133,9 @@ export default function BookingConfirmation() {
         booking_status: booking.status
       }
     })
+
+    // Track conversion for Vilo analytics
+    trackingService.trackConversion(booking.id, booking.total)
 
     dataLayerPushed.current = true
   }, [booking])

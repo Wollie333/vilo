@@ -9,7 +9,8 @@ import {
   LayoutDashboard,
   ChevronDown,
   Search,
-  List
+  List,
+  RotateCcw
 } from 'lucide-react'
 import { useCustomerAuth } from '../contexts/CustomerAuthContext'
 
@@ -22,6 +23,7 @@ const navigation = [
 
 const bookingsSubItems = [
   { name: 'All Bookings', href: '/portal/bookings', icon: List },
+  { name: 'My Refunds', href: '/portal/refunds', icon: RotateCcw },
   { name: 'New Booking', href: '/portal/bookings/browse', icon: Search },
 ]
 
@@ -29,7 +31,7 @@ export default function CustomerSidebar() {
   const location = useLocation()
   const { customer, logout } = useCustomerAuth()
   const [bookingsExpanded, setBookingsExpanded] = useState(
-    location.pathname.startsWith('/portal/bookings')
+    location.pathname.startsWith('/portal/bookings') || location.pathname.startsWith('/portal/refunds')
   )
 
   const handleLogout = async () => {
@@ -100,13 +102,13 @@ export default function CustomerSidebar() {
           <button
             onClick={() => setBookingsExpanded(!bookingsExpanded)}
             className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg transition-all ${
-              location.pathname.startsWith('/portal/bookings')
+              location.pathname.startsWith('/portal/bookings') || location.pathname.startsWith('/portal/refunds')
                 ? 'bg-accent-50 text-accent-700 font-medium'
                 : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
             }`}
           >
             <div className="flex items-center gap-3">
-              <Calendar size={18} className={location.pathname.startsWith('/portal/bookings') ? 'text-accent-600' : ''} />
+              <Calendar size={18} className={location.pathname.startsWith('/portal/bookings') || location.pathname.startsWith('/portal/refunds') ? 'text-accent-600' : ''} />
               <span className="text-sm">My Bookings</span>
             </div>
             <ChevronDown
@@ -118,8 +120,16 @@ export default function CustomerSidebar() {
           {bookingsExpanded && (
             <div className="ml-6 mt-1 space-y-1">
               {bookingsSubItems.map((item) => {
-                const isActive = location.pathname === item.href ||
-                  (item.href === '/portal/bookings/browse' && location.pathname.startsWith('/portal/bookings/browse'))
+                // Determine if this sub-item is active
+                let isActive = location.pathname === item.href
+                // New Booking should be active on browse pages
+                if (item.href === '/portal/bookings/browse' && location.pathname.startsWith('/portal/bookings/browse')) {
+                  isActive = true
+                }
+                // Refunds page
+                if (item.href === '/portal/refunds' && location.pathname.startsWith('/portal/refunds')) {
+                  isActive = true
+                }
                 const Icon = item.icon
                 return (
                   <Link

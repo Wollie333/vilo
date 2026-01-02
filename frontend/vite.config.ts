@@ -11,6 +11,9 @@ export default defineConfig({
       '.localhost',
       '.lvh.me',
     ],
+    watch: {
+      usePolling: true,
+    },
     proxy: {
       '/api': {
         target: 'http://localhost:3002',
