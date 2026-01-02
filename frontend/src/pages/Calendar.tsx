@@ -1,6 +1,6 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Loader2, Calendar as CalendarIcon, LayoutGrid, ChevronLeft, ChevronRight, Filter, X, Search } from 'lucide-react'
+import { Loader2, Calendar as CalendarIcon, LayoutGrid, ChevronLeft, ChevronRight, Filter, X, Search, Keyboard, CalendarDays, Download, FileSpreadsheet, Check } from 'lucide-react'
 import { format, addDays, parseISO } from 'date-fns'
 import { useCalendarNavigation } from '../hooks/useCalendarNavigation'
 import { useCalendarData, useBookingMutations } from '../hooks/useCalendarData'
@@ -8,7 +8,9 @@ import { useNotification } from '../contexts/NotificationContext'
 import TimelineView from '../components/calendar/TimelineView/TimelineView'
 import MonthView from '../components/calendar/MonthView/MonthView'
 import DateRangePickerPanel from '../components/calendar/shared/DateRangePickerPanel'
-import type { Booking } from '../services/api'
+import MiniCalendar from '../components/calendar/shared/MiniCalendar'
+import type { Booking, BookingSource } from '../services/api'
+import { BOOKING_SOURCE_DISPLAY } from '../services/api'
 import { formatDateRange, formatMonthYear, hasBookingConflict, calculateResizedDates } from '../utils/calendarUtils'
 
 export default function Calendar() {
@@ -50,9 +52,136 @@ export default function Calendar() {
   // Filter state
   const [selectedRooms, setSelectedRooms] = useState<string[]>([])
   const [selectedStatuses, setSelectedStatuses] = useState<Booking['status'][]>([])
+  const [selectedSources, setSelectedSources] = useState<BookingSource[]>([])
   const [showFilters, setShowFilters] = useState(false)
 
-  
+  // Legend and keyboard shortcuts
+  const [showLegend, setShowLegend] = useState(false)
+  const [showShortcuts, setShowShortcuts] = useState(false)
+  const [showMiniCalendar, setShowMiniCalendar] = useState(false)
+  const [miniCalendarMonth, setMiniCalendarMonth] = useState(new Date())
+  const [showExportMenu, setShowExportMenu] = useState(false)
+  const exportMenuRef = useRef<HTMLDivElement>(null)
+
+  // Status configuration for interactive legend
+  const statusConfig = useMemo(() => [
+    { status: 'pending' as const, label: 'Pending', bg: 'bg-yellow-100', border: 'border-yellow-400' },
+    { status: 'confirmed' as const, label: 'Confirmed', bg: 'bg-emerald-100', border: 'border-emerald-400' },
+    { status: 'checked_in' as const, label: 'Checked In', bg: 'bg-blue-100', border: 'border-blue-400' },
+    { status: 'occupied' as const, label: 'Occupied', bg: 'bg-teal-100', border: 'border-teal-400' },
+    { status: 'checked_out' as const, label: 'Checked Out', bg: 'bg-purple-100', border: 'border-purple-400' },
+    { status: 'cancelled' as const, label: 'Cancelled', bg: 'bg-red-100', border: 'border-red-400' },
+    { status: 'completed' as const, label: 'Completed', bg: 'bg-gray-100', border: 'border-gray-400' },
+  ], [])
+
+  // Calculate booking counts per status
+  const statusCounts = useMemo(() => {
+    const counts: Record<string, number> = {}
+    bookings.forEach(b => {
+      counts[b.status] = (counts[b.status] || 0) + 1
+    })
+    return counts
+  }, [bookings])
+
+  // Calculate booking counts per source
+  const sourceCounts = useMemo(() => {
+    const counts: Record<string, number> = {}
+    bookings.forEach(b => {
+      const source = b.source || 'vilo'
+      counts[source] = (counts[source] || 0) + 1
+    })
+    return counts
+  }, [bookings])
+
+  // Available sources (only show sources that have bookings)
+  const availableSources = useMemo(() => {
+    const sources = new Set<BookingSource>()
+    bookings.forEach(b => {
+      sources.add(b.source || 'vilo')
+    })
+    return Array.from(sources).sort()
+  }, [bookings])
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Skip if user is typing in an input field
+      const target = e.target as HTMLElement
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+        return
+      }
+
+      // Don't trigger shortcuts with modifier keys (except for specific combos)
+      if (e.metaKey || e.ctrlKey || e.altKey) {
+        return
+      }
+
+      switch (e.key.toLowerCase()) {
+        case 't':
+          e.preventDefault()
+          goToToday()
+          break
+        case 'arrowleft':
+          e.preventDefault()
+          goToPrev()
+          break
+        case 'arrowright':
+          e.preventDefault()
+          goToNext()
+          break
+        case 'm':
+          e.preventDefault()
+          setView('month')
+          break
+        case 'w':
+          e.preventDefault()
+          setView('timeline')
+          break
+        case 'escape':
+          e.preventDefault()
+          setShowDateRangePicker(false)
+          setShowFilters(false)
+          setShowLegend(false)
+          setShowShortcuts(false)
+          break
+        case 'f':
+          e.preventDefault()
+          setShowFilters(prev => !prev)
+          break
+        case 'l':
+          e.preventDefault()
+          setShowLegend(prev => !prev)
+          break
+        case '?':
+          e.preventDefault()
+          setShowShortcuts(prev => !prev)
+          break
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [goToToday, goToPrev, goToNext, setView])
+
+  // Close export menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(e.target as Node)) {
+        setShowExportMenu(false)
+      }
+    }
+    if (showExportMenu) {
+      document.addEventListener('mousedown', handleClickOutside)
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [showExportMenu])
+
+  // Handle mini calendar date click
+  const handleMiniCalendarDateClick = useCallback((date: Date) => {
+    setCurrentDate(date)
+    setShowMiniCalendar(false)
+  }, [setCurrentDate])
+
   // Filter bookings based on selected filters
   const filteredRooms = selectedRooms.length > 0
     ? rooms.filter(r => selectedRooms.includes(r.id!))
@@ -69,8 +198,54 @@ export default function Calendar() {
       filtered = filtered.filter(b => selectedStatuses.includes(b.status))
     }
 
+    if (selectedSources.length > 0) {
+      filtered = filtered.filter(b => selectedSources.includes(b.source || 'vilo'))
+    }
+
     return filtered
-  }, [selectedRooms, selectedStatuses])
+  }, [selectedRooms, selectedStatuses, selectedSources])
+
+  // Export bookings to CSV
+  const exportToCSV = useCallback(() => {
+    const filtered = filterBookings(bookings)
+    if (filtered.length === 0) {
+      showError('No Data', 'No bookings to export')
+      return
+    }
+
+    const headers = ['Guest Name', 'Room', 'Check In', 'Check Out', 'Status', 'Total Amount', 'Payment Status']
+    const rows = filtered.map(b => {
+      const room = rooms.find(r => r.id === b.room_id)
+      return [
+        b.guest_name,
+        room?.name || 'Unknown',
+        format(new Date(b.check_in), 'yyyy-MM-dd'),
+        format(new Date(b.check_out), 'yyyy-MM-dd'),
+        b.status.replace('_', ' '),
+        b.total_amount?.toFixed(2) || '0.00',
+        b.payment_status?.replace('_', ' ') || 'unpaid'
+      ]
+    })
+
+    const csvContent = [headers, ...rows].map(row => row.map(cell => `"${cell}"`).join(',')).join('\n')
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `bookings-${format(new Date(), 'yyyy-MM-dd')}.csv`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+    setShowExportMenu(false)
+    showSuccess('Exported', 'Bookings exported to CSV')
+  }, [bookings, rooms, filterBookings, showSuccess, showError])
+
+  // Print calendar view
+  const handlePrint = useCallback(() => {
+    setShowExportMenu(false)
+    window.print()
+  }, [])
 
   // Handle booking click - navigate to booking detail
   const handleBookingClick = useCallback((booking: Booking) => {
@@ -164,6 +339,16 @@ export default function Calendar() {
     }
   }, [bookings, updateBooking, showSuccess, showError])
 
+  // Handle status change from context menu
+  const handleStatusChange = useCallback(async (bookingId: string, status: Booking['status']) => {
+    try {
+      await updateBooking(bookingId, { status })
+      showSuccess('Status Updated', `Booking status changed to ${status.replace('_', ' ')}`)
+    } catch {
+      showError('Update Failed', 'Could not update booking status')
+    }
+  }, [updateBooking, showSuccess, showError])
+
   // Toggle room filter
   const toggleRoomFilter = (roomId: string) => {
     setSelectedRooms(prev =>
@@ -182,10 +367,20 @@ export default function Calendar() {
     )
   }
 
+  // Toggle source filter
+  const toggleSourceFilter = (source: BookingSource) => {
+    setSelectedSources(prev =>
+      prev.includes(source)
+        ? prev.filter(s => s !== source)
+        : [...prev, source]
+    )
+  }
+
   // Clear all filters
   const clearFilters = () => {
     setSelectedRooms([])
     setSelectedStatuses([])
+    setSelectedSources([])
   }
 
   const statuses: Booking['status'][] = ['pending', 'confirmed', 'checked_in', 'checked_out', 'cancelled', 'completed']
@@ -297,9 +492,9 @@ export default function Calendar() {
           </h2>
         </div>
 
-        {/* Filter Toggle */}
+        {/* Filter Toggle and Tools */}
         <div className="flex items-center gap-2">
-          {(selectedRooms.length > 0 || selectedStatuses.length > 0) && (
+          {(selectedRooms.length > 0 || selectedStatuses.length > 0 || selectedSources.length > 0) && (
             <button
               onClick={clearFilters}
               className="px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 rounded-lg flex items-center gap-1"
@@ -308,6 +503,85 @@ export default function Calendar() {
               Clear Filters
             </button>
           )}
+
+          {/* Legend Toggle */}
+          <button
+            onClick={() => setShowLegend(!showLegend)}
+            className={`px-3 py-1.5 text-sm font-medium border rounded-lg flex items-center gap-2 transition-colors ${
+              showLegend
+                ? 'border-black bg-black text-white'
+                : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+            }`}
+            title="Toggle legend (L)"
+          >
+            <div className="flex gap-0.5">
+              <div className="w-2 h-2 rounded-full bg-yellow-400" />
+              <div className="w-2 h-2 rounded-full bg-emerald-400" />
+              <div className="w-2 h-2 rounded-full bg-blue-400" />
+            </div>
+            <span className="hidden sm:inline">Legend</span>
+          </button>
+
+          {/* Mini Calendar Toggle */}
+          <button
+            onClick={() => setShowMiniCalendar(!showMiniCalendar)}
+            className={`p-1.5 text-sm font-medium border rounded-lg transition-colors ${
+              showMiniCalendar
+                ? 'border-black bg-black text-white'
+                : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+            }`}
+            title="Quick date picker"
+          >
+            <CalendarDays className="w-4 h-4" />
+          </button>
+
+          {/* Export Menu */}
+          <div className="relative" ref={exportMenuRef}>
+            <button
+              onClick={() => setShowExportMenu(!showExportMenu)}
+              className={`p-1.5 text-sm font-medium border rounded-lg transition-colors ${
+                showExportMenu
+                  ? 'border-black bg-black text-white'
+                  : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+              }`}
+              title="Export options"
+            >
+              <Download className="w-4 h-4" />
+            </button>
+            {showExportMenu && (
+              <div className="absolute right-0 top-full mt-1 bg-white rounded-lg shadow-lg border border-gray-200 py-1 min-w-[160px] z-20">
+                <button
+                  onClick={exportToCSV}
+                  className="w-full px-4 py-2 text-sm text-left text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                >
+                  <FileSpreadsheet className="w-4 h-4" />
+                  Export to CSV
+                </button>
+                <button
+                  onClick={handlePrint}
+                  className="w-full px-4 py-2 text-sm text-left text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                >
+                  <Download className="w-4 h-4" />
+                  Print View
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Keyboard Shortcuts */}
+          <button
+            onClick={() => setShowShortcuts(!showShortcuts)}
+            className={`p-1.5 text-sm font-medium border rounded-lg transition-colors ${
+              showShortcuts
+                ? 'border-black bg-black text-white'
+                : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+            }`}
+            title="Keyboard shortcuts (?)"
+          >
+            <Keyboard className="w-4 h-4" />
+          </button>
+
+          {/* Filters */}
           <button
             onClick={() => setShowFilters(!showFilters)}
             className={`px-3 py-1.5 text-sm font-medium border rounded-lg flex items-center gap-2 transition-colors ${
@@ -349,6 +623,173 @@ export default function Calendar() {
           bookings={bookings}
           rooms={rooms}
         />
+      )}
+
+      {/* Legend Panel - Interactive Status Filter */}
+      {showLegend && (
+        <div className="flex-shrink-0 bg-white rounded-lg border border-gray-200 p-4 mb-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-medium text-gray-900">Filter by Status</h3>
+              {selectedStatuses.length > 0 && (
+                <span className="text-xs text-gray-500">
+                  Showing {selectedStatuses.length} of {statusConfig.length}
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              {selectedStatuses.length > 0 && (
+                <button
+                  onClick={() => setSelectedStatuses([])}
+                  className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+                >
+                  Show All
+                </button>
+              )}
+              <button
+                onClick={() => setShowLegend(false)}
+                className="p-1 hover:bg-gray-100 rounded-lg"
+              >
+                <X className="w-4 h-4 text-gray-500" />
+              </button>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {statusConfig.map(({ status, label, bg, border }) => {
+              const isActive = selectedStatuses.length === 0 || selectedStatuses.includes(status)
+              const count = statusCounts[status] || 0
+              return (
+                <button
+                  key={status}
+                  onClick={() => toggleStatusFilter(status)}
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-all ${
+                    isActive
+                      ? 'border-gray-300 bg-white hover:bg-gray-50'
+                      : 'border-gray-200 bg-gray-50 opacity-50 hover:opacity-75'
+                  }`}
+                >
+                  <div className={`w-3 h-3 rounded ${bg} border ${border}`} />
+                  <span className="text-sm text-gray-700">{label}</span>
+                  <span className="text-xs text-gray-400">({count})</span>
+                  {selectedStatuses.includes(status) && (
+                    <Check className="w-3 h-3 text-emerald-500" />
+                  )}
+                </button>
+              )
+            })}
+          </div>
+
+          {/* Source Filter Section */}
+          {availableSources.length > 0 && (
+            <>
+              <div className="border-t border-gray-100 my-3" />
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <h4 className="text-sm font-medium text-gray-900">Filter by Source</h4>
+                  {selectedSources.length > 0 && (
+                    <span className="text-xs text-gray-500">
+                      Showing {selectedSources.length} of {availableSources.length}
+                    </span>
+                  )}
+                </div>
+                {selectedSources.length > 0 && (
+                  <button
+                    onClick={() => setSelectedSources([])}
+                    className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+                  >
+                    Show All
+                  </button>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {availableSources.map(source => {
+                  const sourceInfo = BOOKING_SOURCE_DISPLAY[source]
+                  const isActive = selectedSources.length === 0 || selectedSources.includes(source)
+                  const count = sourceCounts[source] || 0
+                  return (
+                    <button
+                      key={source}
+                      onClick={() => toggleSourceFilter(source)}
+                      className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-all ${
+                        isActive
+                          ? 'border-gray-300 bg-white hover:bg-gray-50'
+                          : 'border-gray-200 bg-gray-50 opacity-50 hover:opacity-75'
+                      }`}
+                    >
+                      <div
+                        className="w-3 h-3 rounded-full"
+                        style={{ backgroundColor: sourceInfo?.color || '#6B7280' }}
+                      />
+                      <span className="text-sm text-gray-700">{sourceInfo?.label || source}</span>
+                      <span className="text-xs text-gray-400">({count})</span>
+                      {selectedSources.includes(source) && (
+                        <Check className="w-3 h-3 text-emerald-500" />
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Keyboard Shortcuts Modal */}
+      {showShortcuts && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setShowShortcuts(false)}>
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4 p-6" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Keyboard Shortcuts</h3>
+              <button
+                onClick={() => setShowShortcuts(false)}
+                className="p-1 hover:bg-gray-100 rounded-lg"
+              >
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+            <div className="space-y-3">
+              <div className="flex justify-between items-center">
+                <span className="text-gray-700">Jump to today</span>
+                <kbd className="px-2 py-1 bg-gray-100 border border-gray-300 rounded text-sm font-mono">T</kbd>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-gray-700">Previous period</span>
+                <kbd className="px-2 py-1 bg-gray-100 border border-gray-300 rounded text-sm font-mono">←</kbd>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-gray-700">Next period</span>
+                <kbd className="px-2 py-1 bg-gray-100 border border-gray-300 rounded text-sm font-mono">→</kbd>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-gray-700">Month view</span>
+                <kbd className="px-2 py-1 bg-gray-100 border border-gray-300 rounded text-sm font-mono">M</kbd>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-gray-700">Timeline view</span>
+                <kbd className="px-2 py-1 bg-gray-100 border border-gray-300 rounded text-sm font-mono">W</kbd>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-gray-700">Toggle filters</span>
+                <kbd className="px-2 py-1 bg-gray-100 border border-gray-300 rounded text-sm font-mono">F</kbd>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-gray-700">Toggle legend</span>
+                <kbd className="px-2 py-1 bg-gray-100 border border-gray-300 rounded text-sm font-mono">L</kbd>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-gray-700">Close panels</span>
+                <kbd className="px-2 py-1 bg-gray-100 border border-gray-300 rounded text-sm font-mono">Esc</kbd>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-gray-700">Show shortcuts</span>
+                <kbd className="px-2 py-1 bg-gray-100 border border-gray-300 rounded text-sm font-mono">?</kbd>
+              </div>
+            </div>
+            <p className="mt-4 text-xs text-gray-500 text-center">
+              Press <kbd className="px-1 bg-gray-100 border rounded text-xs">Esc</kbd> to close
+            </p>
+          </div>
+        </div>
       )}
 
       {/* Filter Panel */}
@@ -398,6 +839,20 @@ export default function Calendar() {
         </div>
       )}
 
+      {/* Mini Calendar Panel */}
+      {showMiniCalendar && (
+        <div className="flex-shrink-0 mb-4 flex justify-end">
+          <MiniCalendar
+            currentDate={miniCalendarMonth}
+            viewStartDate={timelineStart}
+            viewEndDate={timelineEnd}
+            bookings={bookings}
+            onDateClick={handleMiniCalendarDateClick}
+            onMonthChange={setMiniCalendarMonth}
+          />
+        </div>
+      )}
+
       {/* Calendar View */}
       <div className="flex-1 min-h-0 bg-white rounded-lg border border-gray-200 overflow-hidden">
         {view === 'timeline' ? (
@@ -411,6 +866,9 @@ export default function Calendar() {
             onBookingDrag={handleBookingDrag}
             onBookingResize={handleBookingResize}
             isUpdating={isUpdating}
+            onStatusChange={handleStatusChange}
+            onSwipePrev={goToPrev}
+            onSwipeNext={goToNext}
           />
         ) : (
           <MonthView

@@ -124,5 +124,117 @@ body {
   cursor: not-allowed;
 }
 
+/* Print styles for calendar */
+@media print {
+  /* Hide navigation and sidebar elements */
+  .print\\:hidden,
+  nav,
+  aside,
+  .sidebar,
+  button:not(.no-print-hide),
+  .filters-panel,
+  .legend-panel {
+    display: none !important;
+  }
 
+  /* Full width for calendar */
+  .calendar-container {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* Ensure colors print */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
+  }
+
+  /* Page setup */
+  @page {
+    size: landscape;
+    margin: 0.5cm;
+  }
+
+  /* Better text for printing */
+  body {
+    font-size: 10pt;
+    background: white !important;
+  }
+
+  /* Booking blocks should show colors */
+  .bg-yellow-100,
+  .bg-emerald-100,
+  .bg-blue-100,
+  .bg-purple-100,
+  .bg-red-100,
+  .bg-gray-100 {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+}
+
+/* Marquee animations for testimonials carousel */
+@keyframes marquee-left {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes marquee-right {
+  0% {
+    transform: translateX(-50%);
+  }
+  100% {
+    transform: translateX(0);
+  }
+}
+
+/* Marquee row styling - pause on hover */
+.marquee-row {
+  display: flex;
+  gap: 1.5rem;
+  width: max-content;
+}
+
+.marquee-row-left {
+  animation: marquee-left 35s linear infinite;
+}
+
+.marquee-row-right {
+  animation: marquee-right 35s linear infinite;
+}
+
+.marquee-row:hover {
+  animation-play-state: paused;
+}
+
+/* Legacy class support */
+.animate-marquee-left {
+  animation: marquee-left 35s linear infinite;
+}
+
+.animate-marquee-right {
+  animation: marquee-right 35s linear infinite;
+}
+
+.animate-marquee-left:hover,
+.animate-marquee-right:hover {
+  animation-play-state: paused;
+}
+
+/* Reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  .animate-marquee-left,
+  .animate-marquee-right,
+  .marquee-row-left,
+  .marquee-row-right {
+    animation: none;
+  }
+}
 

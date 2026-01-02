@@ -1,55 +1,7 @@
-import { useState, useRef, useEffect } from 'react'
-import { User, Mail, MessageSquare, AlertCircle, Calendar, Moon, ChevronDown } from 'lucide-react'
+import { useState } from 'react'
+import { User, Mail, MessageSquare, AlertCircle, Calendar, Moon } from 'lucide-react'
 import type { CheckoutState } from '../../pages/discovery/Checkout'
-import FlagIcon from '../FlagIcon'
-
-// Phone country codes
-const PHONE_CODES = [
-  { code: '+27', country: 'ZA', name: 'South Africa', format: '## ### ####' },
-  { code: '+1', country: 'US', name: 'United States', format: '(###) ###-####' },
-  { code: '+44', country: 'GB', name: 'United Kingdom', format: '#### ######' },
-  { code: '+267', country: 'BW', name: 'Botswana', format: '## ### ###' },
-  { code: '+264', country: 'NA', name: 'Namibia', format: '## ### ####' },
-  { code: '+263', country: 'ZW', name: 'Zimbabwe', format: '## ### ####' },
-  { code: '+258', country: 'MZ', name: 'Mozambique', format: '## ### ####' },
-  { code: '+260', country: 'ZM', name: 'Zambia', format: '## ### ####' },
-  { code: '+254', country: 'KE', name: 'Kenya', format: '### ### ###' },
-  { code: '+255', country: 'TZ', name: 'Tanzania', format: '### ### ###' },
-  { code: '+234', country: 'NG', name: 'Nigeria', format: '### ### ####' },
-  { code: '+233', country: 'GH', name: 'Ghana', format: '## ### ####' },
-  { code: '+49', country: 'DE', name: 'Germany', format: '### #######' },
-  { code: '+33', country: 'FR', name: 'France', format: '# ## ## ## ##' },
-  { code: '+31', country: 'NL', name: 'Netherlands', format: '# ########' },
-  { code: '+61', country: 'AU', name: 'Australia', format: '### ### ###' },
-  { code: '+351', country: 'PT', name: 'Portugal', format: '### ### ###' },
-  { code: '+34', country: 'ES', name: 'Spain', format: '### ### ###' },
-  { code: '+971', country: 'AE', name: 'UAE', format: '## ### ####' },
-]
-
-// Format phone number according to mask
-function formatPhoneNumber(value: string, format: string): string {
-  // Remove all non-digits
-  const digits = value.replace(/\D/g, '')
-
-  let result = ''
-  let digitIndex = 0
-
-  for (let i = 0; i < format.length && digitIndex < digits.length; i++) {
-    if (format[i] === '#') {
-      result += digits[digitIndex]
-      digitIndex++
-    } else {
-      result += format[i]
-    }
-  }
-
-  return result
-}
-
-// Get placeholder from format
-function getPlaceholder(format: string): string {
-  return format.replace(/#/g, '0')
-}
+import PhoneInput from '../PhoneInput'
 
 interface GuestDetailsStepProps {
   state: CheckoutState
@@ -65,51 +17,6 @@ export default function GuestDetailsStep({
   onBack
 }: GuestDetailsStepProps) {
   const [errors, setErrors] = useState<Record<string, string>>({})
-  const [phoneCode, setPhoneCode] = useState('+27')
-  const [phoneNumber, setPhoneNumber] = useState('')
-  const [isPhoneDropdownOpen, setIsPhoneDropdownOpen] = useState(false)
-  const dropdownRef = useRef<HTMLDivElement>(null)
-
-  // Get current country's format
-  const currentCountry = PHONE_CODES.find(pc => pc.code === phoneCode) || PHONE_CODES[0]
-
-  // Close dropdown on outside click
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setIsPhoneDropdownOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [])
-
-  // Sync phone state with parent when it changes
-  useEffect(() => {
-    // Parse existing phone if it has a country code
-    if (state.guestPhone && !phoneNumber) {
-      const matchedCode = PHONE_CODES.find(pc => state.guestPhone.startsWith(pc.code))
-      if (matchedCode) {
-        setPhoneCode(matchedCode.code)
-        const rawNumber = state.guestPhone.replace(matchedCode.code, '').trim()
-        setPhoneNumber(formatPhoneNumber(rawNumber, matchedCode.format))
-      } else {
-        setPhoneNumber(state.guestPhone)
-      }
-    }
-  }, [])
-
-  // Update parent state when phone changes
-  useEffect(() => {
-    const rawDigits = phoneNumber.replace(/\D/g, '')
-    if (rawDigits) {
-      // Remove leading zero if present
-      const normalizedNumber = rawDigits.replace(/^0+/, '')
-      updateState({ guestPhone: `${phoneCode}${normalizedNumber}` })
-    } else {
-      updateState({ guestPhone: '' })
-    }
-  }, [phoneCode, phoneNumber])
 
   const validateEmail = (email: string): boolean => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -117,9 +24,9 @@ export default function GuestDetailsStep({
   }
 
   const validatePhone = (phone: string): boolean => {
-    // Phone is required - check for minimum digits
+    // Phone is required - check for minimum digits (excluding dial code)
     const digits = phone.replace(/\D/g, '')
-    return digits.length >= 8
+    return digits.length >= 10 // Dial code + at least 8 digits
   }
 
   const validate = (): boolean => {
@@ -136,9 +43,9 @@ export default function GuestDetailsStep({
     }
 
     // Phone is now required
-    if (!phoneNumber.trim()) {
+    if (!state.guestPhone) {
       newErrors.guestPhone = 'Phone number is required'
-    } else if (!validatePhone(phoneNumber)) {
+    } else if (!validatePhone(state.guestPhone)) {
       newErrors.guestPhone = 'Please enter a valid phone number'
     }
 
@@ -234,67 +141,14 @@ export default function GuestDetailsStep({
             <label htmlFor="guestPhone" className="block text-sm font-medium text-gray-700 mb-1">
               Phone number *
             </label>
-            <div className="flex">
-              {/* Country code dropdown */}
-              <div className="relative" ref={dropdownRef}>
-                <button
-                  type="button"
-                  onClick={() => setIsPhoneDropdownOpen(!isPhoneDropdownOpen)}
-                  className={`
-                    flex items-center gap-2 h-full px-3 py-2.5 border border-r-0 rounded-l-lg bg-gray-50 hover:bg-gray-100
-                    focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-colors
-                    ${errors.guestPhone ? 'border-red-300' : 'border-gray-200'}
-                  `}
-                >
-                  <FlagIcon country={currentCountry.country} className="w-6 h-4 rounded-sm shadow-sm" />
-                  <span className="text-sm font-medium text-gray-700">{currentCountry.code}</span>
-                  <ChevronDown size={14} className={`text-gray-500 transition-transform ${isPhoneDropdownOpen ? 'rotate-180' : ''}`} />
-                </button>
-
-                {isPhoneDropdownOpen && (
-                  <div className="absolute z-50 top-full left-0 mt-1 w-64 max-h-64 overflow-y-auto bg-white border border-gray-200 rounded-lg shadow-lg">
-                    {PHONE_CODES.map((pc) => (
-                      <button
-                        key={pc.code}
-                        type="button"
-                        onClick={() => {
-                          setPhoneCode(pc.code)
-                          // Reformat existing number with new country format
-                          const digits = phoneNumber.replace(/\D/g, '')
-                          setPhoneNumber(formatPhoneNumber(digits, pc.format))
-                          setIsPhoneDropdownOpen(false)
-                          if (errors.guestPhone) setErrors(prev => ({ ...prev, guestPhone: '' }))
-                        }}
-                        className={`w-full flex items-center gap-3 px-3 py-2.5 hover:bg-gray-50 transition-colors ${
-                          pc.code === phoneCode ? 'bg-emerald-50' : ''
-                        }`}
-                      >
-                        <FlagIcon country={pc.country} className="w-6 h-4 rounded-sm shadow-sm" />
-                        <span className="text-sm text-gray-900">{pc.name}</span>
-                        <span className="text-sm text-gray-500 ml-auto">{pc.code}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Phone number input with mask */}
-              <input
-                type="tel"
-                id="guestPhone"
-                value={phoneNumber}
-                onChange={(e) => {
-                  const formatted = formatPhoneNumber(e.target.value, currentCountry.format)
-                  setPhoneNumber(formatted)
-                  if (errors.guestPhone) setErrors(prev => ({ ...prev, guestPhone: '' }))
-                }}
-                placeholder={getPlaceholder(currentCountry.format)}
-                className={`
-                  flex-1 px-3 py-2.5 border rounded-r-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500
-                  ${errors.guestPhone ? 'border-red-300 bg-red-50' : 'border-gray-200'}
-                `}
-              />
-            </div>
+            <PhoneInput
+              value={state.guestPhone}
+              onChange={(value) => {
+                updateState({ guestPhone: value })
+                if (errors.guestPhone) setErrors(prev => ({ ...prev, guestPhone: '' }))
+              }}
+              error={!!errors.guestPhone}
+            />
             {errors.guestPhone && (
               <p className="mt-1 text-sm text-red-600 flex items-center gap-1">
                 <AlertCircle className="w-3.5 h-3.5" />

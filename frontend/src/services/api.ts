@@ -7,7 +7,7 @@ export const setTenantId = (id: string | null) => {
   cachedTenantId = id
 }
 
-const getTenantId = (): string => {
+export const getTenantId = (): string => {
   return cachedTenantId || ''
 }
 
@@ -18,14 +18,24 @@ export const setAccessToken = (token: string | null) => {
   cachedAccessToken = token
 }
 
+export const getAccessToken = (): string | null => {
+  return cachedAccessToken
+}
+
 const getHeaders = (): Record<string, string> => {
+  const tenantId = getTenantId()
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    'x-tenant-id': getTenantId(),
+    'x-tenant-id': tenantId,
   }
 
   if (cachedAccessToken) {
     headers['Authorization'] = `Bearer ${cachedAccessToken}`
+  }
+
+  // Debug logging for API calls
+  if (!tenantId) {
+    console.warn('[API] Making request without tenant ID - data may not load')
   }
 
   return headers
@@ -52,13 +62,20 @@ export interface Booking {
   room_name?: string
   check_in: string
   check_out: string
-  status: 'pending' | 'confirmed' | 'checked_in' | 'checked_out' | 'cancelled' | 'completed'
+  status: 'pending' | 'confirmed' | 'checked_in' | 'checked_out' | 'cancelled' | 'completed' | 'occupied'
   payment_status: 'pending' | 'paid' | 'partial' | 'refunded'
   total_amount: number
   currency: string
   notes?: string
   internal_notes?: string
   proof_of_payment?: ProofOfPayment | null
+  // Payment tracking fields
+  payment_method?: 'paystack' | 'paypal' | 'eft' | 'manual' | null
+  payment_reference?: string | null
+  payment_completed_at?: string | null
+  // Review request tracking
+  review_request_sent?: boolean
+  review_request_sent_at?: string
   // FOB integration fields
   source?: BookingSource
   external_id?: string
@@ -240,6 +257,32 @@ export const bookingsApi = {
     if (!response.ok) {
       throw new Error('Failed to delete booking')
     }
+  },
+
+  checkConflicts: async (params: {
+    room_id: string
+    check_in: string
+    check_out: string
+    exclude_booking_id?: string
+  }): Promise<{
+    hasConflict: boolean
+    conflicts: Array<{
+      id: string
+      guest: string
+      source: BookingSource
+      dates: string
+      status: string
+    }>
+  }> => {
+    const response = await fetch(`${API_BASE_URL}/bookings/check-conflicts`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(params),
+    })
+    if (!response.ok) {
+      throw new Error('Failed to check conflicts')
+    }
+    return response.json()
   },
 }
 
@@ -963,6 +1006,162 @@ export const addonsApi = {
   },
 }
 
+// ============================================
+// COUPONS TYPES & API
+// ============================================
+
+export type DiscountType = 'percentage' | 'fixed_amount' | 'free_nights'
+
+export interface Coupon {
+  id?: string
+  code: string
+  name: string
+  description?: string
+  discount_type: DiscountType
+  discount_value: number
+  applicable_room_ids: string[]
+  valid_from?: string
+  valid_until?: string
+  max_uses?: number
+  max_uses_per_customer?: number
+  current_uses: number
+  min_booking_amount?: number
+  min_nights?: number
+  is_active: boolean
+  is_claimable?: boolean
+  created_at?: string
+  updated_at?: string
+}
+
+export interface CouponValidationRequest {
+  code: string
+  room_id?: string
+  room_ids?: string[]
+  customer_email?: string
+  subtotal: number
+  nights: number
+  check_in: string
+  check_out?: string
+}
+
+export interface CouponValidationResponse {
+  valid: boolean
+  errors?: string[]
+  coupon?: {
+    id: string
+    code: string
+    name: string
+    description?: string
+    discount_type: DiscountType
+    discount_value: number
+  }
+  discount_amount?: number
+  final_amount?: number
+}
+
+export interface CouponUsage {
+  id: string
+  coupon_id: string
+  booking_id?: string
+  customer_email: string
+  discount_applied: number
+  original_amount: number
+  final_amount: number
+  used_at: string
+  bookings?: {
+    id: string
+    guest_name: string
+    room_name: string
+    check_in: string
+    check_out: string
+  }
+}
+
+export const couponsApi = {
+  getAll: async (params?: { is_active?: boolean; room_id?: string; search?: string }): Promise<Coupon[]> => {
+    const searchParams = new URLSearchParams()
+    if (params?.is_active !== undefined) searchParams.set('is_active', String(params.is_active))
+    if (params?.room_id) searchParams.set('room_id', params.room_id)
+    if (params?.search) searchParams.set('search', params.search)
+
+    const url = `${API_BASE_URL}/coupons${searchParams.toString() ? `?${searchParams}` : ''}`
+    const response = await fetch(url, { headers: getHeaders() })
+    if (!response.ok) {
+      throw new Error('Failed to fetch coupons')
+    }
+    return response.json()
+  },
+
+  getById: async (id: string): Promise<Coupon> => {
+    const response = await fetch(`${API_BASE_URL}/coupons/${id}`, {
+      headers: getHeaders(),
+    })
+    if (!response.ok) {
+      throw new Error('Failed to fetch coupon')
+    }
+    return response.json()
+  },
+
+  create: async (coupon: Omit<Coupon, 'id' | 'current_uses' | 'created_at' | 'updated_at'>): Promise<Coupon> => {
+    const response = await fetch(`${API_BASE_URL}/coupons`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(coupon),
+    })
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || 'Failed to create coupon')
+    }
+    return response.json()
+  },
+
+  update: async (id: string, coupon: Partial<Coupon>): Promise<Coupon> => {
+    const response = await fetch(`${API_BASE_URL}/coupons/${id}`, {
+      method: 'PUT',
+      headers: getHeaders(),
+      body: JSON.stringify(coupon),
+    })
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || 'Failed to update coupon')
+    }
+    return response.json()
+  },
+
+  delete: async (id: string, hard = false): Promise<void> => {
+    const url = `${API_BASE_URL}/coupons/${id}${hard ? '?hard=true' : ''}`
+    const response = await fetch(url, {
+      method: 'DELETE',
+      headers: getHeaders(),
+    })
+    if (!response.ok) {
+      throw new Error('Failed to delete coupon')
+    }
+  },
+
+  validate: async (request: CouponValidationRequest): Promise<CouponValidationResponse> => {
+    const response = await fetch(`${API_BASE_URL}/coupons/validate`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(request),
+    })
+    if (!response.ok) {
+      throw new Error('Failed to validate coupon')
+    }
+    return response.json()
+  },
+
+  getUsage: async (id: string): Promise<CouponUsage[]> => {
+    const response = await fetch(`${API_BASE_URL}/coupons/${id}/usage`, {
+      headers: getHeaders(),
+    })
+    if (!response.ok) {
+      throw new Error('Failed to fetch coupon usage')
+    }
+    return response.json()
+  },
+}
+
 // Customer types
 export interface CustomerListItem {
   email: string
@@ -998,6 +1197,7 @@ export interface CustomerReview {
   room_name: string
   check_in: string
   check_out: string
+  images?: { url: string; path: string; hidden?: boolean }[]
 }
 
 export interface CustomerDetail {
@@ -1008,6 +1208,18 @@ export interface CustomerDetail {
     customerId: string | null
     hasPortalAccess: boolean
     lastLoginAt: string | null
+    // Profile fields
+    profilePictureUrl?: string | null
+    // Business details
+    businessName?: string | null
+    businessVatNumber?: string | null
+    businessRegistrationNumber?: string | null
+    businessAddressLine1?: string | null
+    businessAddressLine2?: string | null
+    businessCity?: string | null
+    businessPostalCode?: string | null
+    businessCountry?: string | null
+    useBusinessDetailsOnInvoice?: boolean
   }
   stats: {
     totalBookings: number
@@ -1021,6 +1233,46 @@ export interface CustomerDetail {
   bookings: Booking[]
   reviews: CustomerReview[]
   supportTickets: any[]
+}
+
+export interface CustomerUpdateData {
+  name?: string
+  phone?: string
+  businessName?: string
+  businessVatNumber?: string
+  businessRegistrationNumber?: string
+  businessAddressLine1?: string
+  businessAddressLine2?: string
+  businessCity?: string
+  businessPostalCode?: string
+  businessCountry?: string
+  useBusinessDetailsOnInvoice?: boolean
+}
+
+export interface CustomerNote {
+  id: string
+  tenant_id: string
+  customer_id: string
+  content: string
+  created_by: string | null
+  created_by_name: string
+  created_at: string
+  updated_at: string
+}
+
+export interface CustomerActivity {
+  id: string
+  type: 'booking' | 'review' | 'support' | 'portal_signup' | 'portal_login' | 'payment' | 'note' | string
+  title: string
+  description?: string
+  date: string
+  metadata?: {
+    bookingId?: string
+    ticketId?: string
+    amount?: number
+    currency?: string
+    [key: string]: any
+  }
 }
 
 // Customers API (admin)
@@ -1090,6 +1342,74 @@ export const customersApi = {
     window.URL.revokeObjectURL(url)
     document.body.removeChild(a)
   },
+
+  update: async (email: string, data: CustomerUpdateData): Promise<{ success: boolean; customer: CustomerDetail['customer'] }> => {
+    const response = await fetch(`${API_BASE_URL}/customers/${encodeURIComponent(email)}`, {
+      method: 'PATCH',
+      headers: getHeaders(),
+      body: JSON.stringify(data),
+    })
+    if (!response.ok) {
+      throw new Error('Failed to update customer')
+    }
+    return response.json()
+  },
+
+  // Customer Notes
+  getNotes: async (email: string): Promise<CustomerNote[]> => {
+    const response = await fetch(`${API_BASE_URL}/customers/${encodeURIComponent(email)}/notes`, {
+      headers: getHeaders(),
+    })
+    if (!response.ok) {
+      throw new Error('Failed to fetch notes')
+    }
+    return response.json()
+  },
+
+  addNote: async (email: string, content: string): Promise<CustomerNote> => {
+    const response = await fetch(`${API_BASE_URL}/customers/${encodeURIComponent(email)}/notes`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ content }),
+    })
+    if (!response.ok) {
+      throw new Error('Failed to add note')
+    }
+    return response.json()
+  },
+
+  updateNote: async (email: string, noteId: string, content: string): Promise<CustomerNote> => {
+    const response = await fetch(`${API_BASE_URL}/customers/${encodeURIComponent(email)}/notes/${noteId}`, {
+      method: 'PATCH',
+      headers: getHeaders(),
+      body: JSON.stringify({ content }),
+    })
+    if (!response.ok) {
+      throw new Error('Failed to update note')
+    }
+    return response.json()
+  },
+
+  deleteNote: async (email: string, noteId: string): Promise<void> => {
+    const response = await fetch(`${API_BASE_URL}/customers/${encodeURIComponent(email)}/notes/${noteId}`, {
+      method: 'DELETE',
+      headers: getHeaders(),
+    })
+    if (!response.ok) {
+      throw new Error('Failed to delete note')
+    }
+  },
+
+  // Customer Activity
+  getActivities: async (email: string, limit: number = 50): Promise<CustomerActivity[]> => {
+    const response = await fetch(`${API_BASE_URL}/customers/${encodeURIComponent(email)}/activity?limit=${limit}`, {
+      headers: getHeaders(),
+    })
+    if (!response.ok) {
+      throw new Error('Failed to fetch activities')
+    }
+    return response.json()
+  },
 }
 
 // ============================================
@@ -1102,6 +1422,7 @@ export interface SupportReply {
   sender_type: 'customer' | 'admin'
   sender_name: string
   created_at: string
+  status?: 'sending' | 'sent' | 'delivered' | 'read'
 }
 
 export interface SupportTicket {
@@ -1210,6 +1531,25 @@ export const supportApi = {
     })
     if (!response.ok) {
       throw new Error('Failed to fetch team members')
+    }
+    return response.json()
+  },
+
+  createTicket: async (data: {
+    sender_email: string
+    sender_name?: string
+    subject: string
+    message: string
+    source?: string
+  }): Promise<{ success: boolean; ticket: SupportTicket }> => {
+    const response = await fetch(`${API_BASE_URL}/customers/support/tickets`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(data),
+    })
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || 'Failed to create ticket')
     }
     return response.json()
   },
@@ -1644,7 +1984,17 @@ export const integrationsApi = {
     }
   },
 
-  triggerSync: async (id: string, syncType: 'bookings' | 'reviews' | 'availability' | 'full'): Promise<{ success: boolean; log_id: string }> => {
+  triggerSync: async (id: string, syncType: 'bookings' | 'reviews' | 'availability' | 'full'): Promise<{
+    success: boolean
+    log_id: string
+    records_created: number
+    records_updated: number
+    records_skipped: number
+    conflicts_detected?: number
+    conflicts?: string[]
+    errors?: string[]
+    message: string
+  }> => {
     const response = await fetch(`${API_BASE_URL}/integrations/${id}/sync`, {
       method: 'POST',
       headers: getHeaders(),
@@ -1706,5 +2056,120 @@ export const integrationsApi = {
     }
     return response.json()
   },
+
+  getSyncedBookingsCount: async (id: string): Promise<{ platform: string; count: number }> => {
+    const response = await fetch(`${API_BASE_URL}/integrations/${id}/synced-bookings/count`, {
+      headers: getHeaders(),
+    })
+    if (!response.ok) {
+      throw new Error('Failed to get synced bookings count')
+    }
+    return response.json()
+  },
+
+  deleteSyncedBookings: async (id: string): Promise<{ success: boolean; deleted_count: number; message: string }> => {
+    const response = await fetch(`${API_BASE_URL}/integrations/${id}/synced-bookings`, {
+      method: 'DELETE',
+      headers: getHeaders(),
+    })
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || 'Failed to delete synced bookings')
+    }
+    return response.json()
+  },
 }
 
+// Notification types
+export interface NotificationPreferences {
+  bookings: boolean
+  payments: boolean
+  reviews: boolean
+  support: boolean
+  system: boolean
+}
+
+// Notifications API
+export const notificationsApi = {
+  getAll: async (options: { limit?: number; offset?: number; unreadOnly?: boolean } = {}): Promise<{
+    notifications: Array<{
+      id: string
+      type: string
+      title: string
+      message: string | null
+      link_type: string | null
+      link_id: string | null
+      read_at: string | null
+      created_at: string
+    }>
+    total: number
+    unread: number
+  }> => {
+    const params = new URLSearchParams()
+    if (options.limit) params.set('limit', options.limit.toString())
+    if (options.offset) params.set('offset', options.offset.toString())
+    if (options.unreadOnly) params.set('unread_only', 'true')
+
+    const response = await fetch(`${API_BASE_URL}/notifications?${params}`, {
+      headers: getHeaders(),
+    })
+    if (!response.ok) {
+      throw new Error('Failed to fetch notifications')
+    }
+    return response.json()
+  },
+
+  getUnreadCount: async (): Promise<{ count: number }> => {
+    const response = await fetch(`${API_BASE_URL}/notifications/unread-count`, {
+      headers: getHeaders(),
+    })
+    if (!response.ok) {
+      throw new Error('Failed to fetch unread count')
+    }
+    return response.json()
+  },
+
+  markAsRead: async (id: string): Promise<{ success: boolean }> => {
+    const response = await fetch(`${API_BASE_URL}/notifications/${id}/read`, {
+      method: 'POST',
+      headers: getHeaders(),
+    })
+    if (!response.ok) {
+      throw new Error('Failed to mark as read')
+    }
+    return response.json()
+  },
+
+  markAllAsRead: async (): Promise<{ success: boolean }> => {
+    const response = await fetch(`${API_BASE_URL}/notifications/read-all`, {
+      method: 'POST',
+      headers: getHeaders(),
+    })
+    if (!response.ok) {
+      throw new Error('Failed to mark all as read')
+    }
+    return response.json()
+  },
+
+  getPreferences: async (): Promise<NotificationPreferences> => {
+    const response = await fetch(`${API_BASE_URL}/notifications/preferences`, {
+      headers: getHeaders(),
+    })
+    if (!response.ok) {
+      throw new Error('Failed to fetch preferences')
+    }
+    return response.json()
+  },
+
+  updatePreferences: async (preferences: Partial<NotificationPreferences>): Promise<NotificationPreferences> => {
+    const response = await fetch(`${API_BASE_URL}/notifications/preferences`, {
+      method: 'PUT',
+      headers: getHeaders(),
+      body: JSON.stringify(preferences),
+    })
+    if (!response.ok) {
+      throw new Error('Failed to update preferences')
+    }
+    return response.json()
+  },
+}

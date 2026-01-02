@@ -1,7 +1,16 @@
-import { Loader2, Upload, X, ChevronDown } from 'lucide-react'
-import { useState, useEffect, useRef } from 'react'
+import { Upload, X, ChevronDown, Image, Building2, MapPin, Receipt, Phone, Clock } from 'lucide-react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { useAuth } from '../../contexts/AuthContext'
 import FlagIcon from '../../components/FlagIcon'
+import VatNumberInput from '../../components/VatNumberInput'
+import RegistrationNumberInput from '../../components/RegistrationNumberInput'
+import {
+  BusinessDetailsLayout,
+  BusinessDetailsSidebar,
+  BusinessPreviewPanel
+} from '../../components/business'
+import { useBusinessCompleteness, BusinessFormData } from '../../hooks/useBusinessCompleteness'
+import { useAutoSave } from '../../hooks/useAutoSave'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3002/api'
 
@@ -30,25 +39,9 @@ const PHONE_CODES = [
 
 // Country options
 const COUNTRIES = [
-  'South Africa',
-  'Botswana',
-  'Namibia',
-  'Zimbabwe',
-  'Mozambique',
-  'Zambia',
-  'Lesotho',
-  'Eswatini',
-  'Kenya',
-  'Tanzania',
-  'Nigeria',
-  'Ghana',
-  'United States',
-  'United Kingdom',
-  'Germany',
-  'France',
-  'Netherlands',
-  'Australia',
-  'Other',
+  'South Africa', 'Botswana', 'Namibia', 'Zimbabwe', 'Mozambique', 'Zambia',
+  'Lesotho', 'Eswatini', 'Kenya', 'Tanzania', 'Nigeria', 'Ghana',
+  'United States', 'United Kingdom', 'Germany', 'France', 'Netherlands', 'Australia', 'Other',
 ]
 
 // Phone input component with flag dropdown
@@ -86,7 +79,7 @@ function PhoneInput({
         <button
           type="button"
           onClick={() => setIsOpen(!isOpen)}
-          className="flex items-center gap-2 h-full px-3 py-2 border border-r-0 border-gray-300 rounded-l-lg bg-gray-50 hover:bg-gray-100 focus:outline-none focus:ring-1 focus:ring-gray-400 transition-colors"
+          className="flex items-center gap-2 h-full px-3 py-2 border border-r-0 border-gray-200 rounded-l-lg bg-gray-50 hover:bg-gray-100 focus:outline-none focus:ring-1 focus:ring-emerald-500 transition-colors"
         >
           <FlagIcon country={selectedCountry.country} className="w-6 h-4 rounded-sm shadow-sm" />
           <span className="text-sm font-medium text-gray-700">{selectedCountry.code}</span>
@@ -120,7 +113,7 @@ function PhoneInput({
         value={phoneNumber}
         onChange={(e) => setPhoneNumber(e.target.value.replace(/[^0-9\s]/g, ''))}
         placeholder={placeholder}
-        className="flex-1 px-3 py-2 border border-gray-300 rounded-r-lg focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
+        className="flex-1 px-4 py-3 border border-gray-200 rounded-r-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
       />
     </div>
   )
@@ -132,9 +125,27 @@ interface DayHours {
   closed: boolean
 }
 
+// Section Header Component
+function SectionHeader({ icon: Icon, title, description }: { icon: React.ElementType; title: string; description?: string }) {
+  return (
+    <div className="mb-6">
+      <div className="flex items-center gap-3 mb-2">
+        <div className="w-10 h-10 rounded-lg bg-emerald-50 flex items-center justify-center">
+          <Icon size={20} className="text-emerald-600" />
+        </div>
+        <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
+      </div>
+      {description && (
+        <p className="text-sm text-gray-500 ml-[52px]">{description}</p>
+      )}
+    </div>
+  )
+}
+
 export default function BusinessDetails() {
   const { session, tenant, refreshTenant } = useAuth()
   const logoInputRef = useRef<HTMLInputElement>(null)
+  const [activeSection, setActiveSection] = useState('logo')
 
   // Business settings state
   const [businessName, setBusinessName] = useState('')
@@ -152,9 +163,8 @@ export default function BusinessDetails() {
   const [businessPhoneCode, setBusinessPhoneCode] = useState('+27')
   const [businessPhoneNumber, setBusinessPhoneNumber] = useState('')
   const [websiteUrl, setWebsiteUrl] = useState('')
-  const [businessLoading, setBusinessLoading] = useState(false)
-  const [businessMessage, setBusinessMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [logoUploading, setLogoUploading] = useState(false)
+  const [businessMessage, setBusinessMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   // Business Hours state
   const defaultHours: Record<string, DayHours> = {
@@ -167,6 +177,35 @@ export default function BusinessDetails() {
     sunday: { open: '09:00', close: '13:00', closed: true },
   }
   const [businessHours, setBusinessHours] = useState<Record<string, DayHours>>(defaultHours)
+
+  // Full phone for display
+  const fullBusinessPhone = businessPhoneNumber ? `${businessPhoneCode}${businessPhoneNumber.replace(/^0+/, '')}` : ''
+
+  // Prepare form data for completeness hook
+  const formData: BusinessFormData = useMemo(() => ({
+    logoUrl,
+    businessName,
+    businessDescription,
+    addressLine1,
+    addressLine2,
+    city,
+    stateProvince,
+    postalCode,
+    businessCountry,
+    vatNumber,
+    companyRegNumber,
+    businessEmail,
+    businessPhone: fullBusinessPhone,
+    websiteUrl,
+    businessHours
+  }), [
+    logoUrl, businessName, businessDescription, addressLine1, addressLine2,
+    city, stateProvince, postalCode, businessCountry, vatNumber, companyRegNumber,
+    businessEmail, fullBusinessPhone, websiteUrl, businessHours
+  ])
+
+  // Completeness tracking
+  const { totalPercentage, incompleteItems, getSectionStatus } = useBusinessCompleteness(formData)
 
   // Initialize with tenant data
   useEffect(() => {
@@ -209,79 +248,104 @@ export default function BusinessDetails() {
     return name
       .toLowerCase()
       .trim()
-      .replace(/[^\w\s-]/g, '') // Remove special characters except spaces and hyphens
-      .replace(/\s+/g, '-')     // Replace spaces with hyphens
-      .replace(/-+/g, '-')      // Replace multiple hyphens with single hyphen
-      .replace(/^-|-$/g, '')    // Remove leading/trailing hyphens
+      .replace(/[^\w\s-]/g, '')
+      .replace(/\s+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '')
   }
 
   const handleBusinessUpdate = async () => {
     if (!session?.access_token) return
 
-    setBusinessLoading(true)
     setBusinessMessage(null)
-
-    // Combine business phone code and number
-    const fullBusinessPhone = businessPhoneNumber ? `${businessPhoneCode}${businessPhoneNumber.replace(/^0+/, '')}` : ''
 
     // Auto-generate slug from business name
     const slug = businessName ? generateSlug(businessName) : null
 
-    try {
-      const response = await fetch(`${API_URL}/tenants/me`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({
-          business_name: businessName,
-          slug, // Auto-generated from business name
-          business_description: businessDescription,
-          address_line1: addressLine1,
-          address_line2: addressLine2,
-          city,
-          state_province: stateProvince,
-          postal_code: postalCode,
-          country: businessCountry,
-          vat_number: vatNumber,
-          company_registration_number: companyRegNumber,
-          business_email: businessEmail,
-          business_phone: fullBusinessPhone,
-          website_url: websiteUrl,
-          business_hours: businessHours,
-        }),
-      })
+    const response = await fetch(`${API_URL}/tenants/me`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({
+        business_name: businessName,
+        slug,
+        business_description: businessDescription,
+        address_line1: addressLine1,
+        address_line2: addressLine2,
+        city,
+        state_province: stateProvince,
+        postal_code: postalCode,
+        country: businessCountry,
+        vat_number: vatNumber,
+        company_registration_number: companyRegNumber,
+        business_email: businessEmail,
+        business_phone: fullBusinessPhone,
+        website_url: websiteUrl,
+        business_hours: businessHours,
+      }),
+    })
 
-      const data = await response.json()
+    const data = await response.json()
 
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to update business settings')
-      }
-
-      await refreshTenant()
-      setBusinessMessage({ type: 'success', text: 'Business settings updated successfully' })
-    } catch (error) {
-      setBusinessMessage({
-        type: 'error',
-        text: error instanceof Error ? error.message : 'Failed to update business settings',
-      })
-    } finally {
-      setBusinessLoading(false)
+    if (!response.ok) {
+      throw new Error(data.error || 'Failed to update business settings')
     }
+
+    await refreshTenant()
+    setBusinessMessage({ type: 'success', text: 'Business settings updated successfully' })
   }
+
+  // Auto-save hook
+  const { isSaving, lastSaved, save } = useAutoSave(
+    handleBusinessUpdate,
+    [formData],
+    { enabled: false }
+  )
+
+  // Compute hasUnsavedChanges by comparing current form state against tenant data
+  const hasUnsavedChanges = useMemo(() => {
+    if (!tenant) return false
+
+    // Compare each field against tenant data
+    const tenantPhone = tenant.business_phone || ''
+    const tenantPhoneCode = PHONE_CODES.find(pc => tenantPhone.startsWith(pc.code))?.code || '+27'
+    const tenantPhoneNumber = tenantPhoneCode ? tenantPhone.replace(tenantPhoneCode, '').trim() : tenantPhone
+
+    return (
+      businessName !== (tenant.business_name || '') ||
+      businessDescription !== (tenant.business_description || '') ||
+      logoUrl !== (tenant.logo_url || '') ||
+      addressLine1 !== (tenant.address_line1 || '') ||
+      addressLine2 !== (tenant.address_line2 || '') ||
+      city !== (tenant.city || '') ||
+      stateProvince !== (tenant.state_province || '') ||
+      postalCode !== (tenant.postal_code || '') ||
+      businessCountry !== (tenant.country || 'South Africa') ||
+      vatNumber !== (tenant.vat_number || '') ||
+      companyRegNumber !== (tenant.company_registration_number || '') ||
+      businessEmail !== (tenant.business_email || '') ||
+      businessPhoneCode !== tenantPhoneCode ||
+      businessPhoneNumber !== tenantPhoneNumber ||
+      websiteUrl !== (tenant.website_url || '') ||
+      JSON.stringify(businessHours) !== JSON.stringify(tenant.business_hours || defaultHours)
+    )
+  }, [
+    tenant, businessName, businessDescription, logoUrl, addressLine1, addressLine2,
+    city, stateProvince, postalCode, businessCountry, vatNumber, companyRegNumber,
+    businessEmail, businessPhoneCode, businessPhoneNumber, websiteUrl, businessHours
+  ])
 
   const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file || !session?.access_token) return
 
-    // Validate file type
     if (!file.type.startsWith('image/')) {
       setBusinessMessage({ type: 'error', text: 'Please upload an image file' })
       return
     }
 
-    // Validate file size (2MB)
     if (file.size > 2 * 1024 * 1024) {
       setBusinessMessage({ type: 'error', text: 'Image must be under 2MB' })
       return
@@ -291,7 +355,6 @@ export default function BusinessDetails() {
     setBusinessMessage(null)
 
     try {
-      // Convert to base64
       const reader = new FileReader()
       reader.onload = async () => {
         const base64 = reader.result as string
@@ -362,355 +425,440 @@ export default function BusinessDetails() {
     }
   }
 
-  return (
-    <div className="p-6 max-w-4xl">
-      <div className="mb-6">
-        <h1 className="text-2xl font-semibold text-gray-900">Business Details</h1>
-        <p className="text-sm text-gray-500 mt-1">
-          Configure your business details. This information will be displayed on your public booking pages and invoices.
-        </p>
-      </div>
-
-      <div className="space-y-8">
-        {/* Logo */}
-        <div className="bg-white border border-gray-200 rounded-xl p-6">
-          <h2 className="text-lg font-medium text-gray-900 mb-4">Business Logo</h2>
-          <div className="flex items-start gap-4">
-            <div className="w-24 h-24 rounded-lg border-2 border-dashed border-gray-300 flex items-center justify-center overflow-hidden bg-gray-50">
-              {logoUrl ? (
-                <img src={logoUrl} alt="Business logo" className="w-full h-full object-contain" />
-              ) : (
-                <Upload size={24} className="text-gray-400" />
-              )}
-            </div>
-            <div className="flex-1">
-              <div className="flex gap-3 mb-2">
-                <input
-                  ref={logoInputRef}
-                  type="file"
-                  accept="image/*"
-                  onChange={handleLogoUpload}
-                  className="hidden"
-                />
-                <button
-                  onClick={() => logoInputRef.current?.click()}
-                  disabled={logoUploading}
-                  className="flex items-center gap-2 px-4 py-2 bg-accent-500 text-white rounded-md text-sm font-medium hover:bg-accent-600 transition-colors disabled:opacity-50"
-                >
-                  {logoUploading ? (
-                    <Loader2 size={16} className="animate-spin" />
-                  ) : (
-                    <Upload size={16} />
-                  )}
-                  Upload Logo
-                </button>
-                {logoUrl && (
-                  <button
-                    onClick={handleRemoveLogo}
-                    disabled={logoUploading}
-                    className="flex items-center gap-2 px-4 py-2 border border-gray-300 text-gray-700 rounded-md text-sm font-medium hover:bg-gray-50 transition-colors disabled:opacity-50"
-                  >
-                    <X size={16} />
-                    Remove
-                  </button>
-                )}
-              </div>
-              <p className="text-xs text-gray-500">
-                PNG, JPG, GIF up to 2MB. Recommended: 200x200px or larger, square format.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Basic Info */}
-        <div className="bg-white border border-gray-200 rounded-xl p-6">
-          <h2 className="text-lg font-medium text-gray-900 mb-4">Basic Information</h2>
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Business Name
-              </label>
-              <input
-                type="text"
-                value={businessName}
-                onChange={(e) => setBusinessName(e.target.value)}
-                placeholder="Enter your business name"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
-              />
-              {businessName && (
-                <p className="mt-2 text-xs text-gray-500">
-                  Your listing URL: <span className="font-medium text-accent-600">/accommodation/{generateSlug(businessName)}</span>
-                </p>
-              )}
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Business Description
-              </label>
-              <textarea
-                value={businessDescription}
-                onChange={(e) => setBusinessDescription(e.target.value)}
-                placeholder="Describe your business..."
-                rows={4}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
-              />
-              <p className="mt-1 text-xs text-gray-500">
-                This description may be shown on your public booking pages.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Address */}
-        <div className="bg-white border border-gray-200 rounded-xl p-6">
-          <h2 className="text-lg font-medium text-gray-900 mb-4">Address</h2>
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Address Line 1
-              </label>
-              <input
-                type="text"
-                value={addressLine1}
-                onChange={(e) => setAddressLine1(e.target.value)}
-                placeholder="Street address"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Address Line 2
-              </label>
-              <input
-                type="text"
-                value={addressLine2}
-                onChange={(e) => setAddressLine2(e.target.value)}
-                placeholder="Apartment, suite, unit, etc. (optional)"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  City
-                </label>
-                <input
-                  type="text"
-                  value={city}
-                  onChange={(e) => setCity(e.target.value)}
-                  placeholder="City"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  State/Province
-                </label>
-                <input
-                  type="text"
-                  value={stateProvince}
-                  onChange={(e) => setStateProvince(e.target.value)}
-                  placeholder="State or Province"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Postal Code
-                </label>
-                <input
-                  type="text"
-                  value={postalCode}
-                  onChange={(e) => setPostalCode(e.target.value)}
-                  placeholder="Postal code"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Country
-                </label>
-                <select
-                  value={businessCountry}
-                  onChange={(e) => setBusinessCountry(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
-                >
-                  {COUNTRIES.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Tax Information */}
-        <div className="bg-white border border-gray-200 rounded-xl p-6">
-          <h2 className="text-lg font-medium text-gray-900 mb-4">Tax Information</h2>
+  // Render section content based on active section
+  const renderSectionContent = () => {
+    switch (activeSection) {
+      case 'logo':
+        return (
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              VAT Number
-            </label>
-            <input
-              type="text"
-              value={vatNumber}
-              onChange={(e) => setVatNumber(e.target.value)}
-              placeholder="VAT registration number (optional)"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
+            <SectionHeader
+              icon={Image}
+              title="Business Logo"
+              description="Upload your logo to display on invoices and booking pages"
             />
-            <p className="mt-1 text-xs text-gray-500">
-              Your VAT/Tax ID will be displayed on invoices if provided.
-            </p>
+            <div className="flex items-start gap-6">
+              <div className="w-32 h-32 rounded-xl border-2 border-dashed border-gray-300 flex items-center justify-center overflow-hidden bg-gray-50">
+                {logoUrl ? (
+                  <img src={logoUrl} alt="Business logo" className="w-full h-full object-contain" />
+                ) : (
+                  <Upload size={32} className="text-gray-400" />
+                )}
+              </div>
+              <div className="flex-1">
+                <div className="flex gap-3 mb-3">
+                  <input
+                    ref={logoInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleLogoUpload}
+                    className="hidden"
+                  />
+                  <button
+                    onClick={() => logoInputRef.current?.click()}
+                    disabled={logoUploading}
+                    className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 transition-colors disabled:opacity-50"
+                  >
+                    <Upload size={16} />
+                    {logoUploading ? 'Uploading...' : 'Upload Logo'}
+                  </button>
+                  {logoUrl && (
+                    <button
+                      onClick={handleRemoveLogo}
+                      disabled={logoUploading}
+                      className="flex items-center gap-2 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors disabled:opacity-50"
+                    >
+                      <X size={16} />
+                      Remove
+                    </button>
+                  )}
+                </div>
+                <p className="text-sm text-gray-500">
+                  PNG, JPG, GIF up to 2MB. Recommended: 200x200px or larger, square format.
+                </p>
+              </div>
+            </div>
           </div>
-          <div className="mt-4">
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Company Registration Number
-            </label>
-            <input
-              type="text"
-              value={companyRegNumber}
-              onChange={(e) => setCompanyRegNumber(e.target.value)}
-              placeholder="Company registration number (optional)"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
-            />
-            <p className="mt-1 text-xs text-gray-500">
-              Your company registration number for official documentation.
-            </p>
-          </div>
-        </div>
+        )
 
-        {/* Contact Information */}
-        <div className="bg-white border border-gray-200 rounded-xl p-6">
-          <h2 className="text-lg font-medium text-gray-900 mb-4">Contact Information</h2>
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+      case 'basic-info':
+        return (
+          <div>
+            <SectionHeader
+              icon={Building2}
+              title="Basic Information"
+              description="Your business name and description"
+            />
+            <div className="space-y-6">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Business Email
+                  Business Name
                 </label>
                 <input
-                  type="email"
-                  value={businessEmail}
-                  onChange={(e) => setBusinessEmail(e.target.value)}
-                  placeholder="contact@business.com"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
+                  type="text"
+                  value={businessName}
+                  onChange={(e) => setBusinessName(e.target.value)}
+                  placeholder="Enter your business name"
+                  className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+                {businessName && (
+                  <p className="mt-2 text-xs text-gray-500">
+                    Your listing URL: <span className="font-medium text-emerald-600">/accommodation/{generateSlug(businessName)}</span>
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Business Description
+                </label>
+                <textarea
+                  value={businessDescription}
+                  onChange={(e) => setBusinessDescription(e.target.value)}
+                  placeholder="Describe your business..."
+                  rows={5}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 resize-none"
+                />
+                <p className="mt-2 text-xs text-gray-500">
+                  This description may be shown on your public booking pages.
+                </p>
+              </div>
+            </div>
+          </div>
+        )
+
+      case 'address':
+        return (
+          <div>
+            <SectionHeader
+              icon={MapPin}
+              title="Business Address"
+              description="Your physical business location"
+            />
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Address Line 1
+                </label>
+                <input
+                  type="text"
+                  value={addressLine1}
+                  onChange={(e) => setAddressLine1(e.target.value)}
+                  placeholder="Street address"
+                  className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Business Phone
+                  Address Line 2 <span className="text-gray-400 font-normal">(optional)</span>
                 </label>
-                <PhoneInput
-                  phoneCode={businessPhoneCode}
-                  setPhoneCode={setBusinessPhoneCode}
-                  phoneNumber={businessPhoneNumber}
-                  setPhoneNumber={setBusinessPhoneNumber}
-                  placeholder="12 345 6789"
+                <input
+                  type="text"
+                  value={addressLine2}
+                  onChange={(e) => setAddressLine2(e.target.value)}
+                  placeholder="Apartment, suite, unit, etc."
+                  className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    City
+                  </label>
+                  <input
+                    type="text"
+                    value={city}
+                    onChange={(e) => setCity(e.target.value)}
+                    placeholder="City"
+                    className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    State/Province
+                  </label>
+                  <input
+                    type="text"
+                    value={stateProvince}
+                    onChange={(e) => setStateProvince(e.target.value)}
+                    placeholder="State or Province"
+                    className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Postal Code
+                  </label>
+                  <input
+                    type="text"
+                    value={postalCode}
+                    onChange={(e) => setPostalCode(e.target.value)}
+                    placeholder="Postal code"
+                    className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Country
+                  </label>
+                  <div className="relative">
+                    <select
+                      value={businessCountry}
+                      onChange={(e) => setBusinessCountry(e.target.value)}
+                      className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 appearance-none bg-white"
+                    >
+                      {COUNTRIES.map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+
+      case 'tax':
+        return (
+          <div>
+            <SectionHeader
+              icon={Receipt}
+              title="Tax Information"
+              description="Tax and registration details for invoicing (optional)"
+            />
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  VAT Number <span className="text-gray-400 font-normal">(optional)</span>
+                </label>
+                <VatNumberInput
+                  value={vatNumber}
+                  onChange={setVatNumber}
+                  className="py-3"
+                />
+                <p className="mt-2 text-xs text-gray-500">
+                  10-digit SA VAT number. Will be displayed on invoices if provided.
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Company Registration Number <span className="text-gray-400 font-normal">(optional)</span>
+                </label>
+                <RegistrationNumberInput
+                  value={companyRegNumber}
+                  onChange={setCompanyRegNumber}
+                  className="py-3"
+                />
+                <p className="mt-2 text-xs text-gray-500">
+                  Format: YYYY/NNNNNN/NN (e.g., 2024/123456/07)
+                </p>
+              </div>
+            </div>
+          </div>
+        )
+
+      case 'contact':
+        return (
+          <div>
+            <SectionHeader
+              icon={Phone}
+              title="Contact Information"
+              description="How guests and customers can reach you"
+            />
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Business Email
+                  </label>
+                  <input
+                    type="email"
+                    value={businessEmail}
+                    onChange={(e) => setBusinessEmail(e.target.value)}
+                    placeholder="contact@business.com"
+                    className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Business Phone
+                  </label>
+                  <PhoneInput
+                    phoneCode={businessPhoneCode}
+                    setPhoneCode={setBusinessPhoneCode}
+                    phoneNumber={businessPhoneNumber}
+                    setPhoneNumber={setBusinessPhoneNumber}
+                    placeholder="12 345 6789"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Website URL <span className="text-gray-400 font-normal">(optional)</span>
+                </label>
+                <input
+                  type="url"
+                  value={websiteUrl}
+                  onChange={(e) => setWebsiteUrl(e.target.value)}
+                  placeholder="https://www.yourbusiness.com"
+                  className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 />
               </div>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Website URL
-              </label>
-              <input
-                type="url"
-                value={websiteUrl}
-                onChange={(e) => setWebsiteUrl(e.target.value)}
-                placeholder="https://www.yourbusiness.com"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
-              />
+          </div>
+        )
+
+      case 'hours':
+        return (
+          <div>
+            <SectionHeader
+              icon={Clock}
+              title="Business Hours"
+              description="Set your operating hours for each day"
+            />
+            <div className="space-y-3">
+              {['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map((day) => (
+                <div key={day} className="flex items-center gap-4 p-3 bg-gray-50 rounded-lg">
+                  <div className="w-28">
+                    <span className="text-sm font-medium text-gray-700 capitalize">{day}</span>
+                  </div>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={businessHours[day]?.closed || false}
+                      onChange={(e) => {
+                        setBusinessHours(prev => ({
+                          ...prev,
+                          [day]: { ...prev[day], closed: e.target.checked }
+                        }))
+                      }}
+                      className="w-4 h-4 text-emerald-600 border-gray-300 rounded focus:ring-emerald-500"
+                    />
+                    <span className="text-sm text-gray-600">Closed</span>
+                  </label>
+                  {!businessHours[day]?.closed && (
+                    <div className="flex items-center gap-2 flex-1">
+                      <input
+                        type="time"
+                        value={businessHours[day]?.open || '08:00'}
+                        onChange={(e) => {
+                          setBusinessHours(prev => ({
+                            ...prev,
+                            [day]: { ...prev[day], open: e.target.value }
+                          }))
+                        }}
+                        className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      />
+                      <span className="text-gray-400">to</span>
+                      <input
+                        type="time"
+                        value={businessHours[day]?.close || '17:00'}
+                        onChange={(e) => {
+                          setBusinessHours(prev => ({
+                            ...prev,
+                            [day]: { ...prev[day], close: e.target.value }
+                          }))
+                        }}
+                        className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      />
+                    </div>
+                  )}
+                  {businessHours[day]?.closed && (
+                    <span className="text-sm text-gray-400 italic flex-1">Closed all day</span>
+                  )}
+                </div>
+              ))}
             </div>
           </div>
-        </div>
+        )
 
-        {/* Business Hours */}
-        <div className="bg-white border border-gray-200 rounded-xl p-6">
-          <h2 className="text-lg font-medium text-gray-900 mb-2">Business Hours</h2>
-          <p className="text-xs text-gray-500 mb-4">
-            Set your operating hours for each day. These will be displayed on your public pages.
-          </p>
-          <div className="space-y-3">
-            {['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map((day) => (
-              <div key={day} className="flex items-center gap-4">
-                <div className="w-24">
-                  <span className="text-sm font-medium text-gray-700 capitalize">{day}</span>
-                </div>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={businessHours[day]?.closed || false}
-                    onChange={(e) => {
-                      setBusinessHours(prev => ({
-                        ...prev,
-                        [day]: { ...prev[day], closed: e.target.checked }
-                      }))
-                    }}
-                    className="w-4 h-4 text-gray-900 border-gray-300 rounded focus:ring-gray-500"
-                  />
-                  <span className="text-sm text-gray-600">Closed</span>
-                </label>
-                {!businessHours[day]?.closed && (
-                  <div className="flex items-center gap-2 flex-1">
-                    <input
-                      type="time"
-                      value={businessHours[day]?.open || '08:00'}
-                      onChange={(e) => {
-                        setBusinessHours(prev => ({
-                          ...prev,
-                          [day]: { ...prev[day], open: e.target.value }
-                        }))
-                      }}
-                      className="px-2 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
-                    />
-                    <span className="text-gray-400">to</span>
-                    <input
-                      type="time"
-                      value={businessHours[day]?.close || '17:00'}
-                      onChange={(e) => {
-                        setBusinessHours(prev => ({
-                          ...prev,
-                          [day]: { ...prev[day], close: e.target.value }
-                        }))
-                      }}
-                      className="px-2 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
-                    />
-                  </div>
-                )}
-                {businessHours[day]?.closed && (
-                  <span className="text-sm text-gray-400 italic">Closed all day</span>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
+      default:
+        return null
+    }
+  }
 
-        {/* Save Button */}
-        <div className="flex items-center gap-4 pt-4">
-          <button
-            onClick={handleBusinessUpdate}
-            disabled={businessLoading}
-            className="flex items-center gap-2 px-6 py-2.5 bg-accent-500 text-white rounded-lg text-sm font-medium hover:bg-accent-600 transition-colors disabled:opacity-50"
-          >
-            {businessLoading && <Loader2 size={16} className="animate-spin" />}
-            Save Changes
-          </button>
-          {businessMessage && (
-            <span
-              className={`text-sm ${
-                businessMessage.type === 'success' ? 'text-accent-600' : 'text-red-600'
-              }`}
-            >
-              {businessMessage.text}
-            </span>
+  // Mobile preview content
+  const mobilePreviewContent = (
+    <div className="bg-gradient-to-br from-gray-50 to-white rounded-lg border border-gray-200 p-4">
+      <div className="flex items-start gap-3 mb-3">
+        <div className="w-14 h-14 rounded-lg bg-gray-100 flex items-center justify-center overflow-hidden shrink-0">
+          {logoUrl ? (
+            <img src={logoUrl} alt="Business logo" className="w-full h-full object-contain" />
+          ) : (
+            <Building2 size={24} className="text-gray-400" />
           )}
         </div>
+        <div>
+          <h4 className="font-semibold text-gray-900 text-sm">
+            {businessName || 'Your Business Name'}
+          </h4>
+          <p className="text-xs text-gray-500">
+            {[city, stateProvince, businessCountry].filter(Boolean).join(', ') || 'Location not set'}
+          </p>
+        </div>
       </div>
+      {businessDescription && (
+        <p className="text-xs text-gray-600 line-clamp-2">{businessDescription}</p>
+      )}
     </div>
+  )
+
+  return (
+    <BusinessDetailsLayout
+      activeSection={activeSection}
+      onSectionChange={setActiveSection}
+      getSectionStatus={getSectionStatus}
+      completenessPercentage={totalPercentage}
+      isSaving={isSaving}
+      lastSaved={lastSaved}
+      hasUnsavedChanges={hasUnsavedChanges}
+      onSave={save}
+      mobilePreviewContent={mobilePreviewContent}
+      sidebar={
+        <BusinessDetailsSidebar
+          activeSection={activeSection}
+          onSectionChange={setActiveSection}
+          getSectionStatus={getSectionStatus}
+          completenessPercentage={totalPercentage}
+        />
+      }
+      preview={
+        <BusinessPreviewPanel
+          logoUrl={logoUrl}
+          businessName={businessName}
+          businessDescription={businessDescription}
+          city={city}
+          stateProvince={stateProvince}
+          businessCountry={businessCountry}
+          businessEmail={businessEmail}
+          businessPhone={fullBusinessPhone}
+          websiteUrl={websiteUrl}
+          incompleteItems={incompleteItems}
+          onNavigateToSection={setActiveSection}
+        />
+      }
+    >
+      {/* Section Content with Animation */}
+      <div className="min-h-[400px]">
+        <div key={activeSection} className="animate-fade-in">
+          {renderSectionContent()}
+        </div>
+      </div>
+
+      {/* Message */}
+      {businessMessage && (
+        <div
+          className={`mt-6 p-4 rounded-lg text-sm ${
+            businessMessage.type === 'success'
+              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+              : 'bg-red-50 text-red-700 border border-red-200'
+          }`}
+        >
+          {businessMessage.text}
+        </div>
+      )}
+    </BusinessDetailsLayout>
   )
 }

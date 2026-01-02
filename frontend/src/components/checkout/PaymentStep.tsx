@@ -5,9 +5,12 @@ import {
   Building2,
   Shield,
   Loader2,
-  AlertCircle
+  AlertCircle,
+  Tag
 } from 'lucide-react'
 import { discoveryApi } from '../../services/discoveryApi'
+import CouponInput from '../CouponInput'
+import { couponsApi } from '../../services/api'
 import type { PropertyDetail, PaymentMethods } from '../../services/discoveryApi'
 import type { CheckoutState } from '../../pages/discovery/Checkout'
 import { setCustomerToken } from '../../services/portalApi'
@@ -87,7 +90,7 @@ export default function PaymentStep({
       }))
 
       const primaryRoom = state.selectedRooms[0]
-      const bookingData = {
+      const bookingData: any = {
         property_slug: property.slug!,
         guest_name: state.guestName,
         guest_email: state.guestEmail,
@@ -108,6 +111,20 @@ export default function PaymentStep({
         special_requests: state.specialRequests || undefined,
         total_amount: state.grandTotal,
         currency: paymentMethods?.currency || 'ZAR'
+      }
+
+      // Add coupon data if applied
+      if (state.appliedCoupon) {
+        bookingData.coupon = {
+          id: state.appliedCoupon.id,
+          code: state.appliedCoupon.code,
+          name: state.appliedCoupon.name,
+          discount_type: state.appliedCoupon.discount_type,
+          discount_value: state.appliedCoupon.discount_value,
+          discount_amount: state.appliedCoupon.discount_amount,
+        }
+        bookingData.subtotal_before_discount = state.roomTotal + state.addonsTotal
+        bookingData.discount_amount = state.discountAmount
       }
 
       const response = await discoveryApi.createBooking(bookingData)
@@ -399,6 +416,50 @@ export default function PaymentStep({
                 <span>Extras subtotal</span>
                 <span>{formatPrice(state.addonsTotal)}</span>
               </div>
+            </div>
+          )}
+
+          {/* Promotional Code */}
+          <div className="border-t border-gray-200 pt-3">
+            <div className="flex items-center gap-2 mb-3">
+              <Tag size={16} className="text-gray-500" />
+              <span className="font-medium text-gray-700">Have a promo code?</span>
+            </div>
+            <CouponInput
+              onApply={async (code) => {
+                const roomIds = state.selectedRooms.map(r => r.room.id)
+                const result = await couponsApi.validate({
+                  code,
+                  room_ids: roomIds,
+                  subtotal: state.roomTotal + state.addonsTotal,
+                  nights: state.selectedRooms[0]?.pricing?.night_count || 0,
+                  check_in: state.checkIn,
+                  check_out: state.checkOut,
+                  customer_email: state.guestEmail,
+                })
+                if (result.valid && result.coupon && result.discount_amount !== undefined) {
+                  updateState({
+                    appliedCoupon: {
+                      ...result.coupon,
+                      discount_amount: result.discount_amount,
+                    }
+                  })
+                }
+                return result
+              }}
+              onRemove={() => updateState({ appliedCoupon: null })}
+              appliedCoupon={state.appliedCoupon}
+              currency={paymentMethods?.currency || 'ZAR'}
+              disabled={!state.checkIn || !state.checkOut || state.selectedRooms.length === 0}
+              initialCode={state.initialCouponCode}
+            />
+          </div>
+
+          {/* Discount Line (if coupon applied) */}
+          {state.appliedCoupon && (
+            <div className="flex justify-between text-emerald-600 font-medium">
+              <span>Discount ({state.appliedCoupon.code})</span>
+              <span>-{formatPrice(state.discountAmount)}</span>
             </div>
           )}
 

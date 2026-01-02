@@ -58,9 +58,26 @@ export interface PropertyDetail extends DiscoveryProperty {
   specialOffers: SpecialOffer[]
   rooms: Room[]
   reviews: Review[]
+  categoryAverages?: CategoryAverages
 }
 
 export type PricingMode = 'per_unit' | 'per_person' | 'per_person_sharing'
+
+export interface RoomReview {
+  id: string
+  rating: number
+  ratingCleanliness?: number
+  ratingService?: number
+  ratingLocation?: number
+  ratingValue?: number
+  ratingSafety?: number
+  title?: string
+  comment?: string
+  guestName: string
+  guestProfilePicture?: string | null
+  date: string
+  images?: ReviewImage[]
+}
 
 export interface Room {
   id: string
@@ -81,14 +98,51 @@ export interface Room {
   childPricePerNight?: number // Price per child per night (0 = free, null/undefined = same as adult)
   childFreeUntilAge?: number // Children younger than this age stay free (e.g., 2 = 0-1 years free)
   childAgeLimit?: number // Max age considered a child (e.g., 12 = 0-11 are children, 12+ are adults)
+  // Room reviews
+  rating?: number | null
+  reviewCount?: number
+  reviews?: RoomReview[]
+}
+
+export interface ReviewImage {
+  url: string
+  path: string
 }
 
 export interface Review {
   id: string
   rating: number
+  ratingCleanliness?: number
+  ratingService?: number
+  ratingLocation?: number
+  ratingValue?: number
+  ratingSafety?: number
+  title?: string
   comment?: string
   guestName: string
+  guestProfilePicture?: string | null
   date: string
+  images?: ReviewImage[]
+}
+
+export interface CategoryAverages {
+  cleanliness: number | null
+  service: number | null
+  location: number | null
+  value: number | null
+  safety: number | null
+}
+
+export interface PlatformReview {
+  id: string
+  rating: number
+  title?: string
+  comment?: string
+  guestName: string
+  guestProfilePicture?: string | null
+  date: string
+  propertyName: string
+  propertySlug: string
 }
 
 export interface Destination {
@@ -175,6 +229,8 @@ export interface SearchParams {
   near_lat?: number
   near_lng?: number
   radius_km?: number
+  // Special offers filter
+  has_coupons?: boolean
 }
 
 export interface SearchResult {
@@ -244,6 +300,11 @@ export interface AvailabilityResult {
   meets_max_stay: boolean
 }
 
+export interface BookedDatesResult {
+  booked_dates: string[]
+  total_units: number
+}
+
 export interface PricingResult {
   room_name: string
   nights: Array<{ date: string; price: number; rate_name: string | null }>
@@ -292,6 +353,59 @@ export interface SelectedAddon {
   quantity: number
 }
 
+export interface ClaimableCoupon {
+  id: string
+  code: string
+  name: string
+  description?: string
+  discount_type: 'percentage' | 'fixed_amount' | 'free_nights'
+  discount_value: number
+  valid_from?: string
+  valid_until?: string
+  applicable_room_ids?: string[]
+  applicable_rooms?: { id: string; name: string }[]
+}
+
+export interface CouponClaimRequest {
+  coupon_code: string
+  name: string
+  email: string
+  phone: string
+  check_in?: string
+  check_out?: string
+  message?: string
+}
+
+export interface CouponClaimResponse {
+  success: boolean
+  message: string
+  ticket_id?: string
+  tenant_id?: string
+  tenant_name?: string
+  customer_token?: string
+  customer_id?: string
+}
+
+export interface ContactHostRequest {
+  name: string
+  email: string
+  phone: string
+  check_in?: string
+  check_out?: string
+  guests?: number
+  message: string
+}
+
+export interface ContactHostResponse {
+  success: boolean
+  message: string
+  ticket_id?: string
+  tenant_id?: string
+  tenant_name?: string
+  customer_token?: string
+  customer_id?: string
+}
+
 /**
  * Discovery API methods
  */
@@ -323,6 +437,8 @@ export const discoveryApi = {
     if (params.near_lat) searchParams.set('near_lat', String(params.near_lat))
     if (params.near_lng) searchParams.set('near_lng', String(params.near_lng))
     if (params.radius_km) searchParams.set('radius_km', String(params.radius_km))
+    // Special offers filter
+    if (params.has_coupons) searchParams.set('has_coupons', 'true')
 
     const response = await fetch(`${API_URL}/discovery/properties?${searchParams}`)
 
@@ -396,6 +512,32 @@ export const discoveryApi = {
   },
 
   /**
+   * Get newly added properties
+   */
+  async getNewlyAdded(limit: number = 4): Promise<{ properties: DiscoveryProperty[] }> {
+    const response = await fetch(`${API_URL}/discovery/newly-added?limit=${limit}`)
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch newly added properties')
+    }
+
+    return response.json()
+  },
+
+  /**
+   * Get platform reviews for carousel
+   */
+  async getPlatformReviews(limit: number = 20): Promise<{ reviews: PlatformReview[] }> {
+    const response = await fetch(`${API_URL}/discovery/reviews?limit=${limit}`)
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch reviews')
+    }
+
+    return response.json()
+  },
+
+  /**
    * Get platform statistics
    */
   async getStats(): Promise<PlatformStats> {
@@ -422,6 +564,25 @@ export const discoveryApi = {
 
     if (!response.ok) {
       throw new Error('Failed to check availability')
+    }
+
+    return response.json()
+  },
+
+  /**
+   * Get booked dates for a room within a date range
+   */
+  async getBookedDates(slug: string, roomId: string, startDate: string, endDate: string): Promise<BookedDatesResult> {
+    const params = new URLSearchParams({
+      room_id: roomId,
+      start_date: startDate,
+      end_date: endDate
+    })
+
+    const response = await fetch(`${API_URL}/discovery/properties/${slug}/booked-dates?${params}`)
+
+    if (!response.ok) {
+      throw new Error('Failed to get booked dates')
     }
 
     return response.json()
@@ -470,6 +631,76 @@ export const discoveryApi = {
     }
 
     return response.json()
+  },
+
+  /**
+   * Get claimable coupons for a property
+   */
+  async getClaimableCoupons(slug: string): Promise<ClaimableCoupon[]> {
+    const response = await fetch(`${API_URL}/discovery/properties/${slug}/claimable-coupons`)
+
+    if (!response.ok) {
+      throw new Error('Failed to get claimable coupons')
+    }
+
+    return response.json()
+  },
+
+  /**
+   * Submit a coupon claim request
+   */
+  async claimCoupon(slug: string, data: CouponClaimRequest): Promise<CouponClaimResponse> {
+    const response = await fetch(`${API_URL}/discovery/properties/${slug}/claim-coupon`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(data)
+    })
+
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || 'Failed to submit coupon claim')
+    }
+
+    return response.json()
+  },
+
+  /**
+   * Submit a contact/inquiry request to the property host
+   */
+  async contactHost(slug: string, data: ContactHostRequest): Promise<ContactHostResponse> {
+    const response = await fetch(`${API_URL}/discovery/properties/${slug}/contact`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(data)
+    })
+
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || 'Failed to submit inquiry')
+    }
+
+    return response.json()
+  },
+
+  /**
+   * Get coupon info by code for a property
+   */
+  async getCouponByCode(slug: string, code: string): Promise<ClaimableCoupon | null> {
+    try {
+      const response = await fetch(`${API_URL}/discovery/properties/${slug}/coupon/${encodeURIComponent(code)}`)
+
+      if (!response.ok) {
+        return null
+      }
+
+      return response.json()
+    } catch {
+      return null
+    }
   },
 
   /**

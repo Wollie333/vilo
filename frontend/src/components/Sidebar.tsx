@@ -19,13 +19,19 @@ import {
 
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-  { name: 'Rooms', href: '/dashboard/rooms', icon: BedDouble },
-  { name: 'Add-ons', href: '/dashboard/addons', icon: Plus },
-  { name: 'Bookings', href: '/dashboard/bookings', icon: Calendar },
-  { name: 'Calendar', href: '/dashboard/calendar', icon: CalendarDays },
-  { name: 'Reviews', href: '/dashboard/reviews', icon: Star },
-  { name: 'Customers', href: '/dashboard/customers', icon: Users },
   { name: 'Support', href: '/dashboard/support', icon: Headphones },
+]
+
+const bookingsSubItems = [
+  { name: 'All Bookings', href: '/dashboard/bookings', icon: Calendar },
+  { name: 'Calendar', href: '/dashboard/calendar', icon: CalendarDays },
+  { name: 'Customers', href: '/dashboard/customers', icon: Users },
+  { name: 'Reviews', href: '/dashboard/reviews', icon: Star },
+]
+
+const roomsSubItems = [
+  { name: 'All Rooms', href: '/dashboard/rooms', icon: BedDouble },
+  { name: 'Add-ons', href: '/dashboard/addons', icon: Plus },
 ]
 
 const businessSubItems = [
@@ -36,6 +42,15 @@ const businessSubItems = [
 
 export default function Sidebar() {
   const location = useLocation()
+  const [bookingsExpanded, setBookingsExpanded] = useState(
+    location.pathname.startsWith('/dashboard/bookings') ||
+    location.pathname.startsWith('/dashboard/calendar') ||
+    location.pathname.startsWith('/dashboard/customers') ||
+    location.pathname.startsWith('/dashboard/reviews')
+  )
+  const [roomsExpanded, setRoomsExpanded] = useState(
+    location.pathname.startsWith('/dashboard/rooms') || location.pathname.startsWith('/dashboard/addons')
+  )
   const [myBusinessExpanded, setMyBusinessExpanded] = useState(
     location.pathname.startsWith('/dashboard/business')
   )
@@ -64,7 +79,7 @@ export default function Sidebar() {
           }`}
         >
           <LayoutDashboard size={18} className={location.pathname === '/dashboard' ? 'text-accent-600' : ''} />
-          <span className="text-sm">{navigation[0].name}</span>
+          <span className="text-sm">Dashboard</span>
         </Link>
 
         {/* My Business expandable dropdown */}
@@ -111,8 +126,105 @@ export default function Sidebar() {
           )}
         </div>
 
+        {/* Rooms expandable dropdown */}
+        <div>
+          <button
+            onClick={() => setRoomsExpanded(!roomsExpanded)}
+            className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg transition-all ${
+              location.pathname.startsWith('/dashboard/rooms') || location.pathname.startsWith('/dashboard/addons')
+                ? 'bg-accent-50 text-accent-700 font-medium'
+                : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <BedDouble size={18} className={location.pathname.startsWith('/dashboard/rooms') || location.pathname.startsWith('/dashboard/addons') ? 'text-accent-600' : ''} />
+              <span className="text-sm">Rooms</span>
+            </div>
+            <ChevronDown
+              size={16}
+              className={`transition-transform duration-200 ${roomsExpanded ? 'rotate-180' : ''}`}
+            />
+          </button>
+
+          {roomsExpanded && (
+            <div className="ml-6 mt-1 space-y-1">
+              {roomsSubItems.map((item) => {
+                const isActive = location.pathname === item.href
+                const Icon = item.icon
+                return (
+                  <Link
+                    key={item.name}
+                    to={item.href}
+                    className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-all ${
+                      isActive
+                        ? 'bg-accent-50 text-accent-700 font-medium'
+                        : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'
+                    }`}
+                  >
+                    <Icon size={16} className={isActive ? 'text-accent-600' : ''} />
+                    <span className="text-sm">{item.name}</span>
+                  </Link>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Bookings expandable dropdown */}
+        <div>
+          <button
+            onClick={() => setBookingsExpanded(!bookingsExpanded)}
+            className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg transition-all ${
+              location.pathname.startsWith('/dashboard/bookings') ||
+              location.pathname.startsWith('/dashboard/calendar') ||
+              location.pathname.startsWith('/dashboard/customers') ||
+              location.pathname.startsWith('/dashboard/reviews')
+                ? 'bg-accent-50 text-accent-700 font-medium'
+                : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <Calendar size={18} className={
+                location.pathname.startsWith('/dashboard/bookings') ||
+                location.pathname.startsWith('/dashboard/calendar') ||
+                location.pathname.startsWith('/dashboard/customers') ||
+                location.pathname.startsWith('/dashboard/reviews')
+                  ? 'text-accent-600' : ''
+              } />
+              <span className="text-sm">Bookings</span>
+            </div>
+            <ChevronDown
+              size={16}
+              className={`transition-transform duration-200 ${bookingsExpanded ? 'rotate-180' : ''}`}
+            />
+          </button>
+
+          {bookingsExpanded && (
+            <div className="ml-6 mt-1 space-y-1">
+              {bookingsSubItems.map((item) => {
+                const isActive = location.pathname === item.href
+                const Icon = item.icon
+                return (
+                  <Link
+                    key={item.name}
+                    to={item.href}
+                    className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-all ${
+                      isActive
+                        ? 'bg-accent-50 text-accent-700 font-medium'
+                        : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'
+                    }`}
+                  >
+                    <Icon size={16} className={isActive ? 'text-accent-600' : ''} />
+                    <span className="text-sm">{item.name}</span>
+                  </Link>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
         {/* Remaining navigation items */}
-        {navigation.slice(1).map((item) => {
+        {navigation.slice(1).map((item) => {  // Skip Dashboard (index 0)
           const isActive = location.pathname === item.href
           const Icon = item.icon
           return (

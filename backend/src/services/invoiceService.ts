@@ -26,6 +26,16 @@ export interface InvoiceData {
     name: string
     email: string | null
     phone: string | null
+    // Business details (when customer has business info enabled)
+    business_name: string | null
+    business_vat_number: string | null
+    business_registration_number: string | null
+    business_address_line1: string | null
+    business_address_line2: string | null
+    business_city: string | null
+    business_postal_code: string | null
+    business_country: string | null
+    use_business_details: boolean
   }
 
   booking: {
@@ -128,6 +138,41 @@ export async function buildInvoiceData(
     .eq('id', booking.room_id)
     .single()
 
+  // Get customer details if customer_id exists
+  let customerBusinessDetails = {
+    business_name: null as string | null,
+    business_vat_number: null as string | null,
+    business_registration_number: null as string | null,
+    business_address_line1: null as string | null,
+    business_address_line2: null as string | null,
+    business_city: null as string | null,
+    business_postal_code: null as string | null,
+    business_country: null as string | null,
+    use_business_details: false
+  }
+
+  if (booking.customer_id) {
+    const { data: customer } = await supabase
+      .from('customers')
+      .select('business_name, business_vat_number, business_registration_number, business_address_line1, business_address_line2, business_city, business_postal_code, business_country, use_business_details_on_invoice')
+      .eq('id', booking.customer_id)
+      .single()
+
+    if (customer && customer.use_business_details_on_invoice) {
+      customerBusinessDetails = {
+        business_name: customer.business_name,
+        business_vat_number: customer.business_vat_number,
+        business_registration_number: customer.business_registration_number,
+        business_address_line1: customer.business_address_line1,
+        business_address_line2: customer.business_address_line2,
+        business_city: customer.business_city,
+        business_postal_code: customer.business_postal_code,
+        business_country: customer.business_country,
+        use_business_details: true
+      }
+    }
+  }
+
   // Build line items
   const lineItems: InvoiceData['line_items'] = []
 
@@ -210,7 +255,8 @@ export async function buildInvoiceData(
     customer: {
       name: booking.guest_name,
       email: booking.guest_email || null,
-      phone: booking.guest_phone || null
+      phone: booking.guest_phone || null,
+      ...customerBusinessDetails
     },
 
     booking: {

@@ -105,7 +105,8 @@ export async function getPlaceDetails(placeId: string): Promise<GeocodingResult 
     let postalCode = ''
 
     result.address_components?.forEach(component => {
-      const types = component.types
+      // Cast types to string[] for compatibility with type checking
+      const types = component.types as string[]
       if (types.includes('locality')) {
         city = component.long_name
       } else if (types.includes('administrative_area_level_1')) {
@@ -146,7 +147,8 @@ function parseGeocodeResult(result: GeocodeResult): GeocodingResult {
   let postalCode = ''
 
   result.address_components?.forEach(component => {
-    const types = component.types
+    // Cast types to string[] for compatibility with type checking
+    const types = component.types as string[]
     if (types.includes('locality')) {
       city = component.long_name
     } else if (types.includes('administrative_area_level_1')) {

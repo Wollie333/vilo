@@ -9,7 +9,6 @@ import {
   Star,
   Check,
   ArrowRight,
-  Zap,
   BedDouble,
   Plus,
   CalendarDays,
@@ -36,8 +35,6 @@ import {
   Bell,
   Wallet,
   Receipt,
-  Palette,
-  Smartphone,
   Mail,
   Heart,
   PieChart,
@@ -47,14 +44,23 @@ import {
 } from 'lucide-react'
 import { useScrollAnimation } from '../../hooks/useScrollAnimation'
 
+interface PlatformStats {
+  totalRevenue: number
+  feesSaved: number
+  commissionRate: number
+  propertiesCount: number
+  bookingsCount: number
+  reviewsCount: number
+  averageRating: number
+  currency: string
+}
+
 export default function LandingPage() {
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('annual')
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null)
-  const [videoLoaded, setVideoLoaded] = useState(false)
-  const [videoError, setVideoError] = useState(false)
+  const [platformStats, setPlatformStats] = useState<PlatformStats | null>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
-  const playerRef = useRef<YT.Player | null>(null)
 
   // Scroll animation refs
   const [heroRef, heroVisible] = useScrollAnimation<HTMLDivElement>({ threshold: 0.1 })
@@ -78,68 +84,56 @@ export default function LandingPage() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  // YouTube IFrame API setup for better video control
+  // Fetch platform stats
   useEffect(() => {
-    // Load YouTube IFrame API
-    const tag = document.createElement('script')
-    tag.src = 'https://www.youtube.com/iframe_api'
-    const firstScriptTag = document.getElementsByTagName('script')[0]
-    firstScriptTag.parentNode?.insertBefore(tag, firstScriptTag)
-
-    // Define the callback that YouTube API calls when ready
-    ;(window as unknown as { onYouTubeIframeAPIReady: () => void }).onYouTubeIframeAPIReady = () => {
-      playerRef.current = new YT.Player('hero-video-player', {
-        videoId: 'GdKvzYsmgwM',
-        playerVars: {
-          autoplay: 1,
-          mute: 1,
-          loop: 1,
-          playlist: 'GdKvzYsmgwM',
-          controls: 0,
-          showinfo: 0,
-          rel: 0,
-          modestbranding: 1,
-          playsinline: 1,
-          disablekb: 1,
-          fs: 0,
-          iv_load_policy: 3, // Hide annotations
-          cc_load_policy: 0, // Hide captions
-        },
-        events: {
-          onReady: (event: YT.PlayerEvent) => {
-            event.target.mute()
-            event.target.playVideo()
-            // Give it a moment to start playing before showing
-            setTimeout(() => setVideoLoaded(true), 500)
-          },
-          onError: () => {
-            setVideoError(true)
-          },
-          onStateChange: (event: YT.OnStateChangeEvent) => {
-            // If video ends and doesn't loop properly, restart it
-            if (event.data === YT.PlayerState.ENDED) {
-              event.target.seekTo(0)
-              event.target.playVideo()
-            }
-          }
+    const fetchStats = async () => {
+      try {
+        const response = await fetch('/api/discovery/platform-stats')
+        if (response.ok) {
+          const data = await response.json()
+          setPlatformStats(data)
         }
-      })
-    }
-
-    // Cleanup
-    return () => {
-      if (playerRef.current) {
-        playerRef.current.destroy()
+      } catch (error) {
+        console.error('Failed to fetch platform stats:', error)
       }
     }
+    fetchStats()
   }, [])
+
 
   const toggleDropdown = (name: string) => {
     setActiveDropdown(activeDropdown === name ? null : name)
   }
 
+  // Format currency with abbreviations for large numbers
+  const formatCurrency = (amount: number): string => {
+    if (amount >= 1000000) {
+      return `R${(amount / 1000000).toFixed(1)}M`
+    } else if (amount >= 1000) {
+      return `R${(amount / 1000).toFixed(0)}K`
+    }
+    return `R${amount.toLocaleString()}`
+  }
+
   return (
     <div className="min-h-screen bg-white">
+      {/* Custom animations for notification */}
+      <style>{`
+        @keyframes wiggle {
+          0%, 100% { transform: rotate(0deg); }
+          25% { transform: rotate(15deg); }
+          50% { transform: rotate(-10deg); }
+          75% { transform: rotate(10deg); }
+        }
+        @keyframes fadeSlideIn {
+          0% { opacity: 0; transform: translateY(-10px); }
+          100% { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes float {
+          0%, 100% { transform: translateY(0); }
+          50% { transform: translateY(-8px); }
+        }
+      `}</style>
       {/* Navigation with Mega Menu */}
       <nav className="fixed top-0 left-0 right-0 bg-white/95 backdrop-blur-md border-b border-gray-100 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -267,6 +261,14 @@ export default function LandingPage() {
                 Pricing
               </a>
 
+              {/* Directory Link */}
+              <Link
+                to="/directory"
+                className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-lg transition-colors"
+                onClick={() => setActiveDropdown(null)}
+              >
+                Directory
+              </Link>
             </div>
 
             {/* Right Side - CTAs */}
@@ -281,7 +283,7 @@ export default function LandingPage() {
                 to="/pricing"
                 className="hidden sm:flex bg-black text-white px-5 py-2.5 rounded-full hover:bg-gray-800 transition-all text-sm font-medium items-center gap-2"
               >
-                List Your Property
+                Get Started
                 <ArrowRight className="w-4 h-4" />
               </Link>
 
@@ -303,6 +305,7 @@ export default function LandingPage() {
               <a href="#features" className="block py-2 text-gray-900 font-medium" onClick={() => setMobileMenuOpen(false)}>Features</a>
               <a href="#how-it-works" className="block py-2 text-gray-900 font-medium" onClick={() => setMobileMenuOpen(false)}>How it Works</a>
               <a href="#pricing" className="block py-2 text-gray-900 font-medium" onClick={() => setMobileMenuOpen(false)}>Pricing</a>
+              <Link to="/directory" className="block py-2 text-gray-900 font-medium" onClick={() => setMobileMenuOpen(false)}>Directory</Link>
               <hr className="my-4" />
               <Link to="/login" className="block py-2 text-gray-600" onClick={() => setMobileMenuOpen(false)}>Sign In</Link>
               <Link
@@ -310,46 +313,42 @@ export default function LandingPage() {
                 className="block w-full bg-black text-white px-5 py-3 rounded-full text-center font-medium"
                 onClick={() => setMobileMenuOpen(false)}
               >
-                List Your Property
+                Get Started
               </Link>
             </div>
           </div>
         )}
       </nav>
 
-      {/* Hero Section - Video Background */}
-      <section className="relative min-h-[90vh] flex items-center overflow-hidden">
-        {/* Fallback Background - Beautiful gradient with animated elements */}
-        <div className="absolute inset-0 bg-gradient-to-br from-emerald-900 via-gray-900 to-black">
-          {/* Animated background pattern */}
-          <div className="absolute inset-0 opacity-30">
-            <div className="absolute top-0 left-0 w-96 h-96 bg-emerald-500 rounded-full filter blur-[128px] animate-pulse" />
-            <div className="absolute bottom-0 right-0 w-96 h-96 bg-teal-500 rounded-full filter blur-[128px] animate-pulse" style={{ animationDelay: '1s' }} />
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-emerald-400 rounded-full filter blur-[100px] animate-pulse" style={{ animationDelay: '0.5s' }} />
-          </div>
+      {/* Hero Section - Modern SaaS Dark Background */}
+      <section className="relative min-h-[90vh] flex items-center overflow-hidden bg-gray-950">
+        {/* Gradient mesh background */}
+        <div className="absolute inset-0 bg-gradient-to-br from-gray-900 via-gray-950 to-black" />
 
-          {/* Loading indicator while video loads */}
-          {!videoLoaded && !videoError && (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="w-16 h-16 border-4 border-white/20 border-t-white/80 rounded-full animate-spin" />
-            </div>
-          )}
-        </div>
+        {/* Animated gradient orbs */}
+        <div className="absolute top-0 -left-40 w-[600px] h-[600px] bg-emerald-500/20 rounded-full blur-[128px] animate-pulse" style={{ animationDuration: '8s' }} />
+        <div className="absolute top-1/3 -right-40 w-[500px] h-[500px] bg-teal-500/15 rounded-full blur-[128px] animate-pulse" style={{ animationDuration: '10s', animationDelay: '1s' }} />
+        <div className="absolute -bottom-40 left-1/3 w-[600px] h-[600px] bg-emerald-600/10 rounded-full blur-[128px] animate-pulse" style={{ animationDuration: '12s', animationDelay: '2s' }} />
 
-        {/* YouTube Video Background */}
+        {/* Grid pattern overlay */}
         <div
-          className={`absolute inset-0 overflow-hidden pointer-events-none transition-opacity duration-1000 ${
-            videoLoaded && !videoError ? 'opacity-100' : 'opacity-0'
-          }`}
-        >
-          {/* Video container with aspect ratio handling */}
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[180%] h-[180%] min-w-[180%] min-h-[180%]">
-            <div id="hero-video-player" className="w-full h-full" />
-          </div>
-        </div>
+          className="absolute inset-0 opacity-[0.03]"
+          style={{
+            backgroundImage: `linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)`,
+            backgroundSize: '64px 64px'
+          }}
+        />
 
-        {/* Dark Overlay for text readability */}
-        <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/50 to-black/70" />
+        {/* Top highlight glow */}
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] bg-gradient-to-b from-emerald-500/10 via-emerald-500/5 to-transparent blur-2xl" />
+
+        {/* Noise texture */}
+        <div
+          className="absolute inset-0 opacity-[0.03]"
+          style={{
+            backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E")`
+          }}
+        />
 
         {/* Content */}
         <div className="relative z-10 w-full pt-32 pb-20 px-4 sm:px-6 lg:px-8">
@@ -363,7 +362,7 @@ export default function LandingPage() {
               {/* Minimal Badge */}
               <div className="inline-flex items-center gap-2 text-emerald-400 text-sm font-medium mb-8 bg-white/10 backdrop-blur-sm px-4 py-2 rounded-full">
                 <span className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
-                <span>Zero commission fees</span>
+                <span>Zero commission fees ever</span>
               </div>
 
               {/* Main Headline - Clean & Direct */}
@@ -377,14 +376,14 @@ export default function LandingPage() {
 
               {/* Subheadline */}
               <p className="text-xl text-white/80 mb-12 max-w-2xl mx-auto leading-relaxed">
-                The booking platform that lets accommodation owners manage properties, accept payments, and build guest relationships — without losing profits to OTAs.
+                Manage properties, accept payments, and build guest relationships — all without OTA commission fees.
               </p>
 
-              {/* CTAs - Clean Design */}
+              {/* CTAs - Green Brand Color */}
               <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-4">
                 <Link
                   to="/pricing"
-                  className="w-full sm:w-auto bg-white text-gray-900 px-8 py-4 rounded-full hover:bg-gray-100 transition-all font-medium text-base flex items-center justify-center gap-2 group shadow-lg"
+                  className="w-full sm:w-auto bg-emerald-500 text-white px-8 py-4 rounded-full hover:bg-emerald-400 transition-all font-medium text-base flex items-center justify-center gap-2 group shadow-lg shadow-emerald-500/25"
                 >
                   Get Started
                   <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
@@ -402,7 +401,7 @@ export default function LandingPage() {
               <div className="flex items-center justify-center gap-6 text-sm text-white/70">
                 <span className="flex items-center gap-1.5">
                   <Check className="w-4 h-4 text-emerald-400" />
-                  No credit card required
+                  No Fees ever, keep 100% profits
                 </span>
                 <span className="flex items-center gap-1.5">
                   <Check className="w-4 h-4 text-emerald-400" />
@@ -417,19 +416,100 @@ export default function LandingPage() {
                 heroVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-12'
               }`}
             >
-              <div className="bg-white/95 backdrop-blur-sm rounded-2xl shadow-2xl border border-white/20 overflow-hidden">
-                <div className="bg-emerald-600 px-4 py-3 border-b border-emerald-700 flex items-center gap-2">
-                  <div className="flex gap-1.5">
-                    <div className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
-                    <div className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
-                    <div className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
+              {/* Glow effect behind dashboard */}
+              <div className="absolute -inset-4 bg-gradient-to-r from-emerald-500/20 via-teal-500/20 to-emerald-500/20 rounded-3xl blur-2xl opacity-60" />
+
+              {/* Standalone Floating Notification Card */}
+              <div
+                className="absolute -top-8 -right-4 sm:-right-8 lg:-right-16 w-72 sm:w-80 z-50"
+                style={{
+                  animation: 'fadeSlideIn 0.8s ease-out 0.5s forwards, float 4s ease-in-out 1.3s infinite',
+                  opacity: 0,
+                }}
+              >
+                {/* Notification Card with 3D effect */}
+                <div
+                  className="bg-white rounded-2xl overflow-hidden"
+                  style={{
+                    boxShadow: '0 50px 100px -20px rgba(0, 0, 0, 0.5), 0 30px 60px -15px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(0,0,0,0.05)',
+                    transform: 'perspective(1000px) rotateY(-5deg) rotateX(5deg)',
+                  }}
+                >
+                  {/* Card Header */}
+                  <div className="bg-gradient-to-r from-emerald-500 to-emerald-600 px-4 py-3 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="relative">
+                        <Bell className="w-5 h-5 text-white" style={{ animation: 'wiggle 0.5s ease-in-out infinite' }} />
+                        <span className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+                      </div>
+                      <span className="text-sm font-bold text-white">Notifications</span>
+                    </div>
+                    <span className="bg-white/20 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">2 new</span>
                   </div>
-                  <span className="ml-3 text-xs text-white/80 font-medium">app.vilo.co.za</span>
+
+                  {/* New Booking Notification */}
+                  <div className="p-4 bg-gradient-to-r from-emerald-50 to-green-50 border-l-4 border-emerald-500">
+                    <div className="flex items-start gap-3">
+                      <div className="w-10 h-10 bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg shadow-emerald-500/30">
+                        <Calendar className="w-5 h-5 text-white" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-bold text-emerald-700">New Booking!</span>
+                          <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
+                        </div>
+                        <p className="text-xs text-gray-700 mt-1 font-medium">John D. booked Deluxe Suite</p>
+                        <p className="text-sm text-emerald-600 font-bold mt-1">+R2,400 revenue</p>
+                        <p className="text-[10px] text-gray-400 mt-1">Just now</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Second notification */}
+                  <div className="p-3 border-t border-gray-100 bg-white">
+                    <div className="flex items-start gap-3">
+                      <div className="w-8 h-8 bg-yellow-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                        <Star className="w-4 h-4 text-yellow-500" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs text-gray-700 font-medium">New 5-star review received</p>
+                        <p className="text-[10px] text-gray-400 mt-0.5">2 mins ago</p>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <div className="p-6 sm:p-8 bg-white">
+
+                {/* Connector line from bell to notification */}
+                <div className="absolute -bottom-4 left-1/2 w-px h-8 bg-gradient-to-b from-emerald-400 to-transparent hidden lg:block" />
+              </div>
+
+              <div className="relative bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl shadow-emerald-500/10 border border-white/30 overflow-hidden ring-1 ring-white/10">
+                <div className="bg-emerald-600 px-4 py-3 border-b border-emerald-700 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="flex gap-1.5">
+                      <div className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
+                      <div className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
+                      <div className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
+                    </div>
+                    <span className="ml-3 text-xs text-white/80 font-medium">app.vilo.co.za</span>
+                  </div>
+
+                  {/* Notification Bell with Animation */}
+                  <div className="relative cursor-pointer">
+                    <Bell
+                      className="w-5 h-5 text-white"
+                      style={{
+                        animation: 'wiggle 0.5s ease-in-out infinite',
+                      }}
+                    />
+                    {/* Notification dot */}
+                    <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-500 rounded-full animate-pulse border border-emerald-600" />
+                  </div>
+                </div>
+                <div className="p-6 sm:p-8 bg-gray-100">
                   <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
                     <StatCard icon={<Calendar className="w-5 h-5" />} value="156" label="Total Bookings" trend="+12%" />
-                    <StatCard icon={<CreditCard className="w-5 h-5" />} value="R245,800" label="Revenue" trend="+23%" />
+                    <StatCard icon={<CreditCard className="w-5 h-5" />} value="R245,800" label="Revenue" trend="+23%" highlighted />
                     <StatCard icon={<BarChart3 className="w-5 h-5" />} value="87%" label="Occupancy" trend="+5%" />
                     <StatCard icon={<Star className="w-5 h-5" />} value="4.9" label="Guest Rating" trend="" />
                   </div>
@@ -440,31 +520,115 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Social Proof Bar */}
+      {/* Platform Stats Section */}
       <section
         ref={socialProofRef}
-        className={`py-16 px-4 sm:px-6 lg:px-8 border-y border-gray-100 transition-all duration-700 ${
+        className={`py-20 px-4 sm:px-6 lg:px-8 bg-gradient-to-b from-gray-50 to-white transition-all duration-700 ${
           socialProofVisible ? 'opacity-100' : 'opacity-0'
         }`}
       >
-        <div className="max-w-5xl mx-auto">
-          <p className="text-center text-sm text-gray-400 mb-8 tracking-wide uppercase">Trusted by property owners across South Africa</p>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-8 lg:gap-12 text-center">
-            <div className={`transition-all duration-500 ${socialProofVisible ? 'translate-y-0 opacity-100' : 'translate-y-4 opacity-0'}`} style={{ transitionDelay: '100ms' }}>
-              <div className="text-3xl sm:text-4xl font-semibold text-gray-900 mb-1">R0</div>
-              <div className="text-sm text-gray-500">Commission Fees</div>
+        <div className="max-w-6xl mx-auto">
+          {/* Section Header */}
+          <div className="text-center mb-12">
+            <p className="text-sm font-semibold text-emerald-600 uppercase tracking-wider mb-2">Platform Impact</p>
+            <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-3">Real Results, Real Savings</h2>
+            <p className="text-gray-500 max-w-2xl mx-auto">
+              Every rand processed through Vilo stays with our hosts. No hidden fees, no commission cuts.
+            </p>
+          </div>
+
+          {/* Main Stats Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            {/* Total Revenue */}
+            <div
+              className={`relative bg-white rounded-2xl p-6 border border-gray-100 shadow-sm hover:shadow-lg transition-all duration-500 ${
+                socialProofVisible ? 'translate-y-0 opacity-100' : 'translate-y-8 opacity-0'
+              }`}
+              style={{ transitionDelay: '100ms' }}
+            >
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center">
+                  <Wallet className="w-6 h-6 text-emerald-600" />
+                </div>
+                <span className="text-xs font-medium text-gray-400 uppercase tracking-wide">Total Revenue</span>
+              </div>
+              <div className="text-3xl sm:text-4xl font-bold text-gray-900 mb-1">
+                {platformStats ? formatCurrency(platformStats.totalRevenue) : 'R0'}
+              </div>
+              <p className="text-sm text-gray-500">Revenue generated for users</p>
+              <div className="absolute top-4 right-4">
+                <span className="text-xs font-semibold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full">100% to hosts</span>
+              </div>
             </div>
-            <div className={`transition-all duration-500 ${socialProofVisible ? 'translate-y-0 opacity-100' : 'translate-y-4 opacity-0'}`} style={{ transitionDelay: '200ms' }}>
-              <div className="text-3xl sm:text-4xl font-semibold text-gray-900 mb-1">10min</div>
-              <div className="text-sm text-gray-500">Setup Time</div>
+
+            {/* Fees Saved */}
+            <div
+              className={`relative bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-2xl p-6 shadow-lg shadow-emerald-500/20 hover:shadow-xl hover:shadow-emerald-500/30 transition-all duration-500 ${
+                socialProofVisible ? 'translate-y-0 opacity-100' : 'translate-y-8 opacity-0'
+              }`}
+              style={{ transitionDelay: '200ms' }}
+            >
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center">
+                  <Receipt className="w-6 h-6 text-white" />
+                </div>
+                <span className="text-xs font-medium text-emerald-100 uppercase tracking-wide">Fees Saved</span>
+              </div>
+              <div className="text-3xl sm:text-4xl font-bold text-white mb-1">
+                {platformStats ? formatCurrency(platformStats.feesSaved) : 'R0'}
+              </div>
+              <p className="text-sm text-emerald-100">Based on 15% OTA industry average</p>
+              <div className="absolute top-4 right-4">
+                <span className="text-xs font-semibold text-emerald-700 bg-white px-2 py-1 rounded-full">0% Vilo fees</span>
+              </div>
             </div>
-            <div className={`transition-all duration-500 ${socialProofVisible ? 'translate-y-0 opacity-100' : 'translate-y-4 opacity-0'}`} style={{ transitionDelay: '300ms' }}>
-              <div className="text-3xl sm:text-4xl font-semibold text-gray-900 mb-1">100%</div>
-              <div className="text-sm text-gray-500">Your Revenue</div>
+
+            {/* Properties */}
+            <div
+              className={`relative bg-white rounded-2xl p-6 border border-gray-100 shadow-sm hover:shadow-lg transition-all duration-500 ${
+                socialProofVisible ? 'translate-y-0 opacity-100' : 'translate-y-8 opacity-0'
+              }`}
+              style={{ transitionDelay: '300ms' }}
+            >
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center">
+                  <Building2 className="w-6 h-6 text-blue-600" />
+                </div>
+                <span className="text-xs font-medium text-gray-400 uppercase tracking-wide">Properties</span>
+              </div>
+              <div className="text-3xl sm:text-4xl font-bold text-gray-900 mb-1">
+                {platformStats ? platformStats.propertiesCount : 0}
+              </div>
+              <p className="text-sm text-gray-500">Active on Vilo</p>
             </div>
-            <div className={`transition-all duration-500 ${socialProofVisible ? 'translate-y-0 opacity-100' : 'translate-y-4 opacity-0'}`} style={{ transitionDelay: '400ms' }}>
-              <div className="text-3xl sm:text-4xl font-semibold text-gray-900 mb-1">24/7</div>
-              <div className="text-sm text-gray-500">Online Bookings</div>
+
+            {/* Bookings */}
+            <div
+              className={`relative bg-white rounded-2xl p-6 border border-gray-100 shadow-sm hover:shadow-lg transition-all duration-500 ${
+                socialProofVisible ? 'translate-y-0 opacity-100' : 'translate-y-8 opacity-0'
+              }`}
+              style={{ transitionDelay: '400ms' }}
+            >
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-12 h-12 bg-purple-100 rounded-xl flex items-center justify-center">
+                  <Calendar className="w-6 h-6 text-purple-600" />
+                </div>
+                <span className="text-xs font-medium text-gray-400 uppercase tracking-wide">Bookings</span>
+              </div>
+              <div className="text-3xl sm:text-4xl font-bold text-gray-900 mb-1">
+                {platformStats ? platformStats.bookingsCount : 0}
+              </div>
+              <p className="text-sm text-gray-500">Successful reservations</p>
+            </div>
+          </div>
+
+          {/* Bottom callout */}
+          <div className={`mt-10 text-center transition-all duration-700 ${socialProofVisible ? 'opacity-100' : 'opacity-0'}`} style={{ transitionDelay: '500ms' }}>
+            <div className="inline-flex items-center gap-3 bg-gray-900 text-white px-6 py-3 rounded-full">
+              <Ban className="w-5 h-5 text-red-400" />
+              <span className="text-sm font-medium">
+                <span className="text-red-400 font-bold">R0</span> in commission fees — we never take a cut of your bookings
+              </span>
             </div>
           </div>
         </div>
@@ -599,31 +763,7 @@ export default function LandingPage() {
           </div>
         </div>
 
-        {/* Feature Section 4: Website Builder - Image Left */}
-        <div className="max-w-7xl mx-auto mb-32">
-          <div className="grid lg:grid-cols-2 gap-12 lg:gap-20 items-center">
-            <div className="order-2 lg:order-1 relative">
-              <FeatureMockup variant="website" />
-            </div>
-            <div className="order-1 lg:order-2">
-              <h3 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-5 leading-tight">
-                Your own booking
-                <br />website
-              </h3>
-              <p className="text-lg text-gray-500 mb-8 leading-relaxed">
-                Get a beautiful, mobile-friendly booking website on your subdomain or custom domain. No coding required.
-              </p>
-              <div className="grid grid-cols-2 gap-5">
-                <FeaturePoint icon={<Globe className="w-5 h-5" />} title="Custom Domain" description="Use your own domain or our subdomain." />
-                <FeaturePoint icon={<Palette className="w-5 h-5" />} title="Brand It Yours" description="Your logo, colors, and style throughout." />
-                <FeaturePoint icon={<Smartphone className="w-5 h-5" />} title="Mobile Perfect" description="Looks great on every device." />
-                <FeaturePoint icon={<Zap className="w-5 h-5" />} title="Lightning Fast" description="Optimized for speed and SEO." />
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Feature Section 5: Guest Management - Image Right */}
+        {/* Feature Section 4: Guest Management - Image Right */}
         <div className="max-w-7xl mx-auto mb-32">
           <div className="grid lg:grid-cols-2 gap-12 lg:gap-20 items-center">
             <div>
@@ -860,7 +1000,6 @@ export default function LandingPage() {
               </div>
               <ul className="space-y-3 mb-8">
                 <PricingFeature text="Unlimited rooms & bookings" />
-                <PricingFeature text="Custom booking website" />
                 <PricingFeature text="Online payments" />
                 <PricingFeature text="Guest management" />
                 <PricingFeature text="Analytics dashboard" />
@@ -932,42 +1071,210 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Testimonials */}
+      {/* Testimonials - What Travelers Say */}
       <section
         ref={testimonialsRef}
         id="testimonials"
-        className="py-28 px-4 sm:px-6 lg:px-8 bg-gray-50/50"
+        className="py-28 px-4 sm:px-6 lg:px-8 bg-gray-50/50 overflow-hidden"
       >
+        {/* Inline styles for marquee animation */}
+        <style>{`
+          @keyframes scroll-left {
+            0% { transform: translateX(0); }
+            100% { transform: translateX(-50%); }
+          }
+          @keyframes scroll-right {
+            0% { transform: translateX(-50%); }
+            100% { transform: translateX(0); }
+          }
+          .testimonial-marquee-left {
+            display: flex;
+            gap: 1.5rem;
+            width: max-content;
+            animation: scroll-left 30s linear infinite;
+          }
+          .testimonial-marquee-right {
+            display: flex;
+            gap: 1.5rem;
+            width: max-content;
+            animation: scroll-right 30s linear infinite;
+          }
+          .testimonial-marquee-left:hover,
+          .testimonial-marquee-right:hover {
+            animation-play-state: paused;
+          }
+        `}</style>
+
         <div className="max-w-6xl mx-auto">
           <div className={`text-center mb-16 transition-all duration-700 ${testimonialsVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
             <p className="text-sm font-medium text-gray-400 uppercase tracking-wide mb-4">Testimonials</p>
             <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-4">
-              Trusted by property owners
+              What Travelers Say
             </h2>
             <p className="text-xl text-gray-500">
-              See why accommodation providers love Vilo
+              Real experiences from guests who booked directly
             </p>
           </div>
 
-          <div className={`grid md:grid-cols-3 gap-6 transition-all duration-700 delay-200 ${testimonialsVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
-            <TestimonialCard
-              quote="I was losing R4,000 a month to OTA commissions. Vilo paid for itself in the first week."
-              author="Sarah M."
-              role="Oceanview B&B, Cape Town"
-              rating={5}
-            />
-            <TestimonialCard
-              quote="Finally I own my guest relationships. I can email them directly and build real loyalty."
-              author="John D."
-              role="Mountain Lodge, Drakensberg"
-              rating={5}
-            />
-            <TestimonialCard
-              quote="The calendar view is brilliant. No more double bookings, no more spreadsheets."
-              author="Lisa K."
-              role="Safari Suites, Kruger"
-              rating={5}
-            />
+          {/* Animated Marquee Container */}
+          <div className={`relative overflow-hidden transition-all duration-700 delay-200 ${testimonialsVisible ? 'opacity-100' : 'opacity-0'}`}>
+            {/* Gradient overlays for smooth fade effect */}
+            <div className="absolute left-0 top-0 bottom-0 w-20 bg-gradient-to-r from-gray-50 to-transparent z-10 pointer-events-none" />
+            <div className="absolute right-0 top-0 bottom-0 w-20 bg-gradient-to-l from-gray-50 to-transparent z-10 pointer-events-none" />
+
+            {/* First row - scrolling left */}
+            <div className="testimonial-marquee-left mb-6">
+              <TestimonialCard
+                quote="I was losing R4,000 a month to OTA commissions. Vilo paid for itself in the first week."
+                author="Sarah M."
+                role="Oceanview B&B, Cape Town"
+                rating={5}
+              />
+              <TestimonialCard
+                quote="Finally I own my guest relationships. I can email them directly and build real loyalty."
+                author="John D."
+                role="Mountain Lodge, Drakensberg"
+                rating={5}
+              />
+              <TestimonialCard
+                quote="The calendar view is brilliant. No more double bookings, no more spreadsheets."
+                author="Lisa K."
+                role="Safari Suites, Kruger"
+                rating={5}
+              />
+              <TestimonialCard
+                quote="Booking directly was so easy! Got a better rate and the host gave us a personal welcome."
+                author="Emma R."
+                role="Guest from London"
+                rating={5}
+              />
+              <TestimonialCard
+                quote="Love that I can communicate directly with the property. Makes the whole experience more personal."
+                author="Michael T."
+                role="Guest from Johannesburg"
+                rating={5}
+              />
+              <TestimonialCard
+                quote="No hidden fees, no surprises. The price I saw was the price I paid. Refreshing!"
+                author="Anita P."
+                role="Guest from Durban"
+                rating={5}
+              />
+              {/* Duplicate for seamless loop */}
+              <TestimonialCard
+                quote="I was losing R4,000 a month to OTA commissions. Vilo paid for itself in the first week."
+                author="Sarah M."
+                role="Oceanview B&B, Cape Town"
+                rating={5}
+              />
+              <TestimonialCard
+                quote="Finally I own my guest relationships. I can email them directly and build real loyalty."
+                author="John D."
+                role="Mountain Lodge, Drakensberg"
+                rating={5}
+              />
+              <TestimonialCard
+                quote="The calendar view is brilliant. No more double bookings, no more spreadsheets."
+                author="Lisa K."
+                role="Safari Suites, Kruger"
+                rating={5}
+              />
+              <TestimonialCard
+                quote="Booking directly was so easy! Got a better rate and the host gave us a personal welcome."
+                author="Emma R."
+                role="Guest from London"
+                rating={5}
+              />
+              <TestimonialCard
+                quote="Love that I can communicate directly with the property. Makes the whole experience more personal."
+                author="Michael T."
+                role="Guest from Johannesburg"
+                rating={5}
+              />
+              <TestimonialCard
+                quote="No hidden fees, no surprises. The price I saw was the price I paid. Refreshing!"
+                author="Anita P."
+                role="Guest from Durban"
+                rating={5}
+              />
+            </div>
+
+            {/* Second row - scrolling right (opposite direction) */}
+            <div className="testimonial-marquee-right">
+              <TestimonialCard
+                quote="Best decision we made was switching to direct bookings. Our repeat guest rate is now 40%!"
+                author="David K."
+                role="Vineyard Retreat, Stellenbosch"
+                rating={5}
+              />
+              <TestimonialCard
+                quote="The automated emails save me hours every week. Guests love the personal touch."
+                author="Thandi M."
+                role="Beachfront Villa, Ballito"
+                rating={5}
+              />
+              <TestimonialCard
+                quote="Such a peaceful stay. Loved booking direct - felt like we were supporting the family business."
+                author="Peter & Sue"
+                role="Guests from Australia"
+                rating={5}
+              />
+              <TestimonialCard
+                quote="Setup took 15 minutes and I had my first booking within 3 days. Amazing support team!"
+                author="Rachel N."
+                role="Boutique Hotel, Clarens"
+                rating={5}
+              />
+              <TestimonialCard
+                quote="The host remembered our anniversary from the booking notes. That never happens on big sites!"
+                author="James & Claire"
+                role="Guests from Cape Town"
+                rating={5}
+              />
+              <TestimonialCard
+                quote="Finally have control over my own business. No more waiting for OTA payouts."
+                author="Pieter V."
+                role="Game Farm, Limpopo"
+                rating={5}
+              />
+              {/* Duplicate for seamless loop */}
+              <TestimonialCard
+                quote="Best decision we made was switching to direct bookings. Our repeat guest rate is now 40%!"
+                author="David K."
+                role="Vineyard Retreat, Stellenbosch"
+                rating={5}
+              />
+              <TestimonialCard
+                quote="The automated emails save me hours every week. Guests love the personal touch."
+                author="Thandi M."
+                role="Beachfront Villa, Ballito"
+                rating={5}
+              />
+              <TestimonialCard
+                quote="Such a peaceful stay. Loved booking direct - felt like we were supporting the family business."
+                author="Peter & Sue"
+                role="Guests from Australia"
+                rating={5}
+              />
+              <TestimonialCard
+                quote="Setup took 15 minutes and I had my first booking within 3 days. Amazing support team!"
+                author="Rachel N."
+                role="Boutique Hotel, Clarens"
+                rating={5}
+              />
+              <TestimonialCard
+                quote="The host remembered our anniversary from the booking notes. That never happens on big sites!"
+                author="James & Claire"
+                role="Guests from Cape Town"
+                rating={5}
+              />
+              <TestimonialCard
+                quote="Finally have control over my own business. No more waiting for OTA payouts."
+                author="Pieter V."
+                role="Game Farm, Limpopo"
+                rating={5}
+              />
+            </div>
           </div>
         </div>
       </section>
@@ -1099,21 +1406,45 @@ function MegaMenuItem({ icon, title, description, href }: { icon: React.ReactNod
 }
 
 // Component: Stat Card for Dashboard Preview
-function StatCard({ icon, value, label, trend }: { icon: React.ReactNode; value: string; label: string; trend: string }) {
+function StatCard({ icon, value, label, trend, highlighted }: { icon: React.ReactNode; value: string; label: string; trend: string; highlighted?: boolean }) {
   return (
-    <div className="bg-gray-50 rounded-xl p-4 sm:p-5">
+    <div className={`rounded-xl p-4 sm:p-5 shadow-sm relative ${
+      highlighted
+        ? 'bg-gradient-to-br from-yellow-50 to-amber-50 border-2 border-yellow-400 ring-4 ring-yellow-400/30'
+        : 'bg-white border border-gray-200'
+    }`}>
+      {highlighted && (
+        <>
+          {/* Bottom badges inline */}
+          <div className="absolute -bottom-2 right-2 flex items-center gap-1">
+            <div className="bg-red-500 text-white text-[9px] font-bold px-2 py-0.5 rounded-full shadow-sm">
+              100% YOURS
+            </div>
+            <div className="bg-red-500 text-white text-[9px] font-bold px-2 py-0.5 rounded-full shadow-sm">
+              0% FEES
+            </div>
+          </div>
+        </>
+      )}
       <div className="flex items-center justify-between mb-3">
-        <div className="w-9 h-9 bg-white rounded-lg flex items-center justify-center text-gray-400 border border-gray-100">
+        <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${
+          highlighted ? 'bg-gradient-to-br from-yellow-400 to-amber-400 text-yellow-900 shadow-sm' : 'bg-gray-100 text-gray-500'
+        }`}>
           {icon}
         </div>
-        {trend && (
+        {trend && !highlighted && (
           <span className="text-xs font-medium text-emerald-600">
             {trend}
           </span>
         )}
+        {trend && highlighted && (
+          <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded">
+            {trend}
+          </span>
+        )}
       </div>
-      <div className="text-xl sm:text-2xl font-semibold text-gray-900">{value}</div>
-      <div className="text-xs sm:text-sm text-gray-400">{label}</div>
+      <div className={`text-xl sm:text-2xl font-bold ${highlighted ? 'text-gray-900' : 'text-gray-900'}`}>{value}</div>
+      <div className={`text-xs sm:text-sm ${highlighted ? 'text-amber-700 font-medium' : 'text-gray-500'}`}>{label}</div>
     </div>
   )
 }
@@ -1192,7 +1523,7 @@ function PricingFeature({ text, light }: { text: string; light?: boolean }) {
 // Component: Testimonial Card
 function TestimonialCard({ quote, author, role, rating }: { quote: string; author: string; role: string; rating: number }) {
   return (
-    <div className="bg-white rounded-2xl p-6 border border-gray-100 hover:border-gray-200 hover:shadow-sm transition-all">
+    <div className="flex-shrink-0 w-[340px] bg-white rounded-2xl p-6 border border-gray-100 hover:border-gray-200 hover:shadow-md transition-all">
       <div className="flex gap-0.5 mb-4">
         {Array.from({ length: rating }).map((_, i) => (
           <Star key={i} className="w-4 h-4 text-yellow-400 fill-current" />
@@ -1200,7 +1531,7 @@ function TestimonialCard({ quote, author, role, rating }: { quote: string; autho
       </div>
       <p className="text-gray-600 mb-5 leading-relaxed text-[15px]">"{quote}"</p>
       <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 text-sm font-medium">
+        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center text-white text-sm font-medium">
           {author.split(' ').map(n => n[0]).join('')}
         </div>
         <div>

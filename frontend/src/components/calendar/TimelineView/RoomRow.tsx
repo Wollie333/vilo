@@ -1,8 +1,11 @@
 import { useDroppable } from '@dnd-kit/core'
-import { isToday } from 'date-fns'
+import { isToday, differenceInDays, startOfDay } from 'date-fns'
 import type { Booking, Room } from '../../../services/api'
 import { calculateBookingPosition, getBookingsForRoomOnDate } from '../../../utils/calendarUtils'
 import BookingBlock from './BookingBlock'
+
+// Default turnover hours for cleaning between guests
+const DEFAULT_TURNOVER_HOURS = 4
 
 interface RoomRowProps {
   room: Room
@@ -16,6 +19,8 @@ interface RoomRowProps {
   onCellClick: (dayIndex: number) => void
   onBookingResize: (booking: Booking, direction: 'start' | 'end', daysDelta: number) => Promise<boolean>
   isUpdating: boolean
+  onStatusChange?: (bookingId: string, status: Booking['status']) => Promise<void>
+  onDelete?: (bookingId: string) => Promise<void>
 }
 
 const ROW_HEIGHT = 60
@@ -32,6 +37,8 @@ export default function RoomRow({
   onCellClick,
   onBookingResize,
   isUpdating,
+  onStatusChange,
+  onDelete,
 }: RoomRowProps) {
   // Make the entire row droppable
   const { setNodeRef, isOver } = useDroppable({
@@ -87,6 +94,37 @@ export default function RoomRow({
           )
         })}
 
+        {/* Turnover/Buffer zones */}
+        {bookings
+          .filter(b => b.status !== 'cancelled')
+          .map(booking => {
+            const checkOut = new Date(booking.check_out)
+
+            // Calculate position for turnover zone
+            const checkOutDayOffset = differenceInDays(startOfDay(checkOut), startOfDay(startDate))
+
+            // Only show if checkout is within visible range
+            if (checkOutDayOffset < 0 || checkOutDayOffset >= daysCount) return null
+
+            // Calculate width based on turnover hours (fraction of a day)
+            const turnoverWidth = (DEFAULT_TURNOVER_HOURS / 24) * dayWidth
+            const left = checkOutDayOffset * dayWidth
+
+            return (
+              <div
+                key={`turnover-${booking.id}`}
+                className="absolute top-2 bottom-2 pointer-events-none"
+                style={{
+                  left,
+                  width: Math.min(turnoverWidth, (daysCount - checkOutDayOffset) * dayWidth),
+                }}
+                title={`Turnover time: ${DEFAULT_TURNOVER_HOURS} hours after checkout`}
+              >
+                <div className="h-full bg-gradient-to-r from-orange-100/70 to-transparent border-l-2 border-orange-300 border-dashed rounded-r" />
+              </div>
+            )
+          })}
+
         {/* Booking blocks */}
         {bookings.map(booking => {
           const position = calculateBookingPosition(booking, startDate, daysCount, dayWidth)
@@ -103,6 +141,9 @@ export default function RoomRow({
               onClick={() => onBookingClick(booking)}
               onResize={onBookingResize}
               isUpdating={isUpdating}
+              roomName={room.name}
+              onStatusChange={onStatusChange}
+              onDelete={onDelete}
             />
           )
         })}

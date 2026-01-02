@@ -3,6 +3,7 @@ import { useSearchParams, Link } from 'react-router-dom'
 import { ArrowLeft, ArrowRight, Check, Building2, User, Phone, Upload, X } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import TermsAcceptance from '../components/TermsAcceptance'
+import PhoneInput from '../components/PhoneInput'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3002/api'
 
@@ -531,12 +532,10 @@ export default function HostSignup() {
                     <label className="block text-sm font-medium text-gray-700 mb-1.5">
                       Phone number
                     </label>
-                    <input
-                      type="tel"
+                    <PhoneInput
                       value={formData.businessPhone}
-                      onChange={(e) => updateFormData('businessPhone', e.target.value)}
-                      className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
-                      placeholder="+27 XX XXX XXXX"
+                      onChange={(value) => updateFormData('businessPhone', value)}
+                      placeholder="Phone number"
                     />
                   </div>
 

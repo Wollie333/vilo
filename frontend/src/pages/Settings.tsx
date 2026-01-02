@@ -1,8 +1,9 @@
-import { Wrench, UserPlus, Bell, Globe, CreditCard, Loader2, Trash2, Upload, X, ChevronDown, Check, Calendar, AlertCircle, Users, Mail, Copy, Shield, MessageCircle, Link2 } from 'lucide-react'
-import { useState, useEffect, useRef } from 'react'
+import { Wrench, UserPlus, Bell, Globe, CreditCard, Loader2, Trash2, Upload, X, Check, Calendar, AlertCircle, Users, Mail, Shield, Copy, Link2 } from 'lucide-react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import { useNavigate } from 'react-router-dom'
-import FlagIcon from '../components/FlagIcon'
+import { useNavigate, useLocation } from 'react-router-dom'
+import PhoneInput from '../components/PhoneInput'
+import NotificationPreferences from '../components/notifications/NotificationPreferences'
 import { supabase } from '../lib/supabase'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3002/api'
@@ -36,103 +37,6 @@ const CURRENCIES = [
   { code: 'AUD', name: 'Australian Dollar (A$)', symbol: 'A$' },
 ]
 
-// Phone country codes
-const PHONE_CODES = [
-  { code: '+27', country: 'ZA', name: 'South Africa' },
-  { code: '+1', country: 'US', name: 'United States' },
-  { code: '+44', country: 'GB', name: 'United Kingdom' },
-  { code: '+267', country: 'BW', name: 'Botswana' },
-  { code: '+264', country: 'NA', name: 'Namibia' },
-  { code: '+263', country: 'ZW', name: 'Zimbabwe' },
-  { code: '+258', country: 'MZ', name: 'Mozambique' },
-  { code: '+260', country: 'ZM', name: 'Zambia' },
-  { code: '+254', country: 'KE', name: 'Kenya' },
-  { code: '+255', country: 'TZ', name: 'Tanzania' },
-  { code: '+234', country: 'NG', name: 'Nigeria' },
-  { code: '+233', country: 'GH', name: 'Ghana' },
-  { code: '+49', country: 'DE', name: 'Germany' },
-  { code: '+33', country: 'FR', name: 'France' },
-  { code: '+31', country: 'NL', name: 'Netherlands' },
-  { code: '+61', country: 'AU', name: 'Australia' },
-  { code: '+351', country: 'PT', name: 'Portugal' },
-  { code: '+34', country: 'ES', name: 'Spain' },
-  { code: '+971', country: 'AE', name: 'UAE' },
-]
-
-// Phone input component with flag dropdown
-function PhoneInput({
-  phoneCode,
-  setPhoneCode,
-  phoneNumber,
-  setPhoneNumber,
-  placeholder = '82 123 4567'
-}: {
-  phoneCode: string
-  setPhoneCode: (code: string) => void
-  phoneNumber: string
-  setPhoneNumber: (number: string) => void
-  placeholder?: string
-}) {
-  const [isOpen, setIsOpen] = useState(false)
-  const dropdownRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setIsOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [])
-
-  const selectedCountry = PHONE_CODES.find(pc => pc.code === phoneCode) || PHONE_CODES[0]
-
-  return (
-    <div className="flex">
-      <div className="relative" ref={dropdownRef}>
-        <button
-          type="button"
-          onClick={() => setIsOpen(!isOpen)}
-          className="flex items-center gap-2 h-full px-3 py-2 border border-r-0 border-gray-300 rounded-l-lg bg-gray-50 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-accent-500 transition-colors"
-        >
-          <FlagIcon country={selectedCountry.country} className="w-6 h-4 rounded-sm shadow-sm" />
-          <span className="text-sm font-medium text-gray-700">{selectedCountry.code}</span>
-          <ChevronDown size={14} className={`text-gray-500 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
-        </button>
-
-        {isOpen && (
-          <div className="absolute top-full left-0 mt-1 w-64 max-h-64 overflow-y-auto bg-white border border-gray-200 rounded-lg shadow-lg z-50">
-            {PHONE_CODES.map((pc) => (
-              <button
-                key={pc.code}
-                type="button"
-                onClick={() => {
-                  setPhoneCode(pc.code)
-                  setIsOpen(false)
-                }}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 hover:bg-gray-50 transition-colors ${
-                  pc.code === phoneCode ? 'bg-accent-50' : ''
-                }`}
-              >
-                <FlagIcon country={pc.country} className="w-6 h-4 rounded-sm shadow-sm" />
-                <span className="text-sm text-gray-900">{pc.name}</span>
-                <span className="text-sm text-gray-500 ml-auto">{pc.code}</span>
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-      <input
-        type="tel"
-        value={phoneNumber}
-        onChange={(e) => setPhoneNumber(e.target.value.replace(/[^0-9\s]/g, ''))}
-        placeholder={placeholder}
-        className="flex-1 px-3 py-2 border border-gray-300 rounded-r-lg focus:outline-none focus:ring-2 focus:ring-accent-500 focus:border-accent-500"
-      />
-    </div>
-  )
-}
 
 // Country options
 const COUNTRIES = [
@@ -158,9 +62,33 @@ const COUNTRIES = [
 ]
 
 export default function Settings() {
-  const { user, session, tenant, signOut, refreshTenant, refreshUser, isOwner } = useAuth()
+  const { user, session, tenant, tenantLoading, signOut, refreshTenant, refreshUser, can } = useAuth()
   const navigate = useNavigate()
-  const [activeSection, setActiveSection] = useState('account')
+  const location = useLocation()
+
+  // Get initial section from URL hash or default to 'account'
+  const getInitialSection = () => {
+    const hash = location.hash.replace('#', '')
+    const validSections = ['account', 'apps', 'notification', 'language', 'domains', 'members', 'billing']
+    return validSections.includes(hash) ? hash : 'account'
+  }
+
+  const [activeSection, setActiveSectionState] = useState(getInitialSection)
+
+  // Wrapper to update both state and URL hash
+  const setActiveSection = (section: string) => {
+    setActiveSectionState(section)
+    navigate(`/dashboard/settings#${section}`, { replace: true })
+  }
+
+  // Sync with URL hash changes (e.g., browser back/forward)
+  useEffect(() => {
+    const hash = location.hash.replace('#', '')
+    const validSections = ['account', 'apps', 'notification', 'language', 'domains', 'members', 'billing']
+    if (validSections.includes(hash)) {
+      setActiveSectionState(hash)
+    }
+  }, [location.hash])
   const [twoStepEnabled, setTwoStepEnabled] = useState(false)
   const avatarInputRef = useRef<HTMLInputElement>(null)
   const [avatarUrl, setAvatarUrl] = useState('')
@@ -169,8 +97,7 @@ export default function Settings() {
   // Profile state
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
-  const [phoneCode, setPhoneCode] = useState('+27')
-  const [phoneNumber, setPhoneNumber] = useState('')
+  const [phone, setPhone] = useState('')
   const [profileLoading, setProfileLoading] = useState(false)
   const [profileMessage, setProfileMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
@@ -228,38 +155,30 @@ export default function Settings() {
   // Team Members state
   interface TeamMember {
     id: string
-    user_id: string
+    user_id: string | null
     email: string
     name: string | null
     avatar_url: string | null
-    role: 'owner' | 'general_manager' | 'accountant'
+    role: string // Legacy role slug
+    role_id: string | null
+    role_name: string
+    role_slug: string
     status: 'pending' | 'active' | 'suspended' | 'removed'
     joined_at: string | null
-  }
-
-  interface Invitation {
-    id: string
-    email: string
-    role: 'general_manager' | 'accountant'
-    invitation_code: string
-    expires_at: string
-    status: string
-    invited_at: string
-    is_expired?: boolean
+    password_pending?: boolean
   }
 
   const [members, setMembers] = useState<TeamMember[]>([])
-  const [invitations, setInvitations] = useState<Invitation[]>([])
   const [membersLoading, setMembersLoading] = useState(false)
   const [membersMessage, setMembersMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-  const [showInviteModal, setShowInviteModal] = useState(false)
-  const [inviteEmail, setInviteEmail] = useState('')
-  const [inviteRole, setInviteRole] = useState<'general_manager' | 'accountant'>('general_manager')
-  const [inviteMethod, setInviteMethod] = useState<'email' | 'code'>('code')
-  const [inviteLoading, setInviteLoading] = useState(false)
-  const [generatedCode, setGeneratedCode] = useState<string | null>(null)
+  const [showAddMemberModal, setShowAddMemberModal] = useState(false)
+  const [memberName, setMemberName] = useState('')
+  const [memberEmail, setMemberEmail] = useState('')
+  const [memberRole, setMemberRole] = useState<'general_manager' | 'accountant'>('general_manager')
+  const [addMemberLoading, setAddMemberLoading] = useState(false)
   const [showRemoveModal, setShowRemoveModal] = useState(false)
   const [memberToRemove, setMemberToRemove] = useState<TeamMember | null>(null)
+  const [sendingNotification, setSendingNotification] = useState<string | null>(null)
 
   // Calendar Sync State
   // Airbnb
@@ -420,18 +339,9 @@ export default function Settings() {
       setLastName(user.user_metadata?.last_name || '')
       setAvatarUrl(user.user_metadata?.avatar_url || '')
 
-      // Parse phone number to extract country code
+      // Set phone number
       const fullPhone = user.phone || user.user_metadata?.phone || ''
-      if (fullPhone) {
-        // Try to match known country codes
-        const matchedCode = PHONE_CODES.find(pc => fullPhone.startsWith(pc.code))
-        if (matchedCode) {
-          setPhoneCode(matchedCode.code)
-          setPhoneNumber(fullPhone.replace(matchedCode.code, '').trim())
-        } else {
-          setPhoneNumber(fullPhone)
-        }
-      }
+      setPhone(fullPhone)
     }
   }, [user])
 
@@ -455,17 +365,23 @@ export default function Settings() {
   }, [tenant])
 
   const generalSettings = [
-    { id: 'apps', name: 'Integrations', icon: Wrench },
     { id: 'account', name: 'Account', icon: UserPlus },
+    { id: 'apps', name: 'Integrations', icon: Wrench },
     { id: 'notification', name: 'Notification', icon: Bell },
     { id: 'language', name: 'Language & Region', icon: Globe },
   ]
 
-  const workspaceSettings = [
-    { id: 'domains', name: 'Domains', icon: Link2 },
-    { id: 'members', name: 'Members', icon: UserPlus },
-    { id: 'billing', name: 'Billing', icon: CreditCard },
-  ]
+  // Show all items while loading, filter based on permissions once loaded
+  const workspaceSettings = useMemo(() => {
+    // While tenant is loading, show all items to prevent flash
+    const showAll = tenantLoading || !tenant
+    return [
+      { id: 'domains', name: 'Domains', icon: Link2 },
+      ...(showAll || can('settings.members', 'view') ? [{ id: 'members', name: 'Members', icon: UserPlus }] : []),
+      ...(showAll || can('settings.roles', 'view') ? [{ id: 'roles', name: 'Roles & Permissions', icon: Shield }] : []),
+      ...(showAll || can('settings.billing', 'view') ? [{ id: 'billing', name: 'Billing', icon: CreditCard }] : []),
+    ]
+  }, [can, tenant, tenantLoading])
 
   const getInitials = () => {
     const first = firstName || user?.email?.charAt(0) || ''
@@ -479,9 +395,6 @@ export default function Settings() {
     setProfileLoading(true)
     setProfileMessage(null)
 
-    // Combine phone code and number
-    const fullPhone = phoneNumber ? `${phoneCode}${phoneNumber.replace(/^0+/, '')}` : ''
-
     try {
       const response = await fetch(`${API_URL}/users/me`, {
         method: 'PATCH',
@@ -492,7 +405,7 @@ export default function Settings() {
         body: JSON.stringify({
           first_name: firstName,
           last_name: lastName,
-          phone: fullPhone,
+          phone: phone,
         }),
       })
 
@@ -837,95 +750,81 @@ export default function Settings() {
     }
   }
 
-  const fetchInvitations = async () => {
-    if (!session?.access_token) return
+  const handleAddMember = async () => {
+    if (!session?.access_token || !memberEmail || !memberName) return
 
-    try {
-      const response = await fetch(`${API_URL}/members/invitations`, {
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
-      })
-
-      if (response.ok) {
-        const data = await response.json()
-        setInvitations(data.invitations || [])
-      }
-    } catch (error) {
-      console.error('Error fetching invitations:', error)
-    }
-  }
-
-  const handleInviteMember = async () => {
-    if (!session?.access_token || !inviteEmail) return
-
-    setInviteLoading(true)
+    setAddMemberLoading(true)
     setMembersMessage(null)
-    setGeneratedCode(null)
 
     try {
-      const response = await fetch(`${API_URL}/members/invite`, {
+      const response = await fetch(`${API_URL}/members`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${session.access_token}`,
         },
         body: JSON.stringify({
-          email: inviteEmail,
-          role: inviteRole,
-          method: inviteMethod,
+          email: memberEmail,
+          name: memberName,
+          role: memberRole,
         }),
       })
 
       const data = await response.json()
 
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to send invitation')
+        throw new Error(data.error || 'Failed to add team member')
       }
 
-      if (inviteMethod === 'code') {
-        setGeneratedCode(data.invitation.invitation_code)
-        setMembersMessage({ type: 'success', text: 'Invitation code generated!' })
-      } else {
-        setMembersMessage({ type: 'success', text: 'Invitation email sent successfully!' })
-        setShowInviteModal(false)
-        setInviteEmail('')
-      }
-
-      fetchInvitations()
+      setMembersMessage({ type: 'success', text: 'Team member added successfully!' })
+      setShowAddMemberModal(false)
+      setMemberEmail('')
+      setMemberName('')
+      setMemberRole('general_manager')
+      fetchMembers()
     } catch (error) {
       setMembersMessage({
         type: 'error',
-        text: error instanceof Error ? error.message : 'Failed to send invitation',
+        text: error instanceof Error ? error.message : 'Failed to add team member',
       })
     } finally {
-      setInviteLoading(false)
+      setAddMemberLoading(false)
     }
   }
 
-  const handleCancelInvitation = async (invitationId: string) => {
+  const handleSendNotification = async (memberId: string) => {
     if (!session?.access_token) return
 
+    setSendingNotification(memberId)
+
     try {
-      const response = await fetch(`${API_URL}/members/invite/${invitationId}`, {
-        method: 'DELETE',
+      const response = await fetch(`${API_URL}/members/${memberId}/send-notification`, {
+        method: 'POST',
         headers: {
           Authorization: `Bearer ${session.access_token}`,
         },
       })
 
-      if (response.ok) {
-        setMembersMessage({ type: 'success', text: 'Invitation cancelled' })
-        fetchInvitations()
-      } else {
-        const data = await response.json()
-        throw new Error(data.error || 'Failed to cancel invitation')
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to send notification')
+      }
+
+      setMembersMessage({ type: 'success', text: 'Setup email sent successfully!' })
+
+      // Copy setup link to clipboard for convenience (development)
+      if (data.setup_link) {
+        navigator.clipboard.writeText(data.setup_link)
+        setMembersMessage({ type: 'success', text: 'Setup link copied to clipboard!' })
       }
     } catch (error) {
       setMembersMessage({
         type: 'error',
-        text: error instanceof Error ? error.message : 'Failed to cancel invitation',
+        text: error instanceof Error ? error.message : 'Failed to send notification',
       })
+    } finally {
+      setSendingNotification(null)
     }
   }
 
@@ -985,37 +884,10 @@ export default function Settings() {
     }
   }
 
-  const copyInviteCodeToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text)
-    setMembersMessage({ type: 'success', text: 'Copied to clipboard!' })
-    setTimeout(() => setMembersMessage(null), 2000)
-  }
-
-  const shareViaEmail = (email: string, code: string) => {
-    const subject = encodeURIComponent(`You're invited to join ${tenant?.business_name || 'our team'} on Vilo`)
-    const body = encodeURIComponent(
-      `Hi,\n\nYou've been invited to join ${tenant?.business_name || 'our team'} on Vilo.\n\n` +
-      `Use this invitation code: ${code}\n\n` +
-      `Join here: ${window.location.origin}/join\n\n` +
-      `This code expires in 7 days.`
-    )
-    window.open(`mailto:${email}?subject=${subject}&body=${body}`)
-  }
-
-  const shareViaWhatsApp = (code: string) => {
-    const message = encodeURIComponent(
-      `You're invited to join ${tenant?.business_name || 'our team'} on Vilo!\n\n` +
-      `Use this code: *${code}*\n\n` +
-      `Join here: ${window.location.origin}/join`
-    )
-    window.open(`https://wa.me/?text=${message}`, '_blank')
-  }
-
   // Load members when section is active
   useEffect(() => {
     if (activeSection === 'members' && session?.access_token) {
       fetchMembers()
-      fetchInvitations()
     }
   }, [activeSection, session?.access_token])
 
@@ -1089,7 +961,13 @@ export default function Settings() {
                 return (
                   <button
                     key={item.id}
-                    onClick={() => setActiveSection(item.id)}
+                    onClick={() => {
+                      if (item.id === 'roles') {
+                        navigate('/dashboard/settings/roles')
+                      } else {
+                        setActiveSection(item.id)
+                      }
+                    }}
                     className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all ${
                       isActive
                         ? 'bg-accent-50 text-accent-700 font-medium'
@@ -1189,10 +1067,8 @@ export default function Settings() {
                     Phone Number
                   </label>
                   <PhoneInput
-                    phoneCode={phoneCode}
-                    setPhoneCode={setPhoneCode}
-                    phoneNumber={phoneNumber}
-                    setPhoneNumber={setPhoneNumber}
+                    value={phone}
+                    onChange={setPhone}
                   />
                   <p className="mt-1.5 text-xs text-gray-500">
                     Enter your number without the leading zero
@@ -1996,6 +1872,13 @@ export default function Settings() {
             </div>
           )}
 
+          {/* Notification Section */}
+          {activeSection === 'notification' && (
+            <div className="space-y-8">
+              <NotificationPreferences />
+            </div>
+          )}
+
           {/* Integrations Section - Payment Apps moved to My Business > Payment Integration */}
           {activeSection === 'apps' && (
             <div className="space-y-8">
@@ -2043,7 +1926,7 @@ export default function Settings() {
                       <div className="p-5 bg-gray-50 space-y-4">
                         <div>
                           <label className="block text-xs font-medium text-gray-700 mb-1.5">iCal Import URL (from Airbnb)</label>
-                          <input type="url" value={airbnbIcalImportUrl} onChange={(e) => setAirbnbIcalImportUrl(e.target.value)} placeholder="https://www.airbnb.com/calendar/ical/xxxxx.ics" className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-[#FF5A5F]" />
+                          <input type="text" value={airbnbIcalImportUrl} onChange={(e) => setAirbnbIcalImportUrl(e.target.value)} placeholder="https://www.airbnb.com/calendar/ical/xxxxx.ics or demo://airbnb" className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-[#FF5A5F]" />
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-gray-700 mb-1.5">Your Vilo Export URL (add to Airbnb)</label>
@@ -2096,7 +1979,7 @@ export default function Settings() {
                       <div className="p-5 bg-gray-50 space-y-4">
                         <div>
                           <label className="block text-xs font-medium text-gray-700 mb-1.5">iCal Import URL (from Booking.com)</label>
-                          <input type="url" value={bookingComIcalImportUrl} onChange={(e) => setBookingComIcalImportUrl(e.target.value)} placeholder="https://admin.booking.com/hotel/hoteladmin/ical.html?..." className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-[#003580]" />
+                          <input type="text" value={bookingComIcalImportUrl} onChange={(e) => setBookingComIcalImportUrl(e.target.value)} placeholder="https://admin.booking.com/hotel/... or demo://booking" className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-[#003580]" />
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-gray-700 mb-1.5">Your Vilo Export URL</label>
@@ -2629,18 +2512,19 @@ export default function Settings() {
               <div>
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-lg font-medium text-gray-900">Current Members</h3>
-                  {(isOwner || tenant?.owner_user_id === user?.id) && members.length < 4 && (
+                  {can('settings.members', 'full') && members.length < 4 && (
                     <button
                       onClick={() => {
-                        setShowInviteModal(true)
-                        setGeneratedCode(null)
-                        setInviteEmail('')
+                        setShowAddMemberModal(true)
+                        setMemberEmail('')
+                        setMemberName('')
+                        setMemberRole('general_manager')
                         setMembersMessage(null)
                       }}
                       className="flex items-center gap-2 px-4 py-2 bg-accent-500 text-white rounded-lg hover:bg-accent-600 transition-colors"
                     >
                       <UserPlus size={16} />
-                      <span>Invite Member</span>
+                      <span>Add Member</span>
                     </button>
                   )}
                 </div>
@@ -2677,12 +2561,19 @@ export default function Settings() {
                             </div>
                           )}
                           <div>
-                            <p className="font-medium text-gray-900">
-                              {member.name || member.email}
-                              {member.user_id === user?.id && (
-                                <span className="ml-2 text-xs text-gray-500">(You)</span>
+                            <div className="flex items-center gap-2">
+                              <p className="font-medium text-gray-900">
+                                {member.name || member.email}
+                                {member.user_id === user?.id && (
+                                  <span className="ml-2 text-xs text-gray-500">(You)</span>
+                                )}
+                              </p>
+                              {member.password_pending && (
+                                <span className="px-2 py-0.5 bg-yellow-100 text-yellow-800 text-xs font-medium rounded-full">
+                                  Pending password
+                                </span>
                               )}
-                            </p>
+                            </div>
                             <p className="text-sm text-gray-500">{member.email}</p>
                           </div>
                         </div>
@@ -2691,13 +2582,14 @@ export default function Settings() {
                             <span className={`px-3 py-1 rounded-full text-xs font-medium ${getRoleBadgeColor(member.role)}`}>
                               {getRoleDisplayName(member.role)}
                             </span>
-                          ) : (isOwner || tenant?.owner_user_id === user?.id) ? (
+                          ) : can('settings.members', 'full') ? (
                             <select
                               value={member.role}
                               onChange={(e) =>
-                                handleRoleChange(member.user_id, e.target.value as 'general_manager' | 'accountant')
+                                member.user_id && handleRoleChange(member.user_id, e.target.value as 'general_manager' | 'accountant')
                               }
-                              className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400"
+                              disabled={!member.user_id}
+                              className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400 disabled:opacity-50"
                             >
                               <option value="general_manager">General Manager</option>
                               <option value="accountant">Accountant</option>
@@ -2707,7 +2599,23 @@ export default function Settings() {
                               {getRoleDisplayName(member.role)}
                             </span>
                           )}
-                          {(isOwner || tenant?.owner_user_id === user?.id) && member.role !== 'owner' && (
+                          {/* Send Email button for pending members */}
+                          {can('settings.members', 'full') && member.password_pending && (
+                            <button
+                              onClick={() => handleSendNotification(member.id)}
+                              disabled={sendingNotification === member.id}
+                              className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-accent-600 hover:bg-accent-50 rounded-lg transition-colors disabled:opacity-50"
+                              title="Send password setup email"
+                            >
+                              {sendingNotification === member.id ? (
+                                <Loader2 size={14} className="animate-spin" />
+                              ) : (
+                                <Mail size={14} />
+                              )}
+                              <span>Send Email</span>
+                            </button>
+                          )}
+                          {can('settings.members', 'full') && member.role !== 'owner' && (
                             <button
                               onClick={() => {
                                 setMemberToRemove(member)
@@ -2725,61 +2633,6 @@ export default function Settings() {
                   </div>
                 )}
               </div>
-
-              {/* Pending Invitations */}
-              {(isOwner || tenant?.owner_user_id === user?.id) && invitations.length > 0 && (
-                <div>
-                  <h3 className="text-lg font-medium text-gray-900 mb-4">Pending Invitations</h3>
-                  <div className="space-y-3">
-                    {invitations.map((invitation) => (
-                      <div
-                        key={invitation.id}
-                        className={`flex items-center justify-between p-4 bg-white border rounded-lg ${
-                          invitation.is_expired ? 'border-red-200 bg-red-50' : 'border-gray-200'
-                        }`}
-                      >
-                        <div className="flex items-center gap-4">
-                          <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center">
-                            <Mail size={18} className="text-gray-400" />
-                          </div>
-                          <div>
-                            <p className="font-medium text-gray-900">{invitation.email}</p>
-                            <div className="flex items-center gap-2 mt-1">
-                              <span className={`px-2 py-0.5 rounded text-xs font-medium ${getRoleBadgeColor(invitation.role)}`}>
-                                {getRoleDisplayName(invitation.role)}
-                              </span>
-                              {invitation.is_expired ? (
-                                <span className="text-xs text-red-600">Expired</span>
-                              ) : (
-                                <span className="text-xs text-gray-500">
-                                  Expires {new Date(invitation.expires_at).toLocaleDateString()}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => copyInviteCodeToClipboard(invitation.invitation_code)}
-                            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
-                            title="Copy invitation code"
-                          >
-                            <Copy size={14} />
-                            <span className="font-mono text-xs">{invitation.invitation_code}</span>
-                          </button>
-                          <button
-                            onClick={() => handleCancelInvitation(invitation.id)}
-                            className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                            title="Cancel invitation"
-                          >
-                            <X size={16} />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
 
               {/* Permission Guide */}
               <div className="bg-gray-50 rounded-lg p-6 border border-gray-200">
@@ -2871,17 +2724,17 @@ export default function Settings() {
         </div>
       )}
 
-      {/* Invite Member Modal */}
-      {showInviteModal && (
+      {/* Add Member Modal */}
+      {showAddMemberModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">Invite Team Member</h3>
+              <h3 className="text-lg font-semibold text-gray-900">Add Team Member</h3>
               <button
                 onClick={() => {
-                  setShowInviteModal(false)
-                  setInviteEmail('')
-                  setGeneratedCode(null)
+                  setShowAddMemberModal(false)
+                  setMemberEmail('')
+                  setMemberName('')
                   setMembersMessage(null)
                 }}
                 className="p-1 text-gray-400 hover:text-gray-600 rounded"
@@ -2890,164 +2743,82 @@ export default function Settings() {
               </button>
             </div>
 
-            {!generatedCode ? (
-              <>
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Email Address
-                    </label>
-                    <input
-                      type="email"
-                      value={inviteEmail}
-                      onChange={(e) => setInviteEmail(e.target.value)}
-                      placeholder="colleague@example.com"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400"
-                    />
-                  </div>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Full Name
+                </label>
+                <input
+                  type="text"
+                  value={memberName}
+                  onChange={(e) => setMemberName(e.target.value)}
+                  placeholder="John Smith"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400"
+                />
+              </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Role
-                    </label>
-                    <select
-                      value={inviteRole}
-                      onChange={(e) => setInviteRole(e.target.value as 'general_manager' | 'accountant')}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400"
-                    >
-                      <option value="general_manager">General Manager</option>
-                      <option value="accountant">Accountant</option>
-                    </select>
-                  </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Email Address
+                </label>
+                <input
+                  type="email"
+                  value={memberEmail}
+                  onChange={(e) => setMemberEmail(e.target.value)}
+                  placeholder="john@example.com"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400"
+                />
+              </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Invitation Method
-                    </label>
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setInviteMethod('code')}
-                        className={`flex items-center justify-center gap-2 px-4 py-3 border rounded-lg transition-colors ${
-                          inviteMethod === 'code'
-                            ? 'border-accent-500 bg-accent-500 text-white'
-                            : 'border-gray-300 hover:border-gray-400'
-                        }`}
-                      >
-                        <Copy size={16} />
-                        <span className="text-sm">Get Code</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setInviteMethod('email')}
-                        className={`flex items-center justify-center gap-2 px-4 py-3 border rounded-lg transition-colors ${
-                          inviteMethod === 'email'
-                            ? 'border-accent-500 bg-accent-500 text-white'
-                            : 'border-gray-300 hover:border-gray-400'
-                        }`}
-                      >
-                        <Mail size={16} />
-                        <span className="text-sm">Send Email</span>
-                      </button>
-                    </div>
-                    <p className="text-xs text-gray-500 mt-2">
-                      {inviteMethod === 'code'
-                        ? 'Generate a code to share manually with your team member.'
-                        : 'We\'ll send an invitation email with a link to join.'}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Error message inside modal */}
-                {membersMessage && membersMessage.type === 'error' && (
-                  <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
-                    <p className="text-sm text-red-700">{membersMessage.text}</p>
-                  </div>
-                )}
-
-                <div className="flex justify-end gap-3 mt-6">
-                  <button
-                    onClick={() => {
-                      setShowInviteModal(false)
-                      setInviteEmail('')
-                      setMembersMessage(null)
-                    }}
-                    className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 border border-gray-300 rounded-lg hover:bg-gray-50"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleInviteMember}
-                    disabled={!inviteEmail || inviteLoading}
-                    className="flex items-center gap-2 px-4 py-2 bg-accent-500 text-white rounded-lg text-sm font-medium hover:bg-accent-600 transition-colors disabled:opacity-50"
-                  >
-                    {inviteLoading && <Loader2 size={16} className="animate-spin" />}
-                    {inviteMethod === 'code' ? 'Generate Code' : 'Send Invitation'}
-                  </button>
-                </div>
-              </>
-            ) : (
-              <div className="text-center py-4">
-                <div className="mb-4">
-                  <div className="inline-flex items-center justify-center w-12 h-12 bg-accent-100 rounded-full mb-3">
-                    <Check size={24} className="text-accent-600" />
-                  </div>
-                  <p className="text-sm text-gray-600 mb-2">
-                    Share this code with <strong>{inviteEmail}</strong>
-                  </p>
-                </div>
-
-                <div className="bg-gray-100 rounded-lg p-4 mb-4">
-                  <p className="text-2xl font-mono font-bold tracking-wider text-gray-900">
-                    {generatedCode}
-                  </p>
-                </div>
-
-                <button
-                  onClick={() => copyInviteCodeToClipboard(generatedCode)}
-                  className="flex items-center justify-center gap-2 w-full px-4 py-2 bg-accent-500 text-white rounded-lg text-sm font-medium hover:bg-accent-600 transition-colors"
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Role
+                </label>
+                <select
+                  value={memberRole}
+                  onChange={(e) => setMemberRole(e.target.value as 'general_manager' | 'accountant')}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400"
                 >
-                  <Copy size={16} />
-                  Copy Code
-                </button>
+                  <option value="general_manager">General Manager</option>
+                  <option value="accountant">Accountant</option>
+                </select>
+              </div>
 
-                <div className="mt-4">
-                  <p className="text-xs text-gray-400 mb-3">Or share via</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      onClick={() => shareViaEmail(inviteEmail, generatedCode)}
-                      className="flex items-center justify-center gap-2 px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
-                    >
-                      <Mail size={16} />
-                      Email
-                    </button>
-                    <button
-                      onClick={() => shareViaWhatsApp(generatedCode)}
-                      className="flex items-center justify-center gap-2 px-4 py-2 border border-accent-500 bg-accent-50 rounded-lg text-sm font-medium text-accent-700 hover:bg-accent-100 transition-colors"
-                    >
-                      <MessageCircle size={16} />
-                      WhatsApp
-                    </button>
-                  </div>
-                </div>
-
-                <p className="text-xs text-gray-500 mt-4">
-                  They can use this code at <strong>{window.location.origin}/join</strong> to join your team.
+              <div className="bg-gray-50 rounded-lg p-3">
+                <p className="text-sm text-gray-600">
+                  The member will be added immediately. You can send them an email with a link to set their password after adding.
                 </p>
+              </div>
+            </div>
 
-                <button
-                  onClick={() => {
-                    setShowInviteModal(false)
-                    setInviteEmail('')
-                    setGeneratedCode(null)
-                    setMembersMessage(null)
-                  }}
-                  className="mt-4 text-sm text-gray-600 hover:text-gray-900"
-                >
-                  Done
-                </button>
+            {/* Error message inside modal */}
+            {membersMessage && membersMessage.type === 'error' && (
+              <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+                <p className="text-sm text-red-700">{membersMessage.text}</p>
               </div>
             )}
+
+            <div className="flex justify-end gap-3 mt-6">
+              <button
+                onClick={() => {
+                  setShowAddMemberModal(false)
+                  setMemberEmail('')
+                  setMemberName('')
+                  setMembersMessage(null)
+                }}
+                className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAddMember}
+                disabled={!memberEmail || !memberName || addMemberLoading}
+                className="flex items-center gap-2 px-4 py-2 bg-accent-500 text-white rounded-lg text-sm font-medium hover:bg-accent-600 transition-colors disabled:opacity-50"
+              >
+                {addMemberLoading && <Loader2 size={16} className="animate-spin" />}
+                Add Member
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -3087,3 +2858,4 @@ export default function Settings() {
     </div>
   )
 }
+

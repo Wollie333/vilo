@@ -5,26 +5,16 @@ import { setTenantId, setAccessToken } from '../services/api'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3002/api'
 
-// Role and Permission types
-export type Role = 'owner' | 'general_manager' | 'accountant'
+// Permission type
 export type Permission = 'none' | 'view' | 'edit' | 'full'
 
-// Permission matrix - mirrors backend
-const PERMISSIONS: Record<string, Record<Role, Permission>> = {
-  'dashboard': { owner: 'full', general_manager: 'full', accountant: 'view' },
-  'bookings': { owner: 'full', general_manager: 'full', accountant: 'view' },
-  'rooms': { owner: 'full', general_manager: 'full', accountant: 'view' },
-  'reviews': { owner: 'full', general_manager: 'full', accountant: 'view' },
-  'calendar': { owner: 'full', general_manager: 'full', accountant: 'view' },
-  'settings.account': { owner: 'full', general_manager: 'edit', accountant: 'edit' },
-  'settings.business': { owner: 'full', general_manager: 'full', accountant: 'view' },
-  'settings.members': { owner: 'full', general_manager: 'view', accountant: 'none' },
-  'settings.billing': { owner: 'full', general_manager: 'none', accountant: 'full' },
-  'account.delete': { owner: 'full', general_manager: 'none', accountant: 'none' },
-  'seasonal_rates': { owner: 'full', general_manager: 'full', accountant: 'view' },
-  'addons': { owner: 'full', general_manager: 'full', accountant: 'view' },
-  'reports': { owner: 'full', general_manager: 'view', accountant: 'full' },
-  'payments': { owner: 'full', general_manager: 'view', accountant: 'full' },
+// Role interface with dynamic permissions
+export interface Role {
+  id: string
+  name: string
+  slug: string
+  is_system_role: boolean
+  permissions: Record<string, Permission>
 }
 
 interface Tenant {
@@ -121,6 +111,12 @@ interface Tenant {
   formatted_address: string | null
   // Categories
   category_slugs: string[] | null
+  // SEO Fields
+  seo_meta_title: string | null
+  seo_meta_description: string | null
+  seo_keywords: string[] | null
+  seo_og_image: string | null
+  seo_og_image_alt: string | null
 }
 
 interface AuthContextType {
@@ -152,20 +148,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
   const [tenantLoading, setTenantLoading] = useState(false)
 
-  // Permission helper function
+  // Permission helper function - uses dynamic permissions from role object
+  // Falls back to checking if user is the tenant owner (full access to everything)
   const can = useCallback((resource: string, required: Permission = 'view'): boolean => {
-    if (!role) return false
-    const userPermission = PERMISSIONS[resource]?.[role] || 'none'
+    // Owner fallback: if user is tenant owner, grant full access to everything
+    if (tenant?.owner_user_id && user?.id && tenant.owner_user_id === user.id) {
+      return true
+    }
+
+    if (!role?.permissions) return false
+    const userPermission = role.permissions[resource] || 'none'
     const levels: Permission[] = ['none', 'view', 'edit', 'full']
     return levels.indexOf(userPermission) >= levels.indexOf(required)
-  }, [role])
+  }, [role, tenant, user])
 
   // Role helper getters
-  const isOwner = role === 'owner'
-  const isManager = role === 'general_manager'
-  const isAccountant = role === 'accountant'
+  const isOwner = role?.slug === 'owner' || role?.is_system_role === true || (tenant?.owner_user_id === user?.id)
+  const isManager = role?.slug === 'general_manager'
+  const isAccountant = role?.slug === 'accountant'
 
-  // Fetch user's role in their tenant
+  // Fetch user's role in their tenant (now includes full role object with permissions)
   const fetchRole = useCallback(async (accessToken: string, tenantId: string) => {
     // Only fetch role if we have a tenant
     if (!tenantId) {
@@ -182,7 +184,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (response.ok) {
         const data = await response.json()
-        setRole(data.role as Role)
+        // Store full role object with permissions
+        if (data.role && typeof data.role === 'object') {
+          setRole(data.role as Role)
+        } else {
+          // Legacy fallback - should not happen with updated backend
+          setRole(null)
+        }
       } else {
         // User might be owner without tenant_members entry yet
         // This is expected for new users - not an error

@@ -1,11 +1,12 @@
 import { useState, useRef, useEffect } from 'react'
-import { Search, ChevronLeft, ChevronRight, HelpCircle, ChevronDown, LogOut } from 'lucide-react'
+import { Search, ChevronLeft, ChevronRight, HelpCircle, ChevronDown, LogOut, User, Building2, Users, Shield, CreditCard, Settings } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import NotificationBell from './notifications/NotificationBell'
 
 export default function Header() {
   const navigate = useNavigate()
-  const { user, signOut } = useAuth()
+  const { user, signOut, can } = useAuth()
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
@@ -67,7 +68,7 @@ export default function Header() {
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2">
           <button
             style={{ color: 'var(--text-secondary)' }}
             className="flex items-center gap-2 hover:opacity-80 px-3 py-1.5 rounded-md transition-colors"
@@ -75,6 +76,7 @@ export default function Header() {
             <HelpCircle size={18} />
             <span className="text-sm font-medium">Help Center</span>
           </button>
+          <NotificationBell />
           <div className="relative" ref={dropdownRef}>
             <button
               onClick={() => setDropdownOpen(!dropdownOpen)}
@@ -92,6 +94,7 @@ export default function Header() {
             </button>
             {dropdownOpen && (
               <div style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-color)' }} className="absolute right-0 mt-2 w-56 rounded-lg shadow-lg border py-1 z-50">
+                {/* User Info */}
                 <div style={{ borderColor: 'var(--border-color)' }} className="px-4 py-3 border-b flex items-center gap-3">
                   <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center overflow-hidden flex-shrink-0">
                     {avatarUrl ? (
@@ -105,13 +108,87 @@ export default function Header() {
                     <p style={{ color: 'var(--text-muted)' }} className="text-xs truncate">{userEmail}</p>
                   </div>
                 </div>
-                <button
-                  onClick={handleSignOut}
-                  className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-500 hover:bg-red-50 transition-colors"
-                >
-                  <LogOut size={16} />
-                  Sign out
-                </button>
+
+                {/* Quick Links */}
+                <div style={{ borderColor: 'var(--border-color)' }} className="py-1 border-b">
+                  <button
+                    onClick={() => { navigate('/dashboard/settings#account'); setDropdownOpen(false) }}
+                    className="w-full flex items-center gap-3 px-4 py-2 text-sm hover:bg-gray-50 transition-colors"
+                    style={{ color: 'var(--text-primary)' }}
+                  >
+                    <User size={16} style={{ color: 'var(--text-muted)' }} />
+                    Account Settings
+                  </button>
+                  {can('settings.business', 'view') && (
+                    <button
+                      onClick={() => { navigate('/dashboard/business/details'); setDropdownOpen(false) }}
+                      className="w-full flex items-center gap-3 px-4 py-2 text-sm hover:bg-gray-50 transition-colors"
+                      style={{ color: 'var(--text-primary)' }}
+                    >
+                      <Building2 size={16} style={{ color: 'var(--text-muted)' }} />
+                      Business Details
+                    </button>
+                  )}
+                </div>
+
+                {/* Team & Permissions */}
+                {(can('settings.members', 'view') || can('settings.roles', 'view') || can('settings.billing', 'view')) && (
+                  <div style={{ borderColor: 'var(--border-color)' }} className="py-1 border-b">
+                    {can('settings.members', 'view') && (
+                      <button
+                        onClick={() => { navigate('/dashboard/settings#members'); setDropdownOpen(false) }}
+                        className="w-full flex items-center gap-3 px-4 py-2 text-sm hover:bg-gray-50 transition-colors"
+                        style={{ color: 'var(--text-primary)' }}
+                      >
+                        <Users size={16} style={{ color: 'var(--text-muted)' }} />
+                        Team Members
+                      </button>
+                    )}
+                    {can('settings.roles', 'view') && (
+                      <button
+                        onClick={() => { navigate('/dashboard/settings/roles'); setDropdownOpen(false) }}
+                        className="w-full flex items-center gap-3 px-4 py-2 text-sm hover:bg-gray-50 transition-colors"
+                        style={{ color: 'var(--text-primary)' }}
+                      >
+                        <Shield size={16} style={{ color: 'var(--text-muted)' }} />
+                        Roles & Permissions
+                      </button>
+                    )}
+                    {can('settings.billing', 'view') && (
+                      <button
+                        onClick={() => { navigate('/dashboard/settings#billing'); setDropdownOpen(false) }}
+                        className="w-full flex items-center gap-3 px-4 py-2 text-sm hover:bg-gray-50 transition-colors"
+                        style={{ color: 'var(--text-primary)' }}
+                      >
+                        <CreditCard size={16} style={{ color: 'var(--text-muted)' }} />
+                        Billing
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* All Settings */}
+                <div style={{ borderColor: 'var(--border-color)' }} className="py-1 border-b">
+                  <button
+                    onClick={() => { navigate('/dashboard/settings'); setDropdownOpen(false) }}
+                    className="w-full flex items-center gap-3 px-4 py-2 text-sm hover:bg-gray-50 transition-colors"
+                    style={{ color: 'var(--text-primary)' }}
+                  >
+                    <Settings size={16} style={{ color: 'var(--text-muted)' }} />
+                    All Settings
+                  </button>
+                </div>
+
+                {/* Sign Out */}
+                <div className="py-1">
+                  <button
+                    onClick={handleSignOut}
+                    className="w-full flex items-center gap-3 px-4 py-2 text-sm text-red-500 hover:bg-red-50 transition-colors"
+                  >
+                    <LogOut size={16} />
+                    Sign out
+                  </button>
+                </div>
               </div>
             )}
           </div>

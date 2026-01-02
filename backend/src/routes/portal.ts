@@ -15,6 +15,28 @@ import {
   canModifyBookingAddons,
   getCustomerById
 } from '../middleware/customerAuth.js'
+import {
+  logPortalLogin,
+  logPortalSignup,
+  logSupportTicketCreated,
+  logSupportTicketReplied,
+  logProfileUpdated
+} from '../services/activityService.js'
+import {
+  getNotifications,
+  getUnreadCount,
+  markAsRead,
+  markAllAsRead,
+  getPreferences,
+  updatePreferences,
+  notifyNewSupportTicket,
+  notifyCustomerReplied,
+  notifyPortalWelcome,
+  notifyNewBooking,
+  notifyBookingCancelled,
+  notifyCustomerBookingConfirmed,
+  notifyPaymentProofUploaded
+} from '../services/notificationService.js'
 
 const router = Router()
 
@@ -137,6 +159,30 @@ router.post('/auth/verify', async (req: Request, res: Response) => {
       .ilike('guest_email', customer.email)
       .is('customer_id', null)
 
+    // Log portal login activity for each tenant the customer has bookings with
+    const { data: tenantBookings } = await supabase
+      .from('bookings')
+      .select('tenant_id')
+      .eq('customer_id', customer.id)
+
+    if (tenantBookings) {
+      const uniqueTenantIds = [...new Set(tenantBookings.map(b => b.tenant_id))]
+      // Check if this is the first login (no previous activity)
+      const { count: activityCount } = await supabase
+        .from('customer_activity')
+        .select('id', { count: 'exact', head: true })
+        .eq('customer_id', customer.id)
+        .eq('activity_type', 'portal_login')
+
+      for (const tenantId of uniqueTenantIds) {
+        if (activityCount === 0) {
+          // First login - log as signup
+          logPortalSignup(tenantId, customer.email, customer.id)
+        }
+        logPortalLogin(tenantId, customer.email, customer.id)
+      }
+    }
+
     res.json({
       success: true,
       customer: {
@@ -144,6 +190,7 @@ router.post('/auth/verify', async (req: Request, res: Response) => {
         email: customer.email,
         name: customer.name,
         phone: customer.phone,
+        profilePictureUrl: customer.profile_picture_url || null,
         hasPassword: !!customer.password_hash
       },
       token: session.token,
@@ -180,6 +227,19 @@ router.post('/auth/login', async (req: Request, res: Response) => {
       return res.status(500).json({ error: 'Failed to create session' })
     }
 
+    // Log activity for each tenant the customer has bookings with
+    const { data: tenantBookings } = await supabase
+      .from('bookings')
+      .select('tenant_id')
+      .eq('customer_id', customer.id)
+
+    if (tenantBookings) {
+      const uniqueTenantIds = [...new Set(tenantBookings.map(b => b.tenant_id))]
+      for (const tenantId of uniqueTenantIds) {
+        logPortalLogin(tenantId, customer.email, customer.id)
+      }
+    }
+
     res.json({
       success: true,
       customer: {
@@ -187,6 +247,7 @@ router.post('/auth/login', async (req: Request, res: Response) => {
         email: customer.email,
         name: customer.name,
         phone: customer.phone,
+        profilePictureUrl: customer.profile_picture_url || null,
         hasPassword: true
       },
       token: session.token,
@@ -244,11 +305,22 @@ router.get('/auth/me', requireCustomerAuth, async (req: Request, res: Response) 
       email: customer.email,
       name: customer.name,
       phone: customer.phone,
+      profilePictureUrl: customer.profile_picture_url || null,
       hasPassword: !!customer.password_hash,
       preferredLanguage: customer.preferred_language,
       marketingConsent: customer.marketing_consent,
       createdAt: customer.created_at,
-      lastLoginAt: customer.last_login_at
+      lastLoginAt: customer.last_login_at,
+      // Business details
+      businessName: customer.business_name || null,
+      businessVatNumber: customer.business_vat_number || null,
+      businessRegistrationNumber: customer.business_registration_number || null,
+      businessAddressLine1: customer.business_address_line1 || null,
+      businessAddressLine2: customer.business_address_line2 || null,
+      businessCity: customer.business_city || null,
+      businessPostalCode: customer.business_postal_code || null,
+      businessCountry: customer.business_country || null,
+      useBusinessDetailsOnInvoice: customer.use_business_details_on_invoice || false
     })
   } catch (error) {
     console.error('Error fetching customer:', error)
@@ -355,11 +427,27 @@ router.get('/bookings', requireCustomerAuth, async (req: Request, res: Response)
 
     const roomsMap = new Map((rooms || []).map(r => [r.id, r]))
 
-    // Attach tenant and room info to bookings
+    // Get reviews for all bookings to determine if user has left a review
+    const bookingIds = (bookings || []).map(b => b.id)
+    const { data: allReviews } = await supabase
+      .from('reviews')
+      .select('id, booking_id, rating')
+      .in('booking_id', bookingIds)
+
+    // Create a map of booking_id -> reviews
+    const reviewsMap = new Map<string, any[]>()
+    for (const review of (allReviews || [])) {
+      const existing = reviewsMap.get(review.booking_id) || []
+      existing.push(review)
+      reviewsMap.set(review.booking_id, existing)
+    }
+
+    // Attach tenant, room, and reviews info to bookings
     const bookingsWithDetails = (bookings || []).map(b => ({
       ...b,
       tenants: tenantsMap.get(b.tenant_id) || null,
-      room: roomsMap.get(b.room_id) || null
+      room: roomsMap.get(b.room_id) || null,
+      reviews: reviewsMap.get(b.id) || []
     }))
 
     res.json(bookingsWithDetails)
@@ -425,7 +513,7 @@ router.get('/bookings/:id', requireCustomerAuth, async (req: Request, res: Respo
     // Get reviews for this booking
     const { data: reviews } = await supabase
       .from('reviews')
-      .select('id, rating, title, content, owner_response, owner_response_at, status, created_at')
+      .select('id, rating, rating_cleanliness, rating_service, rating_location, rating_value, rating_safety, title, content, images, owner_response, owner_response_at, status, created_at')
       .eq('booking_id', id)
 
     // Get available addons for this booking's room
@@ -610,6 +698,15 @@ router.post('/bookings/:id/cancel', requireCustomerAuth, async (req: Request, re
       return res.status(500).json({ error: 'Failed to cancel booking' })
     }
 
+    // Notify staff about the cancellation
+    console.log('[Portal] Sending cancellation notification for booking:', id)
+    notifyBookingCancelled(
+      booking.tenant_id,
+      id,
+      booking.guest_name || 'Guest',
+      booking.room_name || 'Room'
+    )
+
     res.json({
       success: true,
       booking: updatedBooking,
@@ -617,6 +714,90 @@ router.post('/bookings/:id/cancel', requireCustomerAuth, async (req: Request, re
     })
   } catch (error) {
     console.error('Error cancelling booking:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+/**
+ * Upload proof of payment for EFT/manual payments
+ * POST /api/portal/bookings/:id/proof
+ */
+router.post('/bookings/:id/proof', requireCustomerAuth, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params
+    const customerId = req.customerContext!.customerId
+    const customerEmail = req.customerContext!.email
+    const { filename, data } = req.body
+
+    if (!filename || !data) {
+      return res.status(400).json({ error: 'Filename and data are required' })
+    }
+
+    // Get the booking
+    const { data: booking, error: fetchError } = await supabase
+      .from('bookings')
+      .select('*')
+      .eq('id', id)
+      .single()
+
+    if (fetchError || !booking) {
+      return res.status(404).json({ error: 'Booking not found' })
+    }
+
+    // Verify ownership
+    const emailMatch = booking.guest_email?.toLowerCase() === customerEmail?.toLowerCase()
+    const customerIdMatch = booking.customer_id === customerId
+    if (!emailMatch && !customerIdMatch) {
+      return res.status(404).json({ error: 'Booking not found' })
+    }
+
+    // Only allow upload for non-paid, non-online-payment bookings
+    if (booking.payment_status === 'paid') {
+      return res.status(400).json({ error: 'This booking is already paid' })
+    }
+
+    if (booking.payment_method === 'paystack' || booking.payment_method === 'paypal') {
+      return res.status(400).json({ error: 'Cannot upload proof for online payments' })
+    }
+
+    // Create proof of payment object
+    const proofOfPayment = {
+      url: data, // Base64 data URL
+      path: `proof/${id}/${Date.now()}-${filename}`,
+      filename: filename,
+      uploaded_at: new Date().toISOString()
+    }
+
+    // Update booking with proof of payment and mark as EFT payment
+    const { error: updateError } = await supabase
+      .from('bookings')
+      .update({
+        proof_of_payment: proofOfPayment,
+        payment_method: booking.payment_method || 'eft'
+      })
+      .eq('id', id)
+
+    if (updateError) {
+      console.error('Error updating booking:', updateError)
+      return res.status(500).json({ error: 'Failed to upload proof of payment' })
+    }
+
+    // Notify staff about the payment proof upload
+    console.log('[Portal] Notifying staff about payment proof upload for booking:', id)
+    notifyPaymentProofUploaded(
+      booking.tenant_id,
+      id,
+      booking.guest_name || 'Guest',
+      booking.total_amount || 0,
+      booking.currency || 'ZAR'
+    )
+
+    res.json({
+      success: true,
+      message: 'Proof of payment uploaded successfully'
+    })
+  } catch (error) {
+    console.error('Error uploading proof:', error)
     res.status(500).json({ error: 'Internal server error' })
   }
 })
@@ -662,7 +843,7 @@ router.get('/reviews', requireCustomerAuth, async (req: Request, res: Response) 
     const bookingIds = bookings.map(b => b.id)
     const { data: reviewsData } = await supabase
       .from('reviews')
-      .select('id, booking_id, rating, title, content, owner_response, owner_response_at, status, created_at')
+      .select('id, booking_id, tenant_id, rating, rating_cleanliness, rating_service, rating_location, rating_value, rating_safety, title, content, images, owner_response, owner_response_at, status, created_at')
       .in('booking_id', bookingIds)
 
     // Create a map of reviews by booking_id
@@ -700,14 +881,34 @@ router.get('/reviews', requireCustomerAuth, async (req: Request, res: Response) 
 router.post('/bookings/:id/review', requireCustomerAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params
-    const { rating, title, content } = req.body
+    const {
+      rating_cleanliness,
+      rating_service,
+      rating_location,
+      rating_value,
+      rating_safety,
+      title,
+      content,
+      images
+    } = req.body
     const customerId = req.customerContext!.customerId
     const customerEmail = req.customerContext!.email
     const customerName = req.customerContext!.name
 
-    // Validate rating
-    if (!rating || rating < 1 || rating > 5) {
-      return res.status(400).json({ error: 'Rating must be between 1 and 5' })
+    // Validate all category ratings
+    const categoryRatings = [rating_cleanliness, rating_service, rating_location, rating_value, rating_safety]
+    for (const rating of categoryRatings) {
+      if (rating === undefined || rating === null || rating < 1 || rating > 5) {
+        return res.status(400).json({ error: 'All category ratings must be between 1 and 5' })
+      }
+    }
+
+    // Calculate overall rating as average of categories (rounded to nearest integer for DB)
+    const overallRating = Math.round((rating_cleanliness + rating_service + rating_location + rating_value + rating_safety) / 5)
+
+    // Validate images if provided
+    if (images && (!Array.isArray(images) || images.length > 4)) {
+      return res.status(400).json({ error: 'Maximum 4 images allowed' })
     }
 
     // Get the booking
@@ -750,15 +951,28 @@ router.post('/bookings/:id/review', requireCustomerAuth, async (req: Request, re
       })
     }
 
-    // Create review
+    // Prepare images array with hidden flag
+    const processedImages = images?.map((img: { url: string; path: string }) => ({
+      url: img.url,
+      path: img.path,
+      hidden: false
+    })) || null
+
+    // Create review with all fields
     const { data: review, error: createError } = await supabase
       .from('reviews')
       .insert({
         tenant_id: booking.tenant_id,
         booking_id: id,
-        rating,
+        rating: overallRating,
+        rating_cleanliness,
+        rating_service,
+        rating_location,
+        rating_value,
+        rating_safety,
         title: title || null,
         content: content || null,
+        images: processedImages,
         guest_name: customerName || booking.guest_name || 'Guest',
         status: 'published'
       })
@@ -840,11 +1054,42 @@ router.put('/reviews/:id', requireCustomerAuth, async (req: Request, res: Respon
   try {
     const { id } = req.params
     const customerId = req.customerContext!.customerId
-    const { rating, title, content } = req.body
+    const {
+      rating,
+      rating_cleanliness,
+      rating_service,
+      rating_location,
+      rating_value,
+      rating_safety,
+      title,
+      content,
+      images
+    } = req.body
 
-    // Validate rating
-    if (rating === undefined || rating < 1 || rating > 5) {
+    // If category ratings provided, validate them
+    if (rating_cleanliness !== undefined) {
+      const categoryRatings = [rating_cleanliness, rating_service, rating_location, rating_value, rating_safety]
+      for (const catRating of categoryRatings) {
+        if (catRating === undefined || catRating === null || catRating < 1 || catRating > 5) {
+          return res.status(400).json({ error: 'All category ratings must be between 1 and 5' })
+        }
+      }
+    }
+
+    // Calculate overall rating from categories if provided, otherwise use provided rating
+    let overallRating = rating
+    if (rating_cleanliness !== undefined) {
+      overallRating = Math.round((rating_cleanliness + rating_service + rating_location + rating_value + rating_safety) / 5)
+    }
+
+    // Validate overall rating
+    if (overallRating === undefined || overallRating < 1 || overallRating > 5) {
       return res.status(400).json({ error: 'Rating must be between 1 and 5' })
+    }
+
+    // Validate images if provided
+    if (images && (!Array.isArray(images) || images.length > 4)) {
+      return res.status(400).json({ error: 'Maximum 4 images allowed' })
     }
 
     // Get review
@@ -863,15 +1108,39 @@ router.put('/reviews/:id', requireCustomerAuth, async (req: Request, res: Respon
       return res.status(403).json({ error: 'You can only edit your own reviews' })
     }
 
-    // Update review - only allow updating rating, title, and content
+    // Prepare images array with hidden flag
+    const processedImages = images?.map((img: { url: string; path: string }) => ({
+      url: img.url,
+      path: img.path,
+      hidden: false
+    })) || null
+
+    // Build update object
+    const updateData: Record<string, any> = {
+      rating: overallRating,
+      title: title || null,
+      content: content || null,
+      updated_at: new Date().toISOString()
+    }
+
+    // Add category ratings if provided
+    if (rating_cleanliness !== undefined) {
+      updateData.rating_cleanliness = rating_cleanliness
+      updateData.rating_service = rating_service
+      updateData.rating_location = rating_location
+      updateData.rating_value = rating_value
+      updateData.rating_safety = rating_safety
+    }
+
+    // Add images if provided
+    if (images !== undefined) {
+      updateData.images = processedImages
+    }
+
+    // Update review
     const { data: updatedReview, error: updateError } = await supabase
       .from('reviews')
-      .update({
-        rating,
-        title: title || null,
-        content: content || null,
-        updated_at: new Date().toISOString()
-      })
+      .update(updateData)
       .eq('id', id)
       .select()
       .single()
@@ -1029,6 +1298,17 @@ router.post('/support', requireCustomerAuth, async (req: Request, res: Response)
       .eq('id', tenantId)
       .single()
 
+    // Log activity
+    logSupportTicketCreated(tenantId, customerEmail, customerId, ticket.id, subject)
+
+    // Notify all team members about new support ticket
+    notifyNewSupportTicket(
+      tenantId,
+      ticket.id,
+      customerName || 'Customer',
+      subject
+    )
+
     res.json({
       success: true,
       ticket: {
@@ -1066,7 +1346,7 @@ router.get('/support/:id', requireCustomerAuth, async (req: Request, res: Respon
     // Get tenant info
     const { data: tenant } = await supabase
       .from('tenants')
-      .select('id, business_name')
+      .select('id, business_name, slug')
       .eq('id', ticket.tenant_id)
       .single()
 
@@ -1118,7 +1398,7 @@ router.post('/support/:id/reply', requireCustomerAuth, async (req: Request, res:
     // Verify ticket belongs to customer
     const { data: ticket, error: fetchError } = await supabase
       .from('support_messages')
-      .select('id, status')
+      .select('id, status, tenant_id, subject')
       .eq('id', id)
       .eq('customer_id', customerId)
       .single()
@@ -1161,6 +1441,17 @@ router.post('/support/:id/reply', requireCustomerAuth, async (req: Request, res:
         .eq('id', id)
     }
 
+    // Log activity
+    const customerEmail = req.customerContext!.email
+    logSupportTicketReplied(ticket.tenant_id, customerEmail, customerId, id, 'customer')
+
+    // Notify all team members about customer reply
+    notifyCustomerReplied(
+      ticket.tenant_id,
+      id,
+      customerName || 'Customer'
+    )
+
     res.json({
       success: true,
       reply
@@ -1192,11 +1483,22 @@ router.get('/profile', requireCustomerAuth, async (req: Request, res: Response) 
       email: customer.email,
       name: customer.name,
       phone: customer.phone,
+      profilePictureUrl: customer.profile_picture_url || null,
       preferredLanguage: customer.preferred_language,
       marketingConsent: customer.marketing_consent,
       hasPassword: !!customer.password_hash,
       createdAt: customer.created_at,
-      lastLoginAt: customer.last_login_at
+      lastLoginAt: customer.last_login_at,
+      // Business details
+      businessName: customer.business_name || null,
+      businessVatNumber: customer.business_vat_number || null,
+      businessRegistrationNumber: customer.business_registration_number || null,
+      businessAddressLine1: customer.business_address_line1 || null,
+      businessAddressLine2: customer.business_address_line2 || null,
+      businessCity: customer.business_city || null,
+      businessPostalCode: customer.business_postal_code || null,
+      businessCountry: customer.business_country || null,
+      useBusinessDetailsOnInvoice: customer.use_business_details_on_invoice || false
     })
   } catch (error) {
     console.error('Error fetching profile:', error)
@@ -1210,17 +1512,44 @@ router.get('/profile', requireCustomerAuth, async (req: Request, res: Response) 
  */
 router.put('/profile', requireCustomerAuth, async (req: Request, res: Response) => {
   try {
-    const { name, phone, preferredLanguage, marketingConsent } = req.body
+    const {
+      name,
+      phone,
+      preferredLanguage,
+      marketingConsent,
+      // Business details
+      businessName,
+      businessVatNumber,
+      businessRegistrationNumber,
+      businessAddressLine1,
+      businessAddressLine2,
+      businessCity,
+      businessPostalCode,
+      businessCountry,
+      useBusinessDetailsOnInvoice
+    } = req.body
     const customerId = req.customerContext!.customerId
 
     const updateData: any = {
       updated_at: new Date().toISOString()
     }
 
+    // Personal details
     if (name !== undefined) updateData.name = name
     if (phone !== undefined) updateData.phone = phone
     if (preferredLanguage !== undefined) updateData.preferred_language = preferredLanguage
     if (marketingConsent !== undefined) updateData.marketing_consent = marketingConsent
+
+    // Business details
+    if (businessName !== undefined) updateData.business_name = businessName || null
+    if (businessVatNumber !== undefined) updateData.business_vat_number = businessVatNumber || null
+    if (businessRegistrationNumber !== undefined) updateData.business_registration_number = businessRegistrationNumber || null
+    if (businessAddressLine1 !== undefined) updateData.business_address_line1 = businessAddressLine1 || null
+    if (businessAddressLine2 !== undefined) updateData.business_address_line2 = businessAddressLine2 || null
+    if (businessCity !== undefined) updateData.business_city = businessCity || null
+    if (businessPostalCode !== undefined) updateData.business_postal_code = businessPostalCode || null
+    if (businessCountry !== undefined) updateData.business_country = businessCountry || null
+    if (useBusinessDetailsOnInvoice !== undefined) updateData.use_business_details_on_invoice = useBusinessDetailsOnInvoice
 
     const { data: customer, error } = await supabase
       .from('customers')
@@ -1234,6 +1563,30 @@ router.put('/profile', requireCustomerAuth, async (req: Request, res: Response) 
       return res.status(500).json({ error: 'Failed to update profile' })
     }
 
+    // Log activity for each tenant the customer has bookings with
+    const { data: tenantBookings } = await supabase
+      .from('bookings')
+      .select('tenant_id')
+      .eq('customer_id', customerId)
+
+    if (tenantBookings) {
+      const uniqueTenantIds = [...new Set(tenantBookings.map(b => b.tenant_id))]
+      // Collect which fields were updated
+      const updatedFields: string[] = []
+      if (name !== undefined) updatedFields.push('name')
+      if (phone !== undefined) updatedFields.push('phone')
+      if (preferredLanguage !== undefined) updatedFields.push('language')
+      if (businessName !== undefined || businessVatNumber !== undefined ||
+          businessRegistrationNumber !== undefined || businessAddressLine1 !== undefined ||
+          businessCity !== undefined || businessCountry !== undefined) {
+        updatedFields.push('business details')
+      }
+
+      for (const tenantId of uniqueTenantIds) {
+        logProfileUpdated(tenantId, customer.email, customerId, updatedFields.length > 0 ? updatedFields : ['profile'])
+      }
+    }
+
     res.json({
       success: true,
       customer: {
@@ -1241,13 +1594,147 @@ router.put('/profile', requireCustomerAuth, async (req: Request, res: Response) 
         email: customer.email,
         name: customer.name,
         phone: customer.phone,
+        profilePictureUrl: customer.profile_picture_url || null,
         preferredLanguage: customer.preferred_language,
         marketingConsent: customer.marketing_consent,
-        hasPassword: !!customer.password_hash
+        hasPassword: !!customer.password_hash,
+        businessName: customer.business_name || null,
+        businessVatNumber: customer.business_vat_number || null,
+        businessRegistrationNumber: customer.business_registration_number || null,
+        businessAddressLine1: customer.business_address_line1 || null,
+        businessAddressLine2: customer.business_address_line2 || null,
+        businessCity: customer.business_city || null,
+        businessPostalCode: customer.business_postal_code || null,
+        businessCountry: customer.business_country || null,
+        useBusinessDetailsOnInvoice: customer.use_business_details_on_invoice || false
       }
     })
   } catch (error) {
     console.error('Error updating profile:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+/**
+ * Upload profile picture
+ * POST /api/portal/profile/picture
+ */
+router.post('/profile/picture', requireCustomerAuth, async (req: Request, res: Response) => {
+  try {
+    const customerId = req.customerContext!.customerId
+    const { image } = req.body
+
+    if (!image) {
+      return res.status(400).json({ error: 'Image data is required' })
+    }
+
+    // Parse base64 image data
+    const matches = image.match(/^data:image\/(png|jpeg|jpg|gif|webp);base64,(.+)$/)
+    if (!matches) {
+      return res.status(400).json({ error: 'Invalid image format. Please provide a base64 encoded image.' })
+    }
+
+    const mimeType = `image/${matches[1]}`
+    const base64Data = matches[2]
+    const buffer = Buffer.from(base64Data, 'base64')
+
+    // Check file size (max 5MB)
+    if (buffer.length > 5 * 1024 * 1024) {
+      return res.status(400).json({ error: 'Image too large. Maximum size is 5MB.' })
+    }
+
+    const ext = matches[1] === 'jpeg' ? 'jpg' : matches[1]
+    const fileName = `customer-avatars/${customerId}/avatar.${ext}`
+
+    // Upload to Supabase Storage
+    const { error: uploadError } = await supabase.storage
+      .from('tenant-assets')
+      .upload(fileName, buffer, {
+        contentType: mimeType,
+        upsert: true
+      })
+
+    if (uploadError) {
+      console.error('Error uploading profile picture:', uploadError)
+      return res.status(500).json({ error: 'Failed to upload profile picture' })
+    }
+
+    // Get public URL
+    const { data: urlData } = supabase.storage
+      .from('tenant-assets')
+      .getPublicUrl(fileName)
+
+    const profilePictureUrl = urlData.publicUrl
+
+    // Update customer record with new profile picture URL
+    const { data: customer, error: updateError } = await supabase
+      .from('customers')
+      .update({
+        profile_picture_url: profilePictureUrl,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', customerId)
+      .select()
+      .single()
+
+    if (updateError) {
+      console.error('Error updating customer profile picture:', updateError)
+      return res.status(500).json({ error: 'Failed to update profile' })
+    }
+
+    res.json({
+      success: true,
+      profilePictureUrl: customer.profile_picture_url
+    })
+  } catch (error) {
+    console.error('Error uploading profile picture:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+/**
+ * Delete profile picture
+ * DELETE /api/portal/profile/picture
+ */
+router.delete('/profile/picture', requireCustomerAuth, async (req: Request, res: Response) => {
+  try {
+    const customerId = req.customerContext!.customerId
+
+    // Get current customer to find existing picture path
+    const customer = await getCustomerById(customerId)
+    if (!customer) {
+      return res.status(404).json({ error: 'Customer not found' })
+    }
+
+    // Delete from storage if exists
+    if (customer.profile_picture_url) {
+      // Extract file path from URL
+      const urlParts = customer.profile_picture_url.split('/tenant-assets/')
+      if (urlParts.length > 1) {
+        const filePath = urlParts[1]
+        await supabase.storage
+          .from('tenant-assets')
+          .remove([filePath])
+      }
+    }
+
+    // Update customer record
+    const { error: updateError } = await supabase
+      .from('customers')
+      .update({
+        profile_picture_url: null,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', customerId)
+
+    if (updateError) {
+      console.error('Error removing profile picture:', updateError)
+      return res.status(500).json({ error: 'Failed to remove profile picture' })
+    }
+
+    res.json({ success: true })
+  } catch (error) {
+    console.error('Error deleting profile picture:', error)
     res.status(500).json({ error: 'Internal server error' })
   }
 })
@@ -1652,6 +2139,26 @@ router.post('/bookings', requireCustomerAuth, async (req: Request, res: Response
       return res.status(500).json({ error: 'Failed to create booking' })
     }
 
+    // Send notifications
+    console.log('[Portal] Sending notifications for new booking:', booking.id)
+
+    // Notify staff about the new booking
+    notifyNewBooking(
+      tenantId,
+      booking.id,
+      customerName || 'Guest',
+      room.name
+    )
+
+    // Notify the customer about their booking confirmation
+    notifyCustomerBookingConfirmed(
+      tenantId,
+      customerId,
+      booking.id,
+      room.name,
+      checkIn
+    )
+
     // Get tenant info
     const { data: tenantInfo } = await supabase
       .from('tenants')
@@ -1824,6 +2331,116 @@ router.get('/properties', requireCustomerAuth, async (req: Request, res: Respons
     console.error('Error fetching properties:', error)
     res.status(500).json({ error: 'Internal server error' })
   }
+})
+
+// ============================================
+// NOTIFICATION ENDPOINTS
+// ============================================
+
+/**
+ * Get notifications for customer
+ * GET /api/portal/notifications
+ */
+router.get('/notifications', requireCustomerAuth, async (req: Request, res: Response) => {
+  try {
+    const { limit = '20', offset = '0', unread_only } = req.query
+    const customerId = req.customerContext!.customerId
+
+    // Pass null for tenantId - customers can see notifications from all tenants
+    const result = await getNotifications(null, undefined, customerId, {
+      limit: parseInt(limit as string),
+      offset: parseInt(offset as string),
+      unreadOnly: unread_only === 'true'
+    })
+
+    res.json(result)
+  } catch (error: any) {
+    console.error('Error fetching customer notifications:', error)
+    res.status(500).json({ error: 'Failed to fetch notifications', details: error.message })
+  }
+})
+
+/**
+ * Get unread notification count
+ * GET /api/portal/notifications/unread-count
+ */
+router.get('/notifications/unread-count', requireCustomerAuth, async (req: Request, res: Response) => {
+  try {
+    const customerId = req.customerContext!.customerId
+
+    // Pass null for tenantId - customers can see notifications from all tenants
+    const count = await getUnreadCount(null, undefined, customerId)
+    res.json({ count })
+  } catch (error: any) {
+    console.error('Error fetching unread count:', error)
+    res.status(500).json({ error: 'Failed to fetch unread count', details: error.message })
+  }
+})
+
+/**
+ * Mark notification as read
+ * POST /api/portal/notifications/:id/read
+ */
+router.post('/notifications/:id/read', requireCustomerAuth, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params
+    const customerId = req.customerContext!.customerId
+
+    // Pass null for tenantId - mark notification by customer only
+    const success = await markAsRead(id, null, undefined, customerId)
+    if (!success) {
+      return res.status(404).json({ error: 'Notification not found' })
+    }
+
+    res.json({ success: true })
+  } catch (error: any) {
+    console.error('Error marking notification as read:', error)
+    res.status(500).json({ error: 'Failed to mark as read', details: error.message })
+  }
+})
+
+/**
+ * Mark all notifications as read
+ * POST /api/portal/notifications/read-all
+ */
+router.post('/notifications/read-all', requireCustomerAuth, async (req: Request, res: Response) => {
+  try {
+    const customerId = req.customerContext!.customerId
+
+    // Pass null for tenantId - mark all customer's notifications as read
+    const success = await markAllAsRead(null, undefined, customerId)
+    res.json({ success })
+  } catch (error: any) {
+    console.error('Error marking all as read:', error)
+    res.status(500).json({ error: 'Failed to mark all as read', details: error.message })
+  }
+})
+
+/**
+ * Get notification preferences
+ * GET /api/portal/notifications/preferences
+ * Note: Returns default preferences for customers (preferences are per-tenant and not exposed in portal)
+ */
+router.get('/notifications/preferences', requireCustomerAuth, async (req: Request, res: Response) => {
+  try {
+    // Customers always get default preferences - full preferences are per-tenant
+    const preferences = await getPreferences(null, undefined, req.customerContext!.customerId)
+    res.json(preferences)
+  } catch (error: any) {
+    console.error('Error fetching preferences:', error)
+    res.status(500).json({ error: 'Failed to fetch preferences', details: error.message })
+  }
+})
+
+/**
+ * Update notification preferences
+ * PUT /api/portal/notifications/preferences
+ * Note: Not supported for customers in portal (preferences are per-tenant)
+ */
+router.put('/notifications/preferences', requireCustomerAuth, async (_req: Request, res: Response) => {
+  // Customers cannot update preferences from the portal - they don't have a tenant context
+  // Preferences are managed per-tenant and would require tenant selection
+  res.status(501).json({ error: 'Notification preferences are not customizable in the customer portal' })
 })
 
 export default router

@@ -1,6 +1,8 @@
 import { Router, Request, Response } from 'express'
 import { supabase } from '../lib/supabase.js'
 import { attachUserContext, requireAuth, requirePermission } from '../middleware/permissions.js'
+import { getCustomerActivities, logNoteAdded } from '../services/activityService.js'
+import { notifyCustomerSupportReply, notifyCustomerSupportStatusChanged } from '../services/notificationService.js'
 
 const router = Router()
 
@@ -75,11 +77,14 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
         }
 
         // Update name/phone if we have better data
-        if (booking.customers) {
-          existing.name = booking.customers.name || existing.name
-          existing.phone = booking.customers.phone || existing.phone
-          existing.customerId = booking.customers.id
-          existing.hasPortalAccess = !!booking.customers.last_login_at
+        // Cast to single object since Supabase returns foreign key relations as objects
+        const customerData = booking.customers as unknown as { id: string; name: string | null; email: string | null; phone: string | null; created_at: string; last_login_at: string | null } | null
+        if (customerData) {
+          existing.name = customerData.name || existing.name
+          existing.phone = customerData.phone || existing.phone
+          existing.customerId = customerData.id
+          existing.hasPortalAccess = !!customerData.id
+          existing.hasLoggedIn = !!customerData.last_login_at
         } else if (!existing.name && booking.guest_name) {
           existing.name = booking.guest_name
         }
@@ -87,18 +92,21 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
           existing.phone = booking.guest_phone
         }
       } else {
+        // Cast to single object since Supabase returns foreign key relations as objects
+        const customerData = booking.customers as unknown as { id: string; name: string | null; email: string | null; phone: string | null; created_at: string; last_login_at: string | null } | null
         customerMap.set(email, {
           email,
-          name: booking.customers?.name || booking.guest_name || null,
-          phone: booking.customers?.phone || booking.guest_phone || null,
-          customerId: booking.customers?.id || null,
-          hasPortalAccess: booking.customers?.last_login_at ? true : false,
+          name: customerData?.name || booking.guest_name || null,
+          phone: customerData?.phone || booking.guest_phone || null,
+          customerId: customerData?.id || null,
+          hasPortalAccess: !!customerData?.id,
+          hasLoggedIn: !!customerData?.last_login_at,
           bookingCount: 1,
           totalSpent: booking.total_amount || 0,
           currency: booking.currency || 'ZAR',
           firstStay: booking.check_in,
           lastStay: booking.check_in,
-          createdAt: booking.customers?.created_at || booking.created_at
+          createdAt: customerData?.created_at || booking.created_at
         })
       }
     }
@@ -381,10 +389,28 @@ router.get('/:email', requireAuth, async (req: Request, res: Response) => {
       }
     }
 
-    // Add reviews to each booking
+    // Fetch room data for images
+    const roomIds = [...new Set(bookings.map(b => b.room_id).filter(Boolean))]
+    const roomsMap = new Map()
+
+    if (roomIds.length > 0) {
+      const { data: rooms } = await supabase
+        .from('rooms')
+        .select('id, images')
+        .in('id', roomIds)
+
+      if (rooms) {
+        for (const room of rooms) {
+          roomsMap.set(room.id, { images: room.images })
+        }
+      }
+    }
+
+    // Add reviews and room data to each booking
     const enrichedBookings = bookings.map(booking => ({
       ...booking,
-      reviews: reviewsByBookingId.get(booking.id) || []
+      reviews: reviewsByBookingId.get(booking.id) || [],
+      room: roomsMap.get(booking.room_id) || null
     }))
 
     // Get customer record if exists
@@ -427,8 +453,21 @@ router.get('/:email', requireAuth, async (req: Request, res: Response) => {
         name: customer?.name || enrichedBookings[0].guest_name,
         phone: customer?.phone || enrichedBookings[0].guest_phone,
         customerId: customer?.id || null,
-        hasPortalAccess: !!customer?.last_login_at,
-        lastLoginAt: customer?.last_login_at || null
+        hasPortalAccess: !!customer?.id,
+        hasLoggedIn: !!customer?.last_login_at,
+        lastLoginAt: customer?.last_login_at || null,
+        // Profile fields
+        profilePictureUrl: customer?.profile_picture_url || null,
+        // Business details
+        businessName: customer?.business_name || null,
+        businessVatNumber: customer?.business_vat_number || null,
+        businessRegistrationNumber: customer?.business_registration_number || null,
+        businessAddressLine1: customer?.business_address_line1 || null,
+        businessAddressLine2: customer?.business_address_line2 || null,
+        businessCity: customer?.business_city || null,
+        businessPostalCode: customer?.business_postal_code || null,
+        businessCountry: customer?.business_country || null,
+        useBusinessDetailsOnInvoice: customer?.use_business_details_on_invoice || false
       },
       stats: {
         totalBookings: enrichedBookings.length,
@@ -445,6 +484,347 @@ router.get('/:email', requireAuth, async (req: Request, res: Response) => {
     })
   } catch (error) {
     console.error('Error fetching customer:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+// ============================================
+// CUSTOMER NOTES
+// ============================================
+
+/**
+ * Get notes for a customer
+ * GET /api/customers/:email/notes
+ */
+router.get('/:email/notes', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const tenantId = req.userContext!.tenantId
+    const { email } = req.params
+
+    // Verify customer has bookings with this tenant
+    const { data: bookings } = await supabase
+      .from('bookings')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .ilike('guest_email', email)
+      .limit(1)
+
+    if (!bookings || bookings.length === 0) {
+      return res.status(404).json({ error: 'Customer not found' })
+    }
+
+    // Get customer ID if exists
+    const { data: customer } = await supabase
+      .from('customers')
+      .select('id')
+      .ilike('email', email)
+      .single()
+
+    if (!customer) {
+      return res.json([]) // No customer record means no notes yet
+    }
+
+    // Get notes
+    const { data: notes, error } = await supabase
+      .from('customer_notes')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .eq('customer_id', customer.id)
+      .order('created_at', { ascending: false })
+
+    if (error) {
+      console.error('Error fetching notes:', error)
+      return res.status(500).json({ error: 'Failed to fetch notes' })
+    }
+
+    res.json(notes || [])
+  } catch (error) {
+    console.error('Error fetching notes:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+/**
+ * Add a note for a customer
+ * POST /api/customers/:email/notes
+ */
+router.post('/:email/notes', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const tenantId = req.userContext!.tenantId
+    const userId = req.userContext!.userId
+    const { email } = req.params
+    const { content } = req.body
+
+    if (!content || !content.trim()) {
+      return res.status(400).json({ error: 'Content is required' })
+    }
+
+    // Verify customer has bookings with this tenant
+    const { data: bookings } = await supabase
+      .from('bookings')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .ilike('guest_email', email)
+      .limit(1)
+
+    if (!bookings || bookings.length === 0) {
+      return res.status(404).json({ error: 'Customer not found' })
+    }
+
+    // Get or create customer record
+    let customerId: string
+    const { data: existingCustomer } = await supabase
+      .from('customers')
+      .select('id')
+      .ilike('email', email)
+      .single()
+
+    if (existingCustomer) {
+      customerId = existingCustomer.id
+    } else {
+      // Create customer record
+      const { data: newCustomer, error: createError } = await supabase
+        .from('customers')
+        .insert({ email: email.toLowerCase() })
+        .select('id')
+        .single()
+
+      if (createError || !newCustomer) {
+        console.error('Error creating customer:', createError)
+        return res.status(500).json({ error: 'Failed to create customer record' })
+      }
+
+      customerId = newCustomer.id
+    }
+
+    // Get user name for the note
+    const { data: { user } } = await supabase.auth.admin.getUserById(userId)
+    const userName = user?.user_metadata?.first_name
+      ? `${user.user_metadata.first_name} ${user.user_metadata.last_name || ''}`.trim()
+      : user?.email || 'Staff'
+
+    // Create note
+    const { data: note, error } = await supabase
+      .from('customer_notes')
+      .insert({
+        tenant_id: tenantId,
+        customer_id: customerId,
+        content: content.trim(),
+        created_by: userId,
+        created_by_name: userName
+      })
+      .select()
+      .single()
+
+    if (error) {
+      console.error('Error creating note:', error)
+      return res.status(500).json({ error: 'Failed to create note' })
+    }
+
+    // Log activity
+    logNoteAdded(tenantId, email, customerId, userName)
+
+    res.status(201).json(note)
+  } catch (error) {
+    console.error('Error creating note:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+/**
+ * Update a customer note
+ * PATCH /api/customers/:email/notes/:noteId
+ */
+router.patch('/:email/notes/:noteId', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const tenantId = req.userContext!.tenantId
+    const { noteId } = req.params
+    const { content } = req.body
+
+    if (!content || !content.trim()) {
+      return res.status(400).json({ error: 'Content is required' })
+    }
+
+    const { data: note, error } = await supabase
+      .from('customer_notes')
+      .update({
+        content: content.trim(),
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', noteId)
+      .eq('tenant_id', tenantId)
+      .select()
+      .single()
+
+    if (error) {
+      console.error('Error updating note:', error)
+      return res.status(500).json({ error: 'Failed to update note' })
+    }
+
+    res.json(note)
+  } catch (error) {
+    console.error('Error updating note:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+/**
+ * Delete a customer note
+ * DELETE /api/customers/:email/notes/:noteId
+ */
+router.delete('/:email/notes/:noteId', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const tenantId = req.userContext!.tenantId
+    const { noteId } = req.params
+
+    const { error } = await supabase
+      .from('customer_notes')
+      .delete()
+      .eq('id', noteId)
+      .eq('tenant_id', tenantId)
+
+    if (error) {
+      console.error('Error deleting note:', error)
+      return res.status(500).json({ error: 'Failed to delete note' })
+    }
+
+    res.status(204).send()
+  } catch (error) {
+    console.error('Error deleting note:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+/**
+ * Update customer details (admin)
+ * PATCH /api/customers/:email
+ */
+router.patch('/:email', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const tenantId = req.userContext!.tenantId
+    const { email } = req.params
+    const {
+      name,
+      phone,
+      // Business details
+      businessName,
+      businessVatNumber,
+      businessRegistrationNumber,
+      businessAddressLine1,
+      businessAddressLine2,
+      businessCity,
+      businessPostalCode,
+      businessCountry,
+      useBusinessDetailsOnInvoice
+    } = req.body
+
+    // First verify this customer has bookings with this tenant
+    const { data: bookings, error: bookingsError } = await supabase
+      .from('bookings')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .ilike('guest_email', email)
+      .limit(1)
+
+    if (bookingsError || !bookings || bookings.length === 0) {
+      return res.status(404).json({ error: 'Customer not found for this tenant' })
+    }
+
+    // Check if customer record exists
+    const { data: existingCustomer } = await supabase
+      .from('customers')
+      .select('id')
+      .ilike('email', email)
+      .single()
+
+    const updateData: any = {}
+
+    // Basic info
+    if (name !== undefined) updateData.name = name
+    if (phone !== undefined) updateData.phone = phone
+
+    // Business details
+    if (businessName !== undefined) updateData.business_name = businessName
+    if (businessVatNumber !== undefined) updateData.business_vat_number = businessVatNumber
+    if (businessRegistrationNumber !== undefined) updateData.business_registration_number = businessRegistrationNumber
+    if (businessAddressLine1 !== undefined) updateData.business_address_line1 = businessAddressLine1
+    if (businessAddressLine2 !== undefined) updateData.business_address_line2 = businessAddressLine2
+    if (businessCity !== undefined) updateData.business_city = businessCity
+    if (businessPostalCode !== undefined) updateData.business_postal_code = businessPostalCode
+    if (businessCountry !== undefined) updateData.business_country = businessCountry
+    if (useBusinessDetailsOnInvoice !== undefined) updateData.use_business_details_on_invoice = useBusinessDetailsOnInvoice
+
+    let customer
+
+    if (existingCustomer) {
+      // Update existing customer
+      const { data, error } = await supabase
+        .from('customers')
+        .update(updateData)
+        .eq('id', existingCustomer.id)
+        .select()
+        .single()
+
+      if (error) {
+        console.error('Error updating customer:', error)
+        return res.status(500).json({ error: 'Failed to update customer' })
+      }
+
+      customer = data
+    } else {
+      // Create new customer record with email
+      const { data, error } = await supabase
+        .from('customers')
+        .insert({
+          email: email.toLowerCase(),
+          ...updateData
+        })
+        .select()
+        .single()
+
+      if (error) {
+        console.error('Error creating customer:', error)
+        return res.status(500).json({ error: 'Failed to create customer record' })
+      }
+
+      customer = data
+    }
+
+    // Also update the bookings guest_name and guest_phone if provided
+    if (name || phone) {
+      const bookingUpdate: any = {}
+      if (name) bookingUpdate.guest_name = name
+      if (phone) bookingUpdate.guest_phone = phone
+
+      await supabase
+        .from('bookings')
+        .update(bookingUpdate)
+        .eq('tenant_id', tenantId)
+        .ilike('guest_email', email)
+    }
+
+    res.json({
+      success: true,
+      customer: {
+        email: customer.email,
+        name: customer.name,
+        phone: customer.phone,
+        customerId: customer.id,
+        hasPortalAccess: !!customer.id,
+        profilePictureUrl: customer.profile_picture_url,
+        businessName: customer.business_name,
+        businessVatNumber: customer.business_vat_number,
+        businessRegistrationNumber: customer.business_registration_number,
+        businessAddressLine1: customer.business_address_line1,
+        businessAddressLine2: customer.business_address_line2,
+        businessCity: customer.business_city,
+        businessPostalCode: customer.business_postal_code,
+        businessCountry: customer.business_country,
+        useBusinessDetailsOnInvoice: customer.use_business_details_on_invoice
+      }
+    })
+  } catch (error) {
+    console.error('Error updating customer:', error)
     res.status(500).json({ error: 'Internal server error' })
   }
 })
@@ -604,7 +984,7 @@ router.post('/support/tickets/:id/reply', requireAuth, async (req: Request, res:
     // Verify ticket belongs to tenant
     const { data: ticket, error: fetchError } = await supabase
       .from('support_messages')
-      .select('id, status')
+      .select('id, status, customer_id')
       .eq('id', id)
       .eq('tenant_id', tenantId)
       .single()
@@ -647,12 +1027,88 @@ router.post('/support/tickets/:id/reply', requireAuth, async (req: Request, res:
       })
       .eq('id', id)
 
+    // Notify customer about the reply
+    if (ticket.customer_id) {
+      console.log('[Support] Notifying customer about staff reply:', ticket.customer_id)
+      notifyCustomerSupportReply(tenantId, ticket.customer_id, id)
+    }
+
     res.json({
       success: true,
       reply
     })
   } catch (error) {
     console.error('Error creating reply:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+/**
+ * Create new support ticket (admin outreach)
+ * POST /api/customers/support/tickets
+ */
+router.post('/support/tickets', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const tenantId = req.userContext!.tenantId
+    const userId = req.userContext!.userId
+    const { sender_email, sender_name, subject, message, source = 'portal' } = req.body
+
+    if (!sender_email || !subject || !message) {
+      return res.status(400).json({ error: 'Email, subject, and message are required' })
+    }
+
+    // Get admin user info
+    const { data: { user } } = await supabase.auth.admin.getUserById(userId)
+    const adminName = user?.user_metadata?.first_name
+      ? `${user.user_metadata.first_name} ${user.user_metadata.last_name || ''}`.trim()
+      : 'Property Manager'
+
+    // Check if customer exists
+    const { data: customer } = await supabase
+      .from('customers')
+      .select('id')
+      .ilike('email', sender_email)
+      .single()
+
+    // Create the support ticket
+    const { data: ticket, error: ticketError } = await supabase
+      .from('support_messages')
+      .insert({
+        tenant_id: tenantId,
+        sender_email: sender_email.toLowerCase(),
+        sender_name: sender_name || null,
+        customer_id: customer?.id || null,
+        subject,
+        message: `[Outreach from ${adminName}]\n\n${message}`,
+        source,
+        status: 'open',
+        assigned_to: userId
+      })
+      .select()
+      .single()
+
+    if (ticketError) {
+      console.error('Error creating ticket:', ticketError)
+      return res.status(500).json({ error: 'Failed to create ticket' })
+    }
+
+    // Add the admin's message as the first reply
+    await supabase
+      .from('support_replies')
+      .insert({
+        message_id: ticket.id,
+        content: message,
+        sender_type: 'admin',
+        sender_id: userId,
+        sender_name: adminName
+      })
+
+    res.json({
+      success: true,
+      ticket
+    })
+  } catch (error) {
+    console.error('Error creating ticket:', error)
     res.status(500).json({ error: 'Internal server error' })
   }
 })
@@ -666,6 +1122,14 @@ router.patch('/support/tickets/:id', requireAuth, async (req: Request, res: Resp
     const tenantId = req.userContext!.tenantId
     const { id } = req.params
     const { status, priority, assigned_to } = req.body
+
+    // Get current ticket to check for status changes
+    const { data: currentTicket } = await supabase
+      .from('support_messages')
+      .select('status, customer_id')
+      .eq('id', id)
+      .eq('tenant_id', tenantId)
+      .single()
 
     const updateData: any = {
       updated_at: new Date().toISOString()
@@ -687,6 +1151,12 @@ router.patch('/support/tickets/:id', requireAuth, async (req: Request, res: Resp
     if (error) {
       console.error('Error updating ticket:', error)
       return res.status(500).json({ error: 'Failed to update ticket' })
+    }
+
+    // Notify customer if status changed
+    if (status && currentTicket?.status !== status && currentTicket?.customer_id) {
+      console.log('[Support] Notifying customer about status change:', currentTicket.customer_id)
+      notifyCustomerSupportStatusChanged(tenantId, currentTicket.customer_id, id, status)
     }
 
     res.json({
@@ -758,5 +1228,64 @@ router.get('/support/team-members', requireAuth, async (req: Request, res: Respo
     res.status(500).json({ error: 'Internal server error' })
   }
 })
+
+// ============================================
+// CUSTOMER ACTIVITY
+// ============================================
+
+/**
+ * Get activity timeline for a customer
+ * GET /api/customers/:email/activity
+ */
+router.get('/:email/activity', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const tenantId = req.userContext!.tenantId
+    const { email } = req.params
+    const { limit = '50' } = req.query
+
+    // Verify customer has bookings with this tenant
+    const { data: bookings } = await supabase
+      .from('bookings')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .ilike('guest_email', email)
+      .limit(1)
+
+    if (!bookings || bookings.length === 0) {
+      return res.status(404).json({ error: 'Customer not found' })
+    }
+
+    const activities = await getCustomerActivities(
+      tenantId,
+      email,
+      parseInt(limit as string, 10)
+    )
+
+    // Transform activities to frontend format
+    const formattedActivities = activities.map(activity => ({
+      id: activity.id,
+      type: mapActivityType(activity.activity_type),
+      title: activity.title,
+      description: activity.description,
+      date: activity.created_at,
+      metadata: {
+        bookingId: activity.booking_id,
+        ticketId: activity.support_ticket_id,
+        ...activity.metadata
+      }
+    }))
+
+    res.json(formattedActivities)
+  } catch (error) {
+    console.error('Error fetching activities:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+// Pass through activity types to frontend (frontend handles all types)
+function mapActivityType(type: string): string {
+  // Return the original type - frontend has icons for all detailed types
+  return type
+}
 
 export default router

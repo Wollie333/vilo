@@ -1,14 +1,14 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft,
-  Calendar,
-  User,
   Mail,
   Phone,
+  MessageCircle,
   BedDouble,
   CreditCard,
   Clock,
+  Calendar,
   Edit,
   Save,
   X,
@@ -18,30 +18,30 @@ import {
   Loader2,
   FileText,
   Users,
+  User,
   Package,
-  StickyNote,
-  Upload,
-  File,
-  Trash2,
   Download,
   Plus,
   Minus,
-  RotateCcw,
-  DollarSign,
-  Star,
   MessageSquare,
+  LogIn,
+  LogOut,
+  Star,
 } from 'lucide-react'
 import Button from '../components/Button'
-import StarRating from '../components/StarRating'
-import SourceBadge from '../components/SourceBadge'
-import DateRangePicker from '../components/DateRangePicker'
-import { bookingsApi, Booking, roomsApi, Room, ProofOfPayment, addonsApi, AddOn, reviewsApi, Review, invoicesApi, Invoice, BookingSource } from '../services/api'
+import PaymentProofCard from '../components/PaymentProofCard'
+import {
+  ActivityTimeline,
+  generateBookingTimeline,
+} from '../components/booking-detail'
+import type { TimelineEvent } from '../components/booking-detail'
+import { bookingsApi, Booking, roomsApi, Room, ProofOfPayment, addonsApi, AddOn, reviewsApi, Review, invoicesApi, Invoice } from '../services/api'
 import { useNotification } from '../contexts/NotificationContext'
 import { useAuth } from '../contexts/AuthContext'
 
 const statusOptions = [
   { value: 'pending', label: 'Pending', color: 'bg-yellow-100 text-yellow-700' },
-  { value: 'confirmed', label: 'Confirmed', color: 'bg-accent-100 text-accent-700' },
+  { value: 'confirmed', label: 'Confirmed', color: 'bg-emerald-100 text-emerald-700' },
   { value: 'checked_in', label: 'Checked In', color: 'bg-blue-100 text-blue-700' },
   { value: 'checked_out', label: 'Checked Out', color: 'bg-purple-100 text-purple-700' },
   { value: 'cancelled', label: 'Cancelled', color: 'bg-red-100 text-red-700' },
@@ -50,7 +50,7 @@ const statusOptions = [
 
 const paymentStatusOptions = [
   { value: 'pending', label: 'Pending', color: 'bg-gray-100 text-gray-700' },
-  { value: 'paid', label: 'Paid', color: 'bg-accent-100 text-accent-700' },
+  { value: 'paid', label: 'Paid', color: 'bg-emerald-100 text-emerald-700' },
   { value: 'partial', label: 'Partial', color: 'bg-blue-100 text-blue-700' },
   { value: 'refunded', label: 'Refunded', color: 'bg-red-100 text-red-700' },
 ]
@@ -59,7 +59,7 @@ interface NightlyRate {
   date: string
   base_price: number
   effective_price: number
-  override_price?: number // Manual override by user
+  override_price?: number
   seasonal_rate?: {
     id: string
     name: string
@@ -79,7 +79,7 @@ interface BookingNotes {
     price: number
     total: number
   }>
-  nightly_rates?: NightlyRate[] // Store manual rate overrides
+  nightly_rates?: NightlyRate[]
   special_requests?: string
   booking_reference?: string
   booked_online?: boolean
@@ -93,11 +93,11 @@ export default function BookingDetail() {
 
   const [booking, setBooking] = useState<Booking | null>(null)
   const [room, setRoom] = useState<Room | null>(null)
-  const [rooms, setRooms] = useState<Room[]>([]) // All available rooms for switching
+  const [_rooms, setRooms] = useState<Room[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
-  const [sendingEmail, setSendingEmail] = useState(false)
+  const [_sendingEmail, setSendingEmail] = useState(false)
 
   // Editable fields
   const [editForm, setEditForm] = useState({
@@ -118,7 +118,6 @@ export default function BookingDetail() {
   // Proof of payment
   const [proofOfPayment, setProofOfPayment] = useState<ProofOfPayment | null>(null)
   const [uploadingProof, setUploadingProof] = useState(false)
-  const proofInputRef = useRef<HTMLInputElement>(null)
 
   // Parsed notes
   const [bookingNotes, setBookingNotes] = useState<BookingNotes>({})
@@ -132,18 +131,23 @@ export default function BookingDetail() {
 
   // Nightly rates management
   const [nightlyRates, setNightlyRates] = useState<NightlyRate[]>([])
-  const [loadingRates, setLoadingRates] = useState(false)
-  const [editingRates, setEditingRates] = useState(false)
-  const [savingRates, setSavingRates] = useState(false)
+  const [_loadingRates, setLoadingRates] = useState(false)
+  const [_editingRates, setEditingRates] = useState(false)
+  const [_savingRates, setSavingRates] = useState(false)
 
   // Review management
   const [review, setReview] = useState<Review | null>(null)
   const [loadingReview, setLoadingReview] = useState(false)
   const [sendingReviewRequest, setSendingReviewRequest] = useState(false)
 
+  // Lightbox for review images
+  const [lightboxImages, setLightboxImages] = useState<string[]>([])
+  const [lightboxIndex, setLightboxIndex] = useState(0)
+  const [showLightbox, setShowLightbox] = useState(false)
+
   // Invoice management
   const [invoice, setInvoice] = useState<Invoice | null>(null)
-  const [loadingInvoice, setLoadingInvoice] = useState(false)
+  const [_loadingInvoice, setLoadingInvoice] = useState(false)
   const [generatingInvoice, setGeneratingInvoice] = useState(false)
   const [sendingInvoiceEmail, setSendingInvoiceEmail] = useState(false)
 
@@ -151,8 +155,18 @@ export default function BookingDetail() {
   const [showCancelModal, setShowCancelModal] = useState(false)
   const [cancelling, setCancelling] = useState(false)
 
+  // CRM: Guest stats
+  const [_guestStats, setGuestStats] = useState<{
+    totalBookings: number
+    totalSpent: number
+    firstBooking: string | null
+    isReturning: boolean
+  } | null>(null)
+
+  // CRM: Activity timeline
+  const [timelineEvents, setTimelineEvents] = useState<TimelineEvent[]>([])
+
   useEffect(() => {
-    // Wait for tenant to be loaded before fetching booking
     if (id && tenant && !tenantLoading) {
       loadBooking(id)
     }
@@ -164,7 +178,6 @@ export default function BookingDetail() {
       const data = await bookingsApi.getById(bookingId)
       setBooking(data)
 
-      // Parse notes if JSON
       try {
         const notes = data.notes ? JSON.parse(data.notes) : {}
         setBookingNotes(notes)
@@ -172,7 +185,6 @@ export default function BookingDetail() {
         setBookingNotes({ special_requests: data.notes || '' })
       }
 
-      // Initialize edit form
       setEditForm({
         guest_name: data.guest_name || '',
         guest_email: data.guest_email || '',
@@ -188,10 +200,8 @@ export default function BookingDetail() {
         internal_notes: data.internal_notes || '',
       })
 
-      // Set proof of payment
       setProofOfPayment(data.proof_of_payment || null)
 
-      // Load all available rooms for room switching
       try {
         const roomsData = await roomsApi.getAll({ is_active: true })
         setRooms(roomsData)
@@ -199,7 +209,6 @@ export default function BookingDetail() {
         // Failed to load rooms list
       }
 
-      // Load room details if available
       if (data.room_id) {
         try {
           const roomData = await roomsApi.getById(data.room_id)
@@ -207,6 +216,29 @@ export default function BookingDetail() {
         } catch {
           // Room might not exist or be accessible
         }
+      }
+
+      // Load guest stats (would come from API in production)
+      // For now, simulate based on current booking
+      setGuestStats({
+        totalBookings: 1,
+        totalSpent: data.total_amount,
+        firstBooking: data.synced_at || null, // Use synced_at as proxy for created date
+        isReturning: false, // Would check guest history
+      })
+
+      // Generate timeline events
+      if (data.id) {
+        const events = generateBookingTimeline({
+          id: data.id,
+          status: data.status,
+          payment_status: data.payment_status,
+          check_in: data.check_in,
+          check_out: data.check_out,
+          guest_name: data.guest_name,
+          created_at: data.synced_at, // Use synced_at as proxy
+        })
+        setTimelineEvents(events)
       }
     } catch (error) {
       console.error('Failed to load booking:', error)
@@ -247,17 +279,16 @@ export default function BookingDetail() {
     }
   }
 
+  // All the helper functions (keeping them the same)
   const handleProofUpload = async (file: File) => {
     if (!booking?.id) return
 
-    // Validate file type
     const allowedTypes = ['image/png', 'image/jpeg', 'image/jpg', 'application/pdf']
     if (!allowedTypes.includes(file.type)) {
       showError('Invalid File', 'Please upload a PNG, JPEG, or PDF file.')
       return
     }
 
-    // Validate file size (max 10MB)
     if (file.size > 10 * 1024 * 1024) {
       showError('File Too Large', 'File size must be less than 10MB.')
       return
@@ -266,7 +297,6 @@ export default function BookingDetail() {
     setUploadingProof(true)
 
     try {
-      // Convert file to base64
       const reader = new FileReader()
       reader.onload = async () => {
         const proof: ProofOfPayment = {
@@ -302,7 +332,7 @@ export default function BookingDetail() {
     }
   }
 
-  const handleSaveInternalNotes = async () => {
+  const _handleSaveInternalNotes = async () => {
     if (!booking?.id) return
 
     try {
@@ -314,39 +344,27 @@ export default function BookingDetail() {
     }
   }
 
-  const handleSendConfirmation = async () => {
+  const _handleSendConfirmation = async () => {
     if (!booking?.guest_email) {
       showError('No Email', 'This booking does not have an email address.')
       return
     }
 
     setSendingEmail(true)
-
-    // Simulate sending email (in production, this would call an API endpoint)
     await new Promise((resolve) => setTimeout(resolve, 1500))
-
-    showSuccess(
-      'Email Sent',
-      `Booking confirmation sent to ${booking.guest_email}`
-    )
+    showSuccess('Email Sent', `Booking confirmation sent to ${booking.guest_email}`)
     setSendingEmail(false)
   }
 
-  const handleSendUpdate = async () => {
+  const _handleSendUpdate = async () => {
     if (!booking?.guest_email) {
       showError('No Email', 'This booking does not have an email address.')
       return
     }
 
     setSendingEmail(true)
-
-    // Simulate sending email
     await new Promise((resolve) => setTimeout(resolve, 1500))
-
-    showSuccess(
-      'Update Sent',
-      `Booking update notification sent to ${booking.guest_email}`
-    )
+    showSuccess('Update Sent', `Booking update notification sent to ${booking.guest_email}`)
     setSendingEmail(false)
   }
 
@@ -355,7 +373,6 @@ export default function BookingDetail() {
     setLoadingAddons(true)
     try {
       const addons = await addonsApi.getAll({ is_active: true })
-      // Filter addons that are available for this room (or available for all rooms)
       const filteredAddons = addons.filter(addon =>
         addon.available_for_rooms.length === 0 ||
         (booking?.room_id && addon.available_for_rooms.includes(booking.room_id))
@@ -369,14 +386,11 @@ export default function BookingDetail() {
     }
   }
 
-  // Open addon selector
-  const handleOpenAddonSelector = () => {
+  const _handleOpenAddonSelector = () => {
     loadAvailableAddons()
-    // Initialize selected addons from existing booking addons
     const initialSelected = new Map<string, { addon: AddOn; quantity: number }>()
     if (bookingNotes.addons) {
       bookingNotes.addons.forEach(existingAddon => {
-        // Find the full addon data from available addons or create a minimal one
         initialSelected.set(existingAddon.id, {
           addon: {
             id: existingAddon.id,
@@ -398,7 +412,6 @@ export default function BookingDetail() {
     setShowAddonSelector(true)
   }
 
-  // Update addon quantity
   const updateAddonQuantity = (addon: AddOn, delta: number) => {
     const newSelected = new Map(selectedAddons)
     const current = newSelected.get(addon.id!)
@@ -417,7 +430,6 @@ export default function BookingDetail() {
     setSelectedAddons(newSelected)
   }
 
-  // Calculate addon total based on pricing type
   const calculateAddonTotal = (addon: AddOn, quantity: number): number => {
     const nights = calculateNights()
     const guests = bookingNotes.guests || 1
@@ -435,13 +447,11 @@ export default function BookingDetail() {
     }
   }
 
-  // Save addons to booking
   const handleSaveAddons = async () => {
     if (!booking?.id) return
 
     setSavingAddons(true)
     try {
-      // Build addon list for notes
       const addonsList = Array.from(selectedAddons.values()).map(({ addon, quantity }) => ({
         id: addon.id!,
         name: addon.name,
@@ -450,12 +460,10 @@ export default function BookingDetail() {
         total: calculateAddonTotal(addon, quantity),
       }))
 
-      // Calculate new total
       const addonsTotal = addonsList.reduce((sum, a) => sum + a.total, 0)
       const roomTotal = room ? room.base_price_per_night * calculateNights() : (booking.total_amount - (bookingNotes.addons?.reduce((s, a) => s + a.total, 0) || 0))
       const newTotal = roomTotal + addonsTotal
 
-      // Update booking notes
       const updatedNotes: BookingNotes = {
         ...bookingNotes,
         addons: addonsList.length > 0 ? addonsList : undefined,
@@ -477,8 +485,7 @@ export default function BookingDetail() {
     }
   }
 
-  // Remove a single addon from the booking
-  const handleRemoveAddon = async (addonId: string) => {
+  const _handleRemoveAddon = async (addonId: string) => {
     if (!booking?.id) return
 
     try {
@@ -505,7 +512,7 @@ export default function BookingDetail() {
     }
   }
 
-  // Load nightly rates for the booking period
+  // Load nightly rates
   const loadNightlyRates = async () => {
     if (!booking?.room_id || !booking?.check_in || !booking?.check_out) return
 
@@ -517,7 +524,6 @@ export default function BookingDetail() {
         booking.check_out
       )
 
-      // Merge with any saved override rates from booking notes
       const savedRates = bookingNotes.nightly_rates || []
       const mergedRates: NightlyRate[] = batchPricing.nights.map(night => {
         const savedRate = savedRates.find(r => r.date === night.date)
@@ -538,8 +544,7 @@ export default function BookingDetail() {
     }
   }
 
-  // Update a single night's rate
-  const handleRateChange = (date: string, newPrice: number) => {
+  const _handleRateChange = (date: string, newPrice: number) => {
     setNightlyRates(prev =>
       prev.map(rate =>
         rate.date === date
@@ -549,8 +554,7 @@ export default function BookingDetail() {
     )
   }
 
-  // Reset a single night's rate to default
-  const handleResetRate = (date: string) => {
+  const _handleResetRate = (date: string) => {
     setNightlyRates(prev =>
       prev.map(rate =>
         rate.date === date
@@ -560,7 +564,6 @@ export default function BookingDetail() {
     )
   }
 
-  // Calculate total from nightly rates
   const calculateRatesTotal = (): number => {
     return nightlyRates.reduce((sum, rate) => {
       const price = rate.override_price ?? rate.effective_price
@@ -568,13 +571,11 @@ export default function BookingDetail() {
     }, 0)
   }
 
-  // Save nightly rate overrides
-  const handleSaveRates = async () => {
+  const _handleSaveRates = async () => {
     if (!booking?.id) return
 
     setSavingRates(true)
     try {
-      // Only save rates that have overrides
       const ratesToSave = nightlyRates.filter(r => r.override_price !== undefined)
 
       const updatedNotes: BookingNotes = {
@@ -582,7 +583,6 @@ export default function BookingDetail() {
         nightly_rates: ratesToSave.length > 0 ? nightlyRates : undefined,
       }
 
-      // Calculate new total: room rates + addons
       const roomTotal = calculateRatesTotal()
       const addonsTotal = bookingNotes.addons?.reduce((sum, a) => sum + a.total, 0) || 0
       const newTotal = roomTotal + addonsTotal
@@ -603,28 +603,26 @@ export default function BookingDetail() {
     }
   }
 
-  // Load nightly rates when booking or notes change
   useEffect(() => {
     if (booking?.room_id && booking?.check_in && booking?.check_out) {
       loadNightlyRates()
     }
   }, [booking?.room_id, booking?.check_in, booking?.check_out, bookingNotes.nightly_rates])
 
-  // Load review when booking loads (only if tenant is available)
+  // Load review when booking loads
   useEffect(() => {
     if (booking?.id && tenant) {
       loadReview(booking.id)
     }
   }, [booking?.id, tenant])
 
-  // Load invoice when booking loads (only if tenant is available)
+  // Load invoice when booking loads
   useEffect(() => {
     if (booking?.id && tenant) {
       loadInvoice(booking.id)
     }
   }, [booking?.id, tenant])
 
-  // Load review for booking
   const loadReview = async (bookingId: string) => {
     setLoadingReview(true)
     try {
@@ -641,7 +639,6 @@ export default function BookingDetail() {
     }
   }
 
-  // Load invoice for booking
   const loadInvoice = async (bookingId: string) => {
     setLoadingInvoice(true)
     try {
@@ -654,7 +651,6 @@ export default function BookingDetail() {
     }
   }
 
-  // Generate invoice for booking
   const handleGenerateInvoice = async () => {
     if (!booking?.id) return
 
@@ -670,8 +666,7 @@ export default function BookingDetail() {
     }
   }
 
-  // Download invoice PDF
-  const handleDownloadInvoice = async () => {
+  const _handleDownloadInvoice = async () => {
     if (!invoice) return
 
     try {
@@ -681,7 +676,6 @@ export default function BookingDetail() {
     }
   }
 
-  // Send invoice via email
   const handleSendInvoiceEmail = async () => {
     if (!invoice || !booking?.guest_email) return
 
@@ -689,7 +683,6 @@ export default function BookingDetail() {
     try {
       await invoicesApi.sendEmail(invoice.id)
       showSuccess('Invoice Sent', `Invoice sent to ${booking.guest_email}`)
-      // Reload invoice to update sent_via_email_at
       await loadInvoice(booking.id!)
     } catch (error: any) {
       showError('Error', error.message || 'Failed to send invoice')
@@ -698,21 +691,18 @@ export default function BookingDetail() {
     }
   }
 
-  // Send invoice via WhatsApp
-  const handleSendInvoiceWhatsApp = async () => {
+  const _handleSendInvoiceWhatsApp = async () => {
     if (!invoice || !booking?.guest_phone) return
 
     try {
       const result = await invoicesApi.getWhatsAppLink(invoice.id)
       window.open(result.url, '_blank')
-      // Reload invoice to update sent_via_whatsapp_at
       await loadInvoice(booking.id!)
     } catch (error: any) {
       showError('Error', error.message || 'Failed to open WhatsApp')
     }
   }
 
-  // Send review request to guest
   const handleSendReviewRequest = async () => {
     if (!booking?.id) return
 
@@ -720,6 +710,8 @@ export default function BookingDetail() {
     try {
       const result = await reviewsApi.sendRequest(booking.id)
       showSuccess('Review Request Sent', result.message)
+      // Reload booking to update the review_request_sent_at field
+      await loadBooking(booking.id)
     } catch (error: any) {
       showError('Error', error.message || 'Failed to send review request')
     } finally {
@@ -727,7 +719,6 @@ export default function BookingDetail() {
     }
   }
 
-  // Check if booking is eligible for review
   const isReviewEligible = () => {
     if (!booking) return false
     return (
@@ -736,7 +727,6 @@ export default function BookingDetail() {
     )
   }
 
-  // Cancel booking
   const handleCancelBooking = async () => {
     if (!booking?.id) return
 
@@ -754,7 +744,6 @@ export default function BookingDetail() {
     }
   }
 
-  // Check if booking can be cancelled
   const canCancelBooking = () => {
     if (!booking) return false
     return !['cancelled', 'checked_out', 'completed'].includes(booking.status)
@@ -788,15 +777,26 @@ export default function BookingDetail() {
     return statusOptions.find((s) => s.value === status)?.color || 'bg-gray-100 text-gray-700'
   }
 
+  const getStatusLabel = (status: string) => {
+    return statusOptions.find((s) => s.value === status)?.label || status
+  }
+
   const getPaymentStatusColor = (status: string) => {
     return paymentStatusOptions.find((s) => s.value === status)?.color || 'bg-gray-100 text-gray-700'
   }
 
+  const getPaymentStatusLabel = (status: string) => {
+    return paymentStatusOptions.find((s) => s.value === status)?.label || status
+  }
+
+  // Legacy _renderSectionContent function removed - using new portal-style layout
+
+
   if (loading || tenantLoading || (!tenant && !loading)) {
     return (
-      <div className="p-8 bg-gray-50 min-h-full flex items-center justify-center">
+      <div className="min-h-full bg-gray-50 flex items-center justify-center">
         <div className="text-center">
-          <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4 text-accent-500" />
+          <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4 text-emerald-500" />
           <p className="text-gray-500">Loading booking details...</p>
         </div>
       </div>
@@ -805,13 +805,12 @@ export default function BookingDetail() {
 
   if (!booking) {
     return (
-      <div className="p-8 bg-gray-50 min-h-full flex items-center justify-center">
+      <div className="min-h-full bg-gray-50 flex items-center justify-center">
         <div className="text-center">
           <AlertCircle className="w-12 h-12 mx-auto mb-4 text-red-500" />
           <h2 className="text-xl font-semibold mb-2">Booking Not Found</h2>
           <p className="text-gray-500 mb-4">The booking you're looking for doesn't exist.</p>
           <Button onClick={() => navigate('/dashboard/bookings')}>
-            <ArrowLeft size={16} className="mr-2" />
             Back to Bookings
           </Button>
         </div>
@@ -820,1206 +819,855 @@ export default function BookingDetail() {
   }
 
   return (
-    <div className="p-8 bg-gray-50 min-h-full">
-      {/* Header */}
-      <div className="mb-6">
-        <button
-          onClick={() => navigate('/dashboard/bookings')}
-          className="flex items-center text-gray-600 hover:text-gray-900 mb-4 transition-colors"
-        >
-          <ArrowLeft size={18} className="mr-2" />
-          Back to Bookings
-        </button>
+    <div className="bg-gray-50 min-h-full">
+      {/* Hero Header */}
+      <div className="bg-white border-b border-gray-200">
+        <div className="max-w-6xl mx-auto px-6 py-6">
+          <button
+            onClick={() => navigate('/dashboard/bookings')}
+            className="flex items-center text-gray-500 hover:text-gray-900 mb-4 transition-colors text-sm"
+          >
+            <ArrowLeft size={16} className="mr-1.5" />
+            Back to Bookings
+          </button>
 
-        <div className="flex items-start justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900 mb-1">
-              Booking Details
-            </h1>
-            {bookingNotes.booking_reference && (
-              <p className="text-gray-500">
-                Reference: <span className="font-mono font-medium">{bookingNotes.booking_reference}</span>
-              </p>
-            )}
-          </div>
-          <div className="flex items-center gap-3">
-            {!isEditing ? (
-              <>
-                <Button variant="outline" onClick={() => setIsEditing(true)}>
-                  <Edit size={16} className="mr-2" />
-                  Edit Booking
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={handleSendConfirmation}
-                  disabled={sendingEmail}
-                >
-                  {sendingEmail ? (
-                    <Loader2 size={16} className="mr-2 animate-spin" />
-                  ) : (
-                    <Send size={16} className="mr-2" />
-                  )}
-                  Send Confirmation
-                </Button>
-              </>
-            ) : (
-              <>
-                <Button variant="outline" onClick={() => setIsEditing(false)}>
-                  <X size={16} className="mr-2" />
-                  Cancel
-                </Button>
-                <Button onClick={handleSave} disabled={saving}>
-                  {saving ? (
-                    <Loader2 size={16} className="mr-2 animate-spin" />
-                  ) : (
-                    <Save size={16} className="mr-2" />
-                  )}
-                  Save Changes
-                </Button>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Main Content */}
-        <div className="lg:col-span-2 space-y-6">
-          {/* Guest Information */}
-          <div className="bg-white rounded-lg border border-gray-200 p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-              <User size={20} />
-              Guest Information
-            </h2>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-500 mb-1">Full Name</label>
-                {isEditing ? (
-                  <input
-                    type="text"
-                    value={editForm.guest_name}
-                    onChange={(e) => setEditForm({ ...editForm, guest_name: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-black focus:border-transparent"
-                  />
-                ) : (
-                  <p className="text-gray-900 font-medium">{booking.guest_name}</p>
-                )}
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-500 mb-1">Email</label>
-                {isEditing ? (
-                  <input
-                    type="email"
-                    value={editForm.guest_email}
-                    onChange={(e) => setEditForm({ ...editForm, guest_email: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-black focus:border-transparent"
-                  />
-                ) : (
-                  <div className="flex items-center gap-2">
-                    <Mail size={16} className="text-gray-400" />
-                    <a href={`mailto:${booking.guest_email}`} className="text-blue-600 hover:underline">
-                      {booking.guest_email || 'Not provided'}
-                    </a>
-                  </div>
-                )}
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-500 mb-1">Phone</label>
-                {isEditing ? (
-                  <input
-                    type="tel"
-                    value={editForm.guest_phone}
-                    onChange={(e) => setEditForm({ ...editForm, guest_phone: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-black focus:border-transparent"
-                  />
-                ) : (
-                  <div className="flex items-center gap-2">
-                    <Phone size={16} className="text-gray-400" />
-                    {booking.guest_phone ? (
-                      <a href={`tel:${booking.guest_phone}`} className="text-blue-600 hover:underline">
-                        {booking.guest_phone}
-                      </a>
-                    ) : (
-                      <span className="text-gray-500">Not provided</span>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {(bookingNotes.guests || bookingNotes.adults) && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-500 mb-1">Guests</label>
-                  <div className="flex items-center gap-2">
-                    <Users size={16} className="text-gray-400" />
-                    <div>
-                      <span className="text-gray-900">
-                        {bookingNotes.adults ?? bookingNotes.guests ?? 1} {(bookingNotes.adults ?? bookingNotes.guests ?? 1) === 1 ? 'Adult' : 'Adults'}
-                      </span>
-                      {bookingNotes.children && bookingNotes.children > 0 && (
-                        <span className="text-gray-600">
-                          {', '}{bookingNotes.children} {bookingNotes.children === 1 ? 'Child' : 'Children'}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  {bookingNotes.children_ages && bookingNotes.children_ages.length > 0 && (
-                    <p className="text-xs text-gray-500 mt-1">
-                      Children ages: {bookingNotes.children_ages.join(', ')} years
-                    </p>
-                  )}
+          <div className="flex flex-col lg:flex-row lg:items-start gap-6">
+            {/* Room Image */}
+            <div className="flex-shrink-0">
+              {room?.images?.featured?.url ? (
+                <img
+                  src={room.images.featured.url}
+                  alt={room?.name || 'Room'}
+                  className="w-full lg:w-48 h-32 lg:h-32 object-cover rounded-xl"
+                />
+              ) : (
+                <div className="w-full lg:w-48 h-32 bg-gradient-to-br from-gray-100 to-gray-200 rounded-xl flex items-center justify-center">
+                  <BedDouble size={32} className="text-gray-400" />
                 </div>
               )}
             </div>
-          </div>
 
-          {/* Stay Details */}
-          <div className="bg-white rounded-lg border border-gray-200 p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-              <Calendar size={20} />
-              Stay Details
-            </h2>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {isEditing ? (
-                <div className="md:col-span-2">
-                  <DateRangePicker
-                    startDate={editForm.check_in}
-                    endDate={editForm.check_out}
-                    onStartDateChange={(date) => setEditForm({ ...editForm, check_in: date })}
-                    onEndDateChange={(date) => setEditForm({ ...editForm, check_out: date })}
-                    startLabel="Check-in"
-                    endLabel="Check-out"
-                  />
-                </div>
-              ) : (
-                <>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-500 mb-1">Check-in</label>
-                    <div>
-                      <p className="text-gray-900 font-medium">{formatDate(booking.check_in)}</p>
-                      <p className="text-sm text-gray-500">From 14:00</p>
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-500 mb-1">Check-out</label>
-                    <div>
-                      <p className="text-gray-900 font-medium">{formatDate(booking.check_out)}</p>
-                      <p className="text-sm text-gray-500">Until 10:00</p>
-                    </div>
-                  </div>
-                </>
-              )}
-
-              <div>
-                <label className="block text-sm font-medium text-gray-500 mb-1">Duration</label>
-                <div className="flex items-center gap-2">
-                  <Clock size={16} className="text-gray-400" />
-                  <span className="text-gray-900 font-medium">
-                    {calculateNights()} {calculateNights() === 1 ? 'night' : 'nights'}
-                  </span>
-                </div>
-              </div>
-
-              <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-500 mb-2">Room</label>
+            {/* Booking Summary */}
+            <div className="flex-1 min-w-0">
+              <div className="flex flex-wrap items-center gap-2 mb-2">
                 {isEditing ? (
                   <select
-                    value={editForm.room_id}
-                    onChange={(e) => {
-                      const selectedRoom = rooms.find(r => r.id === e.target.value)
-                      setEditForm({
-                        ...editForm,
-                        room_id: e.target.value,
-                        room_name: selectedRoom?.name || '',
-                      })
-                    }}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-black focus:border-transparent"
+                    value={editForm.status}
+                    onChange={(e) => setEditForm({ ...editForm, status: e.target.value as Booking['status'] })}
+                    className={`px-2.5 py-0.5 text-xs font-medium rounded-full border-0 ${getStatusColor(editForm.status)}`}
                   >
-                    <option value="">Select a room...</option>
-                    {rooms.map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.name} - {new Intl.NumberFormat('en-ZA', {
-                          style: 'currency',
-                          currency: r.currency,
-                        }).format(r.base_price_per_night)}/night
-                      </option>
+                    {statusOptions.map((opt) => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
                     ))}
                   </select>
                 ) : (
-                  <div className="flex items-start gap-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
-                    {/* Room Thumbnail */}
-                    {room?.images?.featured ? (
-                      <img
-                        src={room.images.featured.url}
-                        alt={room.name}
-                        className="w-20 h-20 object-cover rounded-lg flex-shrink-0"
-                      />
-                    ) : (
-                      <div className="w-20 h-20 bg-gray-200 rounded-lg flex items-center justify-center flex-shrink-0">
-                        <BedDouble size={24} className="text-gray-400" />
-                      </div>
-                    )}
-                    {/* Room Details */}
-                    <div className="flex-1 min-w-0">
-                      <h4 className="font-semibold text-gray-900">
-                        {booking.room_name || 'Unknown Room'}
-                      </h4>
-                      <p className="text-xs text-gray-400 font-mono mt-0.5">
-                        {room?.room_code || booking.room_id}
-                      </p>
-                      {room && (
-                        <>
-                          <p className="text-sm text-gray-600 mt-1">
-                            {room.bed_count}x {room.bed_type} · Max {room.max_guests} guests
-                          </p>
-                          <p className="text-sm font-medium text-gray-900 mt-1">
-                            {new Intl.NumberFormat('en-ZA', {
-                              style: 'currency',
-                              currency: room.currency,
-                            }).format(room.base_price_per_night)}/night
-                          </p>
-                        </>
-                      )}
-                    </div>
+                  <span className={`inline-flex px-2.5 py-0.5 text-xs font-medium rounded-full ${getStatusColor(booking.status)}`}>
+                    {getStatusLabel(booking.status)}
+                  </span>
+                )}
+                {isEditing ? (
+                  <select
+                    value={editForm.payment_status}
+                    onChange={(e) => setEditForm({ ...editForm, payment_status: e.target.value as Booking['payment_status'] })}
+                    className={`px-2.5 py-0.5 text-xs font-medium rounded-full border-0 ${getPaymentStatusColor(editForm.payment_status)}`}
+                  >
+                    {paymentStatusOptions.map((opt) => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <span className={`inline-flex px-2.5 py-0.5 text-xs font-medium rounded-full ${getPaymentStatusColor(booking.payment_status)}`}>
+                    {getPaymentStatusLabel(booking.payment_status)}
+                  </span>
+                )}
+                {bookingNotes.booking_reference && (
+                  <span className="text-xs text-gray-500 font-mono">
+                    #{bookingNotes.booking_reference}
+                  </span>
+                )}
+              </div>
+
+              <h1 className="text-2xl font-bold text-gray-900 mb-1">
+                {booking.room_name || 'Room'}
+              </h1>
+              <p className="text-gray-600 mb-4">
+                {booking.guest_name}
+              </p>
+
+              <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
+                <div className="flex items-center gap-2 text-gray-600">
+                  <Calendar size={16} className="text-gray-400" />
+                  <span>{new Date(booking.check_in).toLocaleDateString('en-ZA', { day: 'numeric', month: 'short' })} - {new Date(booking.check_out).toLocaleDateString('en-ZA', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+                </div>
+                <div className="flex items-center gap-2 text-gray-600">
+                  <Clock size={16} className="text-gray-400" />
+                  <span>{calculateNights()} {calculateNights() === 1 ? 'night' : 'nights'}</span>
+                </div>
+                {(bookingNotes.guests || bookingNotes.adults) && (
+                  <div className="flex items-center gap-2 text-gray-600">
+                    <Users size={16} className="text-gray-400" />
+                    <span>
+                      {bookingNotes.adults ?? bookingNotes.guests ?? 1} {(bookingNotes.adults ?? bookingNotes.guests ?? 1) === 1 ? 'guest' : 'guests'}
+                      {bookingNotes.children && bookingNotes.children > 0 && `, ${bookingNotes.children} children`}
+                    </span>
                   </div>
                 )}
               </div>
             </div>
-          </div>
 
-          {/* Nightly Rates Card */}
-          <div className="bg-white rounded-lg border border-gray-200 p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-                <DollarSign size={20} />
-                Nightly Rates
-              </h2>
-              {!editingRates ? (
+            {/* Price & Quick Actions */}
+            <div className="flex-shrink-0 lg:text-right space-y-3">
+              <div>
+                <p className="text-sm text-gray-500 mb-1">Total</p>
+                <p className="text-3xl font-bold text-emerald-600">
+                  {formatCurrency(booking.total_amount, booking.currency)}
+                </p>
+              </div>
+
+              {/* Quick Contact */}
+              <div className="flex gap-1 lg:justify-end">
                 <button
-                  onClick={() => setEditingRates(true)}
-                  className="flex items-center gap-1 px-3 py-1.5 text-sm bg-gray-900 text-white rounded-md hover:bg-gray-800 transition-colors"
+                  onClick={() => booking.guest_phone && window.open(`tel:${booking.guest_phone}`)}
+                  disabled={!booking.guest_phone}
+                  title={booking.guest_phone ? `Call ${booking.guest_phone}` : 'No phone number'}
+                  className="w-9 h-9 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center hover:bg-blue-200 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                 >
-                  <Edit size={14} />
-                  Edit Rates
+                  <Phone size={16} />
                 </button>
-              ) : (
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => {
-                      setEditingRates(false)
-                      loadNightlyRates() // Reset to saved values
-                    }}
-                    className="px-3 py-1.5 text-sm border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleSaveRates}
-                    disabled={savingRates}
-                    className="flex items-center gap-1 px-3 py-1.5 text-sm bg-gray-900 text-white rounded-md hover:bg-gray-800 transition-colors disabled:opacity-50"
-                  >
-                    {savingRates ? (
-                      <Loader2 size={14} className="animate-spin" />
-                    ) : (
-                      <Save size={14} />
-                    )}
-                    Save
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {loadingRates ? (
-              <div className="flex items-center justify-center py-8">
-                <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
-                <span className="ml-2 text-gray-500">Loading rates...</span>
+                <button
+                  onClick={() => booking.guest_email && window.open(`mailto:${booking.guest_email}`)}
+                  disabled={!booking.guest_email}
+                  title={booking.guest_email ? `Email ${booking.guest_email}` : 'No email'}
+                  className="w-9 h-9 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center hover:bg-emerald-200 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  <Mail size={16} />
+                </button>
+                <button
+                  onClick={() => booking.guest_phone && window.open(`https://wa.me/${booking.guest_phone.replace(/[^0-9]/g, '')}`)}
+                  disabled={!booking.guest_phone}
+                  title={booking.guest_phone ? `WhatsApp ${booking.guest_phone}` : 'No phone number'}
+                  className="w-9 h-9 rounded-full bg-green-100 text-green-600 flex items-center justify-center hover:bg-green-200 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  <MessageCircle size={16} />
+                </button>
               </div>
-            ) : nightlyRates.length === 0 ? (
-              <div className="text-center py-6 text-gray-500">
-                <DollarSign size={32} className="mx-auto mb-2 opacity-50" />
-                <p className="text-sm">No nightly rate data available</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {/* Table Header */}
-                <div className="grid grid-cols-12 gap-2 text-xs font-medium text-gray-500 uppercase tracking-wider pb-2 border-b">
-                  <div className="col-span-4">Date</div>
-                  <div className="col-span-3 text-right">Base Rate</div>
-                  <div className="col-span-4 text-right">
-                    {editingRates ? 'Override Rate' : 'Final Rate'}
-                  </div>
-                  {editingRates && <div className="col-span-1"></div>}
-                </div>
 
-                {/* Table Rows */}
-                {nightlyRates.map((rate) => {
-                  const finalPrice = rate.override_price ?? rate.effective_price
-                  const hasOverride = rate.override_price !== undefined
-                  const hasSeasonal = rate.seasonal_rate !== null
-
-                  return (
-                    <div
-                      key={rate.date}
-                      className={`grid grid-cols-12 gap-2 py-2 items-center border-b border-gray-100 last:border-0 ${
-                        hasOverride ? 'bg-blue-50 -mx-2 px-2 rounded' : ''
-                      }`}
-                    >
-                      <div className="col-span-4">
-                        <p className="text-sm font-medium text-gray-900">
-                          {new Date(rate.date).toLocaleDateString('en-ZA', {
-                            weekday: 'short',
-                            day: 'numeric',
-                            month: 'short',
-                          })}
-                        </p>
-                        {hasSeasonal && !editingRates && (
-                          <p className="text-xs text-gray-500">{rate.seasonal_rate?.name}</p>
-                        )}
-                      </div>
-                      <div className="col-span-3 text-right">
-                        <span className="text-sm text-gray-500">
-                          {formatCurrency(rate.base_price, booking.currency)}
-                        </span>
-                        {hasSeasonal && (
-                          <p className="text-xs text-accent-600">
-                            Season: {formatCurrency(rate.effective_price, booking.currency)}
-                          </p>
-                        )}
-                      </div>
-                      <div className="col-span-4 text-right">
-                        {editingRates ? (
-                          <input
-                            type="number"
-                            value={rate.override_price ?? rate.effective_price}
-                            onChange={(e) => handleRateChange(rate.date, parseFloat(e.target.value) || 0)}
-                            className={`w-full px-2 py-1 text-sm text-right border rounded-md focus:ring-2 focus:ring-black focus:border-transparent ${
-                              hasOverride ? 'border-blue-400 bg-white' : 'border-gray-300'
-                            }`}
-                          />
-                        ) : (
-                          <span className={`text-sm font-medium ${hasOverride ? 'text-blue-600' : 'text-gray-900'}`}>
-                            {formatCurrency(finalPrice, booking.currency)}
-                            {hasOverride && (
-                              <span className="ml-1 text-xs text-blue-500">(custom)</span>
-                            )}
-                          </span>
-                        )}
-                      </div>
-                      {editingRates && (
-                        <div className="col-span-1 text-right">
-                          {hasOverride && (
-                            <button
-                              onClick={() => handleResetRate(rate.date)}
-                              className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors"
-                              title="Reset to default"
-                            >
-                              <RotateCcw size={14} />
-                            </button>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
-
-                {/* Total Row */}
-                <div className="pt-3 border-t border-gray-200">
-                  <div className="flex justify-between">
-                    <span className="font-medium text-gray-700">Room Total ({calculateNights()} nights)</span>
-                    <span className="text-lg font-bold text-gray-900">
-                      {formatCurrency(
-                        editingRates ? calculateRatesTotal() : nightlyRates.reduce((sum, r) => sum + (r.override_price ?? r.effective_price), 0),
-                        booking.currency
-                      )}
-                    </span>
-                  </div>
-                  {nightlyRates.some(r => r.override_price !== undefined) && !editingRates && (
-                    <p className="text-xs text-blue-600 mt-1">
-                      * Some rates have been manually adjusted
-                    </p>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Add-ons Card */}
-          <div className="bg-white rounded-lg border border-gray-200 p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-                <Package size={20} />
-                Add-ons & Extras
-              </h2>
-              <button
-                onClick={handleOpenAddonSelector}
-                className="flex items-center gap-1 px-3 py-1.5 text-sm bg-gray-900 text-white rounded-md hover:bg-gray-800 transition-colors"
-              >
-                <Plus size={14} />
-                {bookingNotes.addons && bookingNotes.addons.length > 0 ? 'Manage' : 'Add'}
-              </button>
-            </div>
-
-            {bookingNotes.addons && bookingNotes.addons.length > 0 ? (
-              <div className="space-y-3">
-                {bookingNotes.addons.map((addon, index) => (
-                  <div
-                    key={index}
-                    className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0"
-                  >
-                    <div className="flex-1">
-                      <p className="font-medium text-gray-900">{addon.name}</p>
-                      <p className="text-sm text-gray-500">
-                        Qty: {addon.quantity} x {formatCurrency(addon.price, booking.currency)}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <p className="font-medium text-gray-900">
-                        {formatCurrency(addon.total, booking.currency)}
-                      </p>
-                      <button
-                        onClick={() => handleRemoveAddon(addon.id)}
-                        className="p-1 text-red-500 hover:bg-red-50 rounded transition-colors"
-                        title="Remove add-on"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-                <div className="pt-2 border-t border-gray-200">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-500">Add-ons Total</span>
-                    <span className="font-semibold text-gray-900">
-                      {formatCurrency(
-                        bookingNotes.addons.reduce((sum, a) => sum + a.total, 0),
-                        booking.currency
-                      )}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div className="text-center py-6 text-gray-500">
-                <Package size={32} className="mx-auto mb-2 opacity-50" />
-                <p className="text-sm">No add-ons added yet</p>
-                <p className="text-xs text-gray-400 mt-1">Click "Add" to include extras</p>
-              </div>
-            )}
-          </div>
-
-          {/* Add-on Selector Modal */}
-          {showAddonSelector && (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-              <div className="bg-white rounded-lg shadow-xl max-w-lg w-full max-h-[80vh] overflow-hidden">
-                <div className="bg-gradient-to-r from-accent-600 to-accent-500 px-6 py-5 rounded-t-lg">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-lg font-semibold text-white">Manage Add-ons</h3>
+              {/* Edit/Save Buttons */}
+              <div className="flex gap-2 lg:justify-end">
+                {isEditing ? (
+                  <>
                     <button
-                      onClick={() => setShowAddonSelector(false)}
-                      className="p-1.5 text-white/80 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
-                    >
-                      <X size={20} />
-                    </button>
-                  </div>
-                </div>
-
-                <div className="p-4 overflow-y-auto max-h-[50vh]">
-                  {loadingAddons ? (
-                    <div className="flex items-center justify-center py-8">
-                      <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
-                      <span className="ml-2 text-gray-500">Loading add-ons...</span>
-                    </div>
-                  ) : availableAddons.length === 0 ? (
-                    <div className="text-center py-8 text-gray-500">
-                      <Package size={32} className="mx-auto mb-2 opacity-50" />
-                      <p>No add-ons available</p>
-                      <p className="text-xs text-gray-400 mt-1">Create add-ons in Settings first</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      {availableAddons.map((addon) => {
-                        const selected = selectedAddons.get(addon.id!)
-                        const quantity = selected?.quantity || 0
-                        const total = calculateAddonTotal(addon, quantity)
-
-                        return (
-                          <div
-                            key={addon.id}
-                            className={`p-3 border rounded-lg transition-colors ${
-                              quantity > 0 ? 'border-gray-900 bg-gray-50' : 'border-gray-200'
-                            }`}
-                          >
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="flex-1">
-                                <p className="font-medium text-gray-900">{addon.name}</p>
-                                {addon.description && (
-                                  <p className="text-sm text-gray-500 mt-0.5">{addon.description}</p>
-                                )}
-                                <p className="text-sm text-gray-600 mt-1">
-                                  {formatCurrency(addon.price, addon.currency)}
-                                  <span className="text-gray-400 ml-1">
-                                    / {addon.pricing_type.replace(/_/g, ' ')}
-                                  </span>
-                                </p>
-                              </div>
-
-                              <div className="flex items-center gap-2">
-                                {quantity > 0 && (
-                                  <span className="text-sm font-medium text-gray-700">
-                                    {formatCurrency(total, addon.currency)}
-                                  </span>
-                                )}
-                                <div className="flex items-center border border-gray-300 rounded-md">
-                                  <button
-                                    onClick={() => updateAddonQuantity(addon, -1)}
-                                    disabled={quantity === 0}
-                                    className="p-1.5 text-gray-500 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed"
-                                  >
-                                    <Minus size={14} />
-                                  </button>
-                                  <span className="w-8 text-center text-sm font-medium">
-                                    {quantity}
-                                  </span>
-                                  <button
-                                    onClick={() => updateAddonQuantity(addon, 1)}
-                                    disabled={quantity >= addon.max_quantity}
-                                    className="p-1.5 text-gray-500 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed"
-                                  >
-                                    <Plus size={14} />
-                                  </button>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )}
-                </div>
-
-                {/* Footer with totals and save button */}
-                <div className="p-4 border-t border-gray-200 bg-gray-50">
-                  {selectedAddons.size > 0 && (
-                    <div className="mb-3 pb-3 border-b border-gray-200">
-                      <div className="flex justify-between text-sm mb-1">
-                        <span className="text-gray-500">Selected add-ons</span>
-                        <span className="font-medium">{selectedAddons.size}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="font-medium text-gray-700">Add-ons Total</span>
-                        <span className="font-semibold text-gray-900">
-                          {formatCurrency(
-                            Array.from(selectedAddons.values()).reduce(
-                              (sum, { addon, quantity }) => sum + calculateAddonTotal(addon, quantity),
-                              0
-                            ),
-                            booking.currency
-                          )}
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                  <div className="flex gap-3">
-                    <button
-                      onClick={() => setShowAddonSelector(false)}
-                      className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-100 transition-colors"
+                      onClick={() => setIsEditing(false)}
+                      className="px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
                     >
                       Cancel
                     </button>
                     <button
-                      onClick={handleSaveAddons}
-                      disabled={savingAddons}
-                      className="flex-1 px-4 py-2.5 bg-accent-500 hover:bg-accent-600 text-white rounded-md transition-colors disabled:opacity-50 flex items-center justify-center gap-2 font-medium"
+                      onClick={handleSave}
+                      disabled={saving}
+                      className="px-3 py-1.5 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-50 flex items-center gap-1.5"
                     >
-                      {savingAddons ? (
-                        <>
-                          <Loader2 size={16} className="animate-spin" />
-                          Saving...
-                        </>
-                      ) : (
-                        <>
-                          <Save size={16} />
-                          Save Changes
-                        </>
-                      )}
+                      {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                      Save
                     </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Special Requests */}
-          {bookingNotes.special_requests && (
-            <div className="bg-white rounded-lg border border-gray-200 p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                <FileText size={20} />
-                Special Requests
-              </h2>
-              <p className="text-gray-700 whitespace-pre-wrap">{bookingNotes.special_requests}</p>
-            </div>
-          )}
-
-          {/* Internal Notes */}
-          <div className="bg-white rounded-lg border border-gray-200 p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-              <StickyNote size={20} />
-              Internal Notes
-            </h2>
-            <p className="text-sm text-gray-500 mb-3">
-              Private notes for staff only. Not visible to guests.
-            </p>
-            <textarea
-              value={editForm.internal_notes}
-              onChange={(e) => setEditForm({ ...editForm, internal_notes: e.target.value })}
-              placeholder="Add internal notes about this booking..."
-              rows={4}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-black focus:border-transparent resize-none"
-            />
-            <div className="mt-3 flex justify-end">
-              <button
-                onClick={handleSaveInternalNotes}
-                className="px-4 py-2 bg-gray-900 text-white text-sm rounded-md hover:bg-gray-800 transition-colors"
-              >
-                Save Notes
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Sidebar */}
-        <div className="space-y-6">
-          {/* Status Card */}
-          <div className="bg-white rounded-lg border border-gray-200 p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">Status</h2>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-500 mb-2">Booking Status</label>
-                {isEditing ? (
-                  <select
-                    value={editForm.status}
-                    onChange={(e) =>
-                      setEditForm({ ...editForm, status: e.target.value as Booking['status'] })
-                    }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-black focus:border-transparent"
-                  >
-                    {statusOptions.map((opt) => (
-                      <option key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </option>
-                    ))}
-                  </select>
+                  </>
                 ) : (
-                  <span className={`inline-flex px-3 py-1 text-sm font-medium rounded-full ${getStatusColor(booking.status)}`}>
-                    {booking.status.charAt(0).toUpperCase() + booking.status.slice(1)}
-                  </span>
-                )}
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-500 mb-2">Payment Status</label>
-                {isEditing ? (
-                  <select
-                    value={editForm.payment_status}
-                    onChange={(e) =>
-                      setEditForm({
-                        ...editForm,
-                        payment_status: e.target.value as Booking['payment_status'],
-                      })
-                    }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-black focus:border-transparent"
-                  >
-                    {paymentStatusOptions.map((opt) => (
-                      <option key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <span className={`inline-flex px-3 py-1 text-sm font-medium rounded-full ${getPaymentStatusColor(booking.payment_status)}`}>
-                    {booking.payment_status.charAt(0).toUpperCase() + booking.payment_status.slice(1)}
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Proof of Payment */}
-          <div className="bg-white rounded-lg border border-gray-200 p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-              <Upload size={20} />
-              Proof of Payment
-            </h2>
-
-            {proofOfPayment ? (
-              <div className="border border-gray-200 rounded-lg p-3">
-                <div className="flex items-start gap-3">
-                  {proofOfPayment.url.startsWith('data:image') ? (
-                    <img
-                      src={proofOfPayment.url}
-                      alt="Proof of payment"
-                      className="w-12 h-12 object-cover rounded-lg border"
-                    />
-                  ) : (
-                    <div className="w-12 h-12 bg-red-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                      <File className="w-6 h-6 text-red-600" />
-                    </div>
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-gray-900 text-sm truncate">{proofOfPayment.filename}</p>
-                    <p className="text-xs text-gray-500">
-                      {new Date(proofOfPayment.uploaded_at).toLocaleDateString('en-ZA', {
-                        day: 'numeric',
-                        month: 'short',
-                        year: 'numeric',
-                      })}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 mt-3">
-                  <a
-                    href={proofOfPayment.url}
-                    download={proofOfPayment.filename}
-                    className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition-colors"
-                  >
-                    <Download size={14} />
-                    Download
-                  </a>
                   <button
-                    onClick={handleRemoveProof}
-                    className="px-3 py-2 text-sm text-red-600 border border-red-200 rounded-md hover:bg-red-50 transition-colors"
+                    onClick={() => setIsEditing(true)}
+                    className="px-3 py-1.5 text-sm bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors flex items-center gap-1.5"
                   >
-                    <Trash2 size={14} />
+                    <Edit size={14} />
+                    Edit
                   </button>
-                </div>
-              </div>
-            ) : (
-              <div
-                onClick={() => proofInputRef.current?.click()}
-                className={`border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-colors ${
-                  uploadingProof ? 'bg-gray-50 border-gray-300' : 'border-gray-300 hover:border-gray-400'
-                }`}
-              >
-                {uploadingProof ? (
-                  <div className="flex flex-col items-center">
-                    <Loader2 className="w-6 h-6 animate-spin text-gray-400 mb-2" />
-                    <p className="text-sm text-gray-600">Uploading...</p>
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center">
-                    <Upload className="w-6 h-6 text-gray-400 mb-2" />
-                    <p className="text-sm text-gray-600 font-medium">Upload proof</p>
-                    <p className="text-xs text-gray-500 mt-1">PDF, PNG, JPEG</p>
-                  </div>
                 )}
-              </div>
-            )}
-            <input
-              ref={proofInputRef}
-              type="file"
-              accept=".pdf,.png,.jpg,.jpeg,image/png,image/jpeg,application/pdf"
-              className="hidden"
-              onChange={(e) => {
-                if (e.target.files?.[0]) {
-                  handleProofUpload(e.target.files[0])
-                }
-              }}
-            />
-          </div>
-
-          {/* Payment Summary */}
-          <div className="bg-white rounded-lg border border-gray-200 p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-              <CreditCard size={20} />
-              Payment
-            </h2>
-
-            <div className="space-y-3">
-              {room && (
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">
-                    Room ({calculateNights()} nights)
-                  </span>
-                  <span className="text-gray-900">
-                    {formatCurrency(room.base_price_per_night * calculateNights(), booking.currency)}
-                  </span>
-                </div>
-              )}
-
-              {bookingNotes.addons && bookingNotes.addons.length > 0 && (
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">Add-ons</span>
-                  <span className="text-gray-900">
-                    {formatCurrency(
-                      bookingNotes.addons.reduce((sum, a) => sum + a.total, 0),
-                      booking.currency
-                    )}
-                  </span>
-                </div>
-              )}
-
-              <div className="border-t pt-3 mt-3">
-                <div className="flex justify-between">
-                  <span className="font-semibold text-gray-900">Total</span>
-                  {isEditing ? (
-                    <input
-                      type="number"
-                      value={editForm.total_amount}
-                      onChange={(e) =>
-                        setEditForm({ ...editForm, total_amount: parseFloat(e.target.value) || 0 })
-                      }
-                      className="w-32 px-2 py-1 text-right border border-gray-300 rounded-md focus:ring-2 focus:ring-black focus:border-transparent"
-                    />
-                  ) : (
-                    <span className="text-xl font-bold text-gray-900">
-                      {formatCurrency(booking.total_amount, booking.currency)}
-                    </span>
-                  )}
-                </div>
               </div>
             </div>
-          </div>
-
-          {/* Invoice */}
-          <div className="bg-white rounded-lg border border-gray-200 p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-              <FileText size={20} />
-              Invoice
-            </h2>
-
-            {loadingInvoice ? (
-              <div className="flex items-center justify-center py-4">
-                <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
-              </div>
-            ) : invoice ? (
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-gray-500">Invoice Number</span>
-                    <span className="font-mono font-medium text-gray-900">{invoice.invoice_number}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-gray-500">Generated</span>
-                    <span className="text-gray-900">
-                      {new Date(invoice.generated_at).toLocaleDateString('en-ZA', {
-                        day: 'numeric',
-                        month: 'short',
-                        year: 'numeric',
-                      })}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="space-y-2 pt-2">
-                  <button
-                    onClick={handleDownloadInvoice}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-md hover:bg-gray-800 transition-colors"
-                  >
-                    <Download size={16} />
-                    Download PDF
-                  </button>
-
-                  <button
-                    onClick={handleSendInvoiceEmail}
-                    disabled={sendingInvoiceEmail || !booking.guest_email}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {sendingInvoiceEmail ? (
-                      <Loader2 size={16} className="animate-spin" />
-                    ) : (
-                      <Mail size={16} />
-                    )}
-                    Send via Email
-                  </button>
-
-                  <button
-                    onClick={handleSendInvoiceWhatsApp}
-                    disabled={!booking.guest_phone}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-2 border border-green-500 text-green-600 rounded-md hover:bg-green-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <MessageSquare size={16} />
-                    Send via WhatsApp
-                  </button>
-                </div>
-
-                {(invoice.sent_via_email_at || invoice.sent_via_whatsapp_at) && (
-                  <div className="pt-2 border-t space-y-1">
-                    {invoice.sent_via_email_at && (
-                      <p className="text-xs text-gray-500">
-                        Emailed on {new Date(invoice.sent_via_email_at).toLocaleDateString('en-ZA', { day: 'numeric', month: 'short' })}
-                      </p>
-                    )}
-                    {invoice.sent_via_whatsapp_at && (
-                      <p className="text-xs text-gray-500">
-                        WhatsApp on {new Date(invoice.sent_via_whatsapp_at).toLocaleDateString('en-ZA', { day: 'numeric', month: 'short' })}
-                      </p>
-                    )}
-                  </div>
-                )}
-              </div>
-            ) : booking.payment_status === 'paid' ? (
-              <div className="text-center py-2">
-                <p className="text-sm text-gray-500 mb-3">Invoice ready to generate</p>
-                <button
-                  onClick={handleGenerateInvoice}
-                  disabled={generatingInvoice}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-accent-600 text-white rounded-md hover:bg-accent-700 transition-colors disabled:opacity-50"
-                >
-                  {generatingInvoice ? (
-                    <Loader2 size={16} className="animate-spin" />
-                  ) : (
-                    <FileText size={16} />
-                  )}
-                  Generate Invoice
-                </button>
-              </div>
-            ) : (
-              <div className="text-center py-4 text-gray-500">
-                <FileText size={32} className="mx-auto mb-2 opacity-40" />
-                <p className="text-sm">Invoice will be available after payment</p>
-              </div>
-            )}
-          </div>
-
-          {/* Quick Actions */}
-          <div className="bg-white rounded-lg border border-gray-200 p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h2>
-
-            <div className="space-y-3">
-              <button
-                onClick={handleSendConfirmation}
-                disabled={sendingEmail || !booking.guest_email}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-accent-600 text-white rounded-md hover:bg-accent-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {sendingEmail ? (
-                  <Loader2 size={16} className="animate-spin" />
-                ) : (
-                  <CheckCircle size={16} />
-                )}
-                Send Confirmation
-              </button>
-
-              <button
-                onClick={handleSendUpdate}
-                disabled={sendingEmail || !booking.guest_email}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {sendingEmail ? (
-                  <Loader2 size={16} className="animate-spin" />
-                ) : (
-                  <Send size={16} />
-                )}
-                Send Update Notification
-              </button>
-
-              {booking.status === 'pending' && (
-                <button
-                  onClick={async () => {
-                    try {
-                      await bookingsApi.update(booking.id!, { status: 'confirmed' })
-                      showSuccess('Booking Confirmed', 'The booking has been confirmed.')
-                      loadBooking(booking.id!)
-                    } catch {
-                      showError('Error', 'Failed to confirm booking')
-                    }
-                  }}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-2 border border-accent-600 text-accent-600 rounded-md hover:bg-accent-50 transition-colors"
-                >
-                  <CheckCircle size={16} />
-                  Mark as Confirmed
-                </button>
-              )}
-
-              {booking.status === 'confirmed' && (
-                <button
-                  onClick={async () => {
-                    try {
-                      await bookingsApi.update(booking.id!, { status: 'checked_in' })
-                      showSuccess('Guest Checked In', 'The guest has been checked in.')
-                      loadBooking(booking.id!)
-                    } catch {
-                      showError('Error', 'Failed to check in guest')
-                    }
-                  }}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
-                >
-                  <CheckCircle size={16} />
-                  Check In Guest
-                </button>
-              )}
-
-              {booking.status === 'checked_in' && (
-                <button
-                  onClick={async () => {
-                    try {
-                      await bookingsApi.update(booking.id!, { status: 'checked_out' })
-                      showSuccess('Guest Checked Out', 'The guest has been checked out.')
-                      loadBooking(booking.id!)
-                    } catch {
-                      showError('Error', 'Failed to check out guest')
-                    }
-                  }}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors"
-                >
-                  <CheckCircle size={16} />
-                  Check Out Guest
-                </button>
-              )}
-
-              {booking.payment_status === 'pending' && (
-                <button
-                  onClick={async () => {
-                    try {
-                      await bookingsApi.update(booking.id!, { payment_status: 'paid' })
-                      showSuccess('Payment Recorded', 'The payment has been marked as paid.')
-                      loadBooking(booking.id!)
-                    } catch {
-                      showError('Error', 'Failed to update payment status')
-                    }
-                  }}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-2 border border-blue-600 text-blue-600 rounded-md hover:bg-blue-50 transition-colors"
-                >
-                  <CreditCard size={16} />
-                  Mark as Paid
-                </button>
-              )}
-
-              {canCancelBooking() && (
-                <button
-                  onClick={() => setShowCancelModal(true)}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-2 border border-red-600 text-red-600 rounded-md hover:bg-red-50 transition-colors"
-                >
-                  <X size={16} />
-                  Cancel Reservation
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Guest Review */}
-          <div className="bg-white rounded-lg border border-gray-200 p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-              <Star size={20} />
-              Guest Review
-            </h2>
-
-            {loadingReview ? (
-              <div className="flex items-center justify-center py-4">
-                <Loader2 size={20} className="animate-spin text-gray-400" />
-              </div>
-            ) : review ? (
-              <div className="space-y-3">
-                <div className="flex items-center gap-2">
-                  <StarRating rating={review.rating} size="sm" />
-                  <span className="text-sm font-medium text-gray-900">{review.rating}/5</span>
-                </div>
-                {review.title && (
-                  <p className="font-medium text-gray-900">"{review.title}"</p>
-                )}
-                {review.content && (
-                  <p className="text-sm text-gray-600">{review.content}</p>
-                )}
-                <p className="text-xs text-gray-500">
-                  Submitted {review.created_at && new Date(review.created_at).toLocaleDateString('en-ZA', {
-                    day: 'numeric',
-                    month: 'short',
-                    year: 'numeric'
-                  })}
-                </p>
-                {review.owner_response && (
-                  <div className="mt-3 p-3 bg-blue-50 rounded-lg border-l-4 border-blue-500">
-                    <div className="flex items-center gap-1 mb-1">
-                      <MessageSquare size={12} className="text-blue-600" />
-                      <span className="text-xs font-medium text-blue-700">Your Response</span>
-                    </div>
-                    <p className="text-sm text-gray-700">{review.owner_response}</p>
-                  </div>
-                )}
-              </div>
-            ) : isReviewEligible() ? (
-              <div className="text-center py-2">
-                <p className="text-sm text-gray-500 mb-3">
-                  No review yet. Send a request to the guest.
-                </p>
-                <button
-                  onClick={handleSendReviewRequest}
-                  disabled={sendingReviewRequest || !booking.guest_email}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-yellow-500 text-white rounded-md hover:bg-yellow-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {sendingReviewRequest ? (
-                    <Loader2 size={16} className="animate-spin" />
-                  ) : (
-                    <Star size={16} />
-                  )}
-                  Request Review
-                </button>
-                {!booking.guest_email && (
-                  <p className="text-xs text-gray-400 mt-2">No email address on file</p>
-                )}
-              </div>
-            ) : (
-              <div className="text-center py-2">
-                <p className="text-sm text-gray-500">
-                  Reviews can be requested after the guest has checked out and payment is complete.
-                </p>
-              </div>
-            )}
-          </div>
-
-          {/* Booking Meta */}
-          <div className="bg-gray-100 rounded-lg p-4 text-sm text-gray-600 space-y-2">
-            <p>
-              <strong>Booking ID:</strong> {booking.id}
-            </p>
-            <div className="flex items-center gap-2">
-              <strong>Source:</strong>
-              <SourceBadge
-                source={(booking.source || 'manual') as BookingSource}
-                type="booking"
-                externalUrl={booking.external_url}
-                size="sm"
-              />
-            </div>
-            {booking.external_id && (
-              <p>
-                <strong>External ID:</strong> <span className="font-mono">{booking.external_id}</span>
-              </p>
-            )}
-            {booking.synced_at && (
-              <p>
-                <strong>Last Synced:</strong> {new Date(booking.synced_at).toLocaleString('en-ZA')}
-              </p>
-            )}
           </div>
         </div>
       </div>
 
+      {/* Main Content */}
+      <div className="max-w-6xl mx-auto px-6 py-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Left Column - Main Content */}
+          <div className="lg:col-span-2 space-y-6">
+            {/* Guest Review - Prominently displayed at top */}
+            {loadingReview ? (
+              <div className="bg-white rounded-xl border border-gray-200 p-5">
+                <div className="flex items-center justify-center py-4">
+                  <Loader2 size={20} className="animate-spin text-gray-400" />
+                </div>
+              </div>
+            ) : review ? (
+              <div className="bg-gradient-to-br from-amber-50 to-orange-50 rounded-xl border border-amber-200 p-5">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-sm font-semibold text-amber-800 uppercase tracking-wide flex items-center gap-2">
+                    <Star size={16} className="fill-amber-500 text-amber-500" />
+                    Guest Review
+                  </h2>
+                  <button
+                    onClick={() => navigate('/dashboard/reviews')}
+                    className="text-xs text-amber-700 hover:text-amber-900 font-medium"
+                  >
+                    Manage Review
+                  </button>
+                </div>
+
+                {/* Rating Display */}
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="flex items-center gap-0.5">
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <Star
+                        key={star}
+                        size={18}
+                        className={star <= Math.round(review.rating) ? 'fill-amber-400 text-amber-400' : 'text-gray-300'}
+                      />
+                    ))}
+                  </div>
+                  <span className="font-semibold text-gray-900">{review.rating.toFixed(1)}</span>
+                  <span className="text-xs text-gray-500">
+                    {review.created_at && new Date(review.created_at).toLocaleDateString('en-ZA', {
+                      day: 'numeric',
+                      month: 'short',
+                      year: 'numeric'
+                    })}
+                  </span>
+                </div>
+
+                {/* Category Ratings */}
+                {(review.rating_cleanliness || review.rating_service || review.rating_location || review.rating_value || review.rating_safety) && (
+                  <div className="grid grid-cols-5 gap-2 mb-4">
+                    {review.rating_cleanliness && (
+                      <div className="text-center">
+                        <p className="text-xs text-gray-500">Clean</p>
+                        <p className="text-sm font-semibold text-gray-900">{review.rating_cleanliness}</p>
+                      </div>
+                    )}
+                    {review.rating_service && (
+                      <div className="text-center">
+                        <p className="text-xs text-gray-500">Service</p>
+                        <p className="text-sm font-semibold text-gray-900">{review.rating_service}</p>
+                      </div>
+                    )}
+                    {review.rating_location && (
+                      <div className="text-center">
+                        <p className="text-xs text-gray-500">Location</p>
+                        <p className="text-sm font-semibold text-gray-900">{review.rating_location}</p>
+                      </div>
+                    )}
+                    {review.rating_value && (
+                      <div className="text-center">
+                        <p className="text-xs text-gray-500">Value</p>
+                        <p className="text-sm font-semibold text-gray-900">{review.rating_value}</p>
+                      </div>
+                    )}
+                    {review.rating_safety && (
+                      <div className="text-center">
+                        <p className="text-xs text-gray-500">Safety</p>
+                        <p className="text-sm font-semibold text-gray-900">{review.rating_safety}</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Review Title & Content */}
+                {review.title && (
+                  <h3 className="font-medium text-gray-900 mb-2">"{review.title}"</h3>
+                )}
+                {review.content && (
+                  <p className="text-gray-700 text-sm mb-4">{review.content}</p>
+                )}
+
+                {/* Review Images */}
+                {review.images && review.images.length > 0 && (
+                  <div className="flex gap-2 mb-4">
+                    {review.images.filter(img => !img.hidden).slice(0, 4).map((img, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => {
+                          const visibleImages = review.images!.filter(i => !i.hidden).map(i => i.url)
+                          setLightboxImages(visibleImages)
+                          setLightboxIndex(idx)
+                          setShowLightbox(true)
+                        }}
+                        className="w-16 h-16 rounded-lg overflow-hidden bg-gray-100 hover:opacity-90 transition-opacity"
+                      >
+                        <img src={img.url} alt={`Review ${idx + 1}`} className="w-full h-full object-cover" />
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* Owner Response */}
+                {review.owner_response ? (
+                  <div className="bg-white/60 rounded-lg p-3 border border-amber-100">
+                    <p className="text-xs text-gray-500 mb-1 flex items-center gap-1">
+                      <MessageSquare size={12} />
+                      Your Response
+                      {review.owner_response_at && (
+                        <span className="ml-1">
+                          ({new Date(review.owner_response_at).toLocaleDateString('en-ZA', {
+                            day: 'numeric',
+                            month: 'short'
+                          })})
+                        </span>
+                      )}
+                    </p>
+                    <p className="text-sm text-gray-700">{review.owner_response}</p>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => navigate('/dashboard/reviews')}
+                    className="text-sm text-amber-700 hover:text-amber-900 font-medium flex items-center gap-1"
+                  >
+                    <MessageSquare size={14} />
+                    Add a response
+                  </button>
+                )}
+              </div>
+            ) : null}
+
+            {/* Check-in / Check-out Details */}
+            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+              <div className="grid grid-cols-2 divide-x divide-gray-200">
+                <div className="p-5">
+                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Check-in</p>
+                  {isEditing ? (
+                    <input
+                      type="date"
+                      value={editForm.check_in}
+                      onChange={(e) => setEditForm({ ...editForm, check_in: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                    />
+                  ) : (
+                    <>
+                      <p className="text-lg font-semibold text-gray-900">{formatDate(booking.check_in)}</p>
+                      <p className="text-sm text-emerald-600 mt-1">From 14:00</p>
+                    </>
+                  )}
+                </div>
+                <div className="p-5">
+                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Check-out</p>
+                  {isEditing ? (
+                    <input
+                      type="date"
+                      value={editForm.check_out}
+                      onChange={(e) => setEditForm({ ...editForm, check_out: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                    />
+                  ) : (
+                    <>
+                      <p className="text-lg font-semibold text-gray-900">{formatDate(booking.check_out)}</p>
+                      <p className="text-sm text-emerald-600 mt-1">Until 10:00</p>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Guest Details */}
+            <div className="bg-white rounded-xl border border-gray-200 p-5">
+              <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide mb-4">Guest Details</h2>
+              {isEditing ? (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Name</label>
+                    <input
+                      type="text"
+                      value={editForm.guest_name}
+                      onChange={(e) => setEditForm({ ...editForm, guest_name: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Email</label>
+                    <input
+                      type="email"
+                      value={editForm.guest_email}
+                      onChange={(e) => setEditForm({ ...editForm, guest_email: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Phone</label>
+                    <input
+                      type="tel"
+                      value={editForm.guest_phone}
+                      onChange={(e) => setEditForm({ ...editForm, guest_phone: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center">
+                      <User size={16} className="text-gray-500" />
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-500">Name</p>
+                      <p className="text-sm font-medium text-gray-900">{booking.guest_name}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center">
+                      <Mail size={16} className="text-gray-500" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs text-gray-500">Email</p>
+                      <p className="text-sm font-medium text-gray-900 truncate">{booking.guest_email || '-'}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center">
+                      <Phone size={16} className="text-gray-500" />
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-500">Phone</p>
+                      <p className="text-sm font-medium text-gray-900">{booking.guest_phone || '-'}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Add-ons & Extras */}
+            <div className="bg-white rounded-xl border border-gray-200 p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide flex items-center gap-2">
+                  <Package size={16} />
+                  Add-ons & Extras
+                </h2>
+                <button
+                  onClick={() => {
+                    setShowAddonSelector(true)
+                    loadAvailableAddons()
+                  }}
+                  className="text-sm text-emerald-600 hover:text-emerald-700 font-medium flex items-center gap-1"
+                >
+                  <Plus size={14} />
+                  Manage
+                </button>
+              </div>
+
+              {bookingNotes.addons && bookingNotes.addons.length > 0 ? (
+                <div className="space-y-3">
+                  {bookingNotes.addons.map((addon, index) => (
+                    <div key={index} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center">
+                          <Package size={14} className="text-emerald-600" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-gray-900">{addon.name}</p>
+                          <p className="text-xs text-gray-500">Qty: {addon.quantity}</p>
+                        </div>
+                      </div>
+                      <p className="text-sm font-semibold text-gray-900">
+                        {formatCurrency(addon.total, booking.currency)}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-500 text-center py-4">No add-ons for this booking</p>
+              )}
+            </div>
+
+            {/* Special Requests */}
+            {bookingNotes.special_requests && (
+              <div className="bg-amber-50 rounded-xl border border-amber-200 p-5">
+                <h2 className="text-sm font-semibold text-amber-800 uppercase tracking-wide mb-2 flex items-center gap-2">
+                  <MessageSquare size={16} />
+                  Special Requests
+                </h2>
+                <p className="text-gray-700 whitespace-pre-wrap">{bookingNotes.special_requests}</p>
+              </div>
+            )}
+
+            {/* Internal Notes */}
+            <div className="bg-white rounded-xl border border-gray-200 p-5">
+              <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide mb-4 flex items-center gap-2">
+                <FileText size={16} />
+                Internal Notes
+              </h2>
+              <div className="p-4 bg-amber-50 border border-amber-100 rounded-xl">
+                <textarea
+                  value={editForm.internal_notes}
+                  onChange={(e) => setEditForm({ ...editForm, internal_notes: e.target.value })}
+                  placeholder="Add private notes about this booking (only visible to staff)..."
+                  rows={4}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-accent-500/20 focus:border-accent-500 resize-none bg-white"
+                />
+                {editForm.internal_notes !== (booking.internal_notes || '') && (
+                  <div className="flex justify-end gap-2 mt-3">
+                    <button
+                      onClick={() => setEditForm({ ...editForm, internal_notes: booking.internal_notes || '' })}
+                      className="px-3 py-1.5 text-sm text-gray-600 hover:text-gray-800 font-medium rounded-lg hover:bg-white"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={async () => {
+                        try {
+                          await bookingsApi.update(booking.id!, { internal_notes: editForm.internal_notes })
+                          showSuccess('Notes Saved', 'Internal notes have been saved.')
+                          await loadBooking(booking.id!)
+                        } catch (error) {
+                          console.error('Failed to save notes:', error)
+                          showError('Error', 'Could not save internal notes.')
+                        }
+                      }}
+                      className="flex items-center gap-1 px-3 py-1.5 text-sm text-white bg-accent-600 hover:bg-accent-700 font-medium rounded-lg"
+                    >
+                      <Save size={14} />
+                      Save Notes
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Right Column - Sidebar */}
+          <div className="space-y-6">
+            {/* Quick Actions */}
+            <div className="bg-white rounded-xl border border-gray-200 p-5">
+              <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide mb-4">Quick Actions</h2>
+              <div className="space-y-2">
+                {booking.status === 'pending' && (
+                  <button
+                    onClick={async () => {
+                      await bookingsApi.update(booking.id!, { status: 'confirmed' })
+                      showSuccess('Booking Confirmed', 'The booking has been confirmed.')
+                      loadBooking(booking.id!)
+                    }}
+                    className="w-full flex items-center gap-3 px-4 py-3 bg-emerald-50 text-emerald-700 rounded-lg hover:bg-emerald-100 transition-colors"
+                  >
+                    <CheckCircle size={18} />
+                    <span className="font-medium">Confirm Booking</span>
+                  </button>
+                )}
+                {booking.status === 'confirmed' && (
+                  <button
+                    onClick={async () => {
+                      await bookingsApi.update(booking.id!, { status: 'checked_in' })
+                      showSuccess('Guest Checked In', 'The guest has been checked in.')
+                      loadBooking(booking.id!)
+                    }}
+                    className="w-full flex items-center gap-3 px-4 py-3 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition-colors"
+                  >
+                    <LogIn size={18} />
+                    <span className="font-medium">Check In Guest</span>
+                  </button>
+                )}
+                {booking.status === 'checked_in' && (
+                  <button
+                    onClick={async () => {
+                      await bookingsApi.update(booking.id!, { status: 'checked_out' })
+                      showSuccess('Guest Checked Out', 'The guest has been checked out.')
+                      loadBooking(booking.id!)
+                    }}
+                    className="w-full flex items-center gap-3 px-4 py-3 bg-purple-50 text-purple-700 rounded-lg hover:bg-purple-100 transition-colors"
+                  >
+                    <LogOut size={18} />
+                    <span className="font-medium">Check Out Guest</span>
+                  </button>
+                )}
+                {booking.payment_status !== 'paid' && (
+                  <button
+                    onClick={async () => {
+                      await bookingsApi.update(booking.id!, { payment_status: 'paid' })
+                      showSuccess('Payment Recorded', 'The payment has been marked as paid.')
+                      loadBooking(booking.id!)
+                    }}
+                    className="w-full flex items-center gap-3 px-4 py-3 bg-teal-50 text-teal-700 rounded-lg hover:bg-teal-100 transition-colors"
+                  >
+                    <CreditCard size={18} />
+                    <span className="font-medium">Mark as Paid</span>
+                  </button>
+                )}
+                {/* Review Button - shows different states */}
+                {review ? (
+                  // Review exists - Go to Review button
+                  <button
+                    onClick={() => navigate('/dashboard/reviews')}
+                    className="w-full flex items-center gap-3 px-4 py-3 bg-emerald-50 text-emerald-700 rounded-lg hover:bg-emerald-100 transition-colors"
+                  >
+                    <Star size={18} className="fill-emerald-500" />
+                    <div className="text-left">
+                      <span className="font-medium block">Go to Review</span>
+                      <span className="text-xs text-emerald-600">View and manage guest review</span>
+                    </div>
+                  </button>
+                ) : booking?.review_request_sent_at ? (
+                  // Request sent but no review yet - disabled with date
+                  <div className="w-full flex items-center gap-3 px-4 py-3 bg-gray-50 text-gray-500 rounded-lg cursor-not-allowed">
+                    <Star size={18} />
+                    <div className="text-left">
+                      <span className="font-medium block">Review Request Sent</span>
+                      <span className="text-xs text-gray-400">
+                        Sent on {new Date(booking.review_request_sent_at).toLocaleDateString('en-ZA', {
+                          day: 'numeric',
+                          month: 'short',
+                          year: 'numeric'
+                        })}
+                      </span>
+                    </div>
+                  </div>
+                ) : isReviewEligible() ? (
+                  // Eligible but no request sent - Request Review button
+                  <button
+                    onClick={handleSendReviewRequest}
+                    disabled={sendingReviewRequest}
+                    className="w-full flex items-center gap-3 px-4 py-3 bg-amber-50 text-amber-700 rounded-lg hover:bg-amber-100 transition-colors disabled:opacity-50"
+                  >
+                    {sendingReviewRequest ? (
+                      <Loader2 size={18} className="animate-spin" />
+                    ) : (
+                      <Star size={18} />
+                    )}
+                    <div className="text-left">
+                      <span className="font-medium block">Request Review</span>
+                      <span className="text-xs text-amber-600">Send guest a review request</span>
+                    </div>
+                  </button>
+                ) : null}
+                {!['cancelled', 'checked_out', 'completed'].includes(booking.status) && (
+                  <button
+                    onClick={() => setShowCancelModal(true)}
+                    className="w-full flex items-center gap-3 px-4 py-3 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 transition-colors"
+                  >
+                    <X size={18} />
+                    <span className="font-medium">Cancel Booking</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Payment & Invoice */}
+            <div className="bg-white rounded-xl border border-gray-200 p-5">
+              <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide mb-4 flex items-center gap-2">
+                <CreditCard size={16} />
+                Payment
+              </h2>
+              <div className="space-y-3">
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">Status</span>
+                  <span className={`font-medium px-2 py-0.5 rounded-full text-xs ${getPaymentStatusColor(booking.payment_status)}`}>
+                    {getPaymentStatusLabel(booking.payment_status)}
+                  </span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">Total</span>
+                  <span className="font-semibold text-gray-900">{formatCurrency(booking.total_amount, booking.currency)}</span>
+                </div>
+
+                {/* Invoice Actions */}
+                <div className="pt-3 border-t border-gray-100 space-y-2">
+                  {invoice ? (
+                    <>
+                      <a
+                        href={invoice.pdf_url || '#'}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-sm font-medium"
+                      >
+                        <Download size={14} />
+                        Download Invoice
+                      </a>
+                      <button
+                        onClick={handleSendInvoiceEmail}
+                        disabled={sendingInvoiceEmail}
+                        className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-emerald-100 text-emerald-700 rounded-lg hover:bg-emerald-200 transition-colors text-sm font-medium disabled:opacity-50"
+                      >
+                        {sendingInvoiceEmail ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+                        Email Invoice
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      onClick={handleGenerateInvoice}
+                      disabled={generatingInvoice}
+                      className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-sm font-medium disabled:opacity-50"
+                    >
+                      {generatingInvoice ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />}
+                      Generate Invoice
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Proof of Payment */}
+            <PaymentProofCard
+              paymentMethod={booking.payment_method || null}
+              paymentReference={booking.payment_reference || null}
+              paymentCompletedAt={booking.payment_completed_at || null}
+              proofOfPayment={proofOfPayment}
+              onUploadProof={handleProofUpload}
+              onRemoveProof={handleRemoveProof}
+              uploading={uploadingProof}
+              canEdit={true}
+            />
+
+            {/* Activity Timeline */}
+            <div className="bg-white rounded-xl border border-gray-200 p-5">
+              <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide mb-4">Activity</h2>
+              <ActivityTimeline events={timelineEvents} maxEvents={5} />
+            </div>
+
+            {/* Booking Reference */}
+            <div className="bg-gray-50 rounded-xl p-4 text-center">
+              <p className="text-xs text-gray-500 mb-1">Booking Reference</p>
+              <p className="font-mono text-sm font-medium text-gray-900">
+                {bookingNotes.booking_reference || booking.id?.slice(0, 8).toUpperCase()}
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Add-on Selector Modal */}
+      {showAddonSelector && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[80vh] overflow-hidden">
+            <div className="bg-gradient-to-r from-emerald-600 to-emerald-500 px-6 py-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-white">Manage Add-ons</h3>
+                <button
+                  onClick={() => setShowAddonSelector(false)}
+                  className="p-1.5 text-white/80 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+            </div>
+
+            <div className="p-4 overflow-y-auto max-h-[50vh]">
+              {loadingAddons ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+                </div>
+              ) : availableAddons.length === 0 ? (
+                <div className="text-center py-8 text-gray-500">
+                  <Package size={32} className="mx-auto mb-2 opacity-50" />
+                  <p>No add-ons available</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {availableAddons.map((addon) => {
+                    const selected = selectedAddons.get(addon.id!)
+                    const quantity = selected?.quantity || 0
+                    const total = calculateAddonTotal(addon, quantity)
+
+                    return (
+                      <div
+                        key={addon.id}
+                        className={`p-4 border rounded-xl transition-colors ${
+                          quantity > 0 ? 'border-emerald-400 bg-emerald-50' : 'border-gray-200'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex-1">
+                            <p className="font-medium text-gray-900">{addon.name}</p>
+                            <p className="text-sm text-gray-600 mt-1">
+                              {formatCurrency(addon.price, addon.currency)}
+                              <span className="text-gray-400 ml-1">/ {addon.pricing_type.replace(/_/g, ' ')}</span>
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            {quantity > 0 && (
+                              <span className="text-sm font-medium text-emerald-600">
+                                {formatCurrency(total, addon.currency)}
+                              </span>
+                            )}
+                            <div className="flex items-center border border-gray-300 rounded-lg">
+                              <button
+                                onClick={() => updateAddonQuantity(addon, -1)}
+                                disabled={quantity === 0}
+                                className="p-2 text-gray-500 hover:bg-gray-100 disabled:opacity-30 rounded-l-lg"
+                              >
+                                <Minus size={16} />
+                              </button>
+                              <span className="w-10 text-center font-medium">{quantity}</span>
+                              <button
+                                onClick={() => updateAddonQuantity(addon, 1)}
+                                disabled={quantity >= addon.max_quantity}
+                                className="p-2 text-gray-500 hover:bg-gray-100 disabled:opacity-30 rounded-r-lg"
+                              >
+                                <Plus size={16} />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="p-4 border-t border-gray-200 bg-gray-50">
+              {selectedAddons.size > 0 && (
+                <div className="mb-4 pb-4 border-b border-gray-200">
+                  <div className="flex justify-between">
+                    <span className="font-medium text-gray-700">Add-ons Total</span>
+                    <span className="font-bold text-gray-900">
+                      {formatCurrency(
+                        Array.from(selectedAddons.values()).reduce(
+                          (sum, { addon, quantity }) => sum + calculateAddonTotal(addon, quantity),
+                          0
+                        ),
+                        booking.currency
+                      )}
+                    </span>
+                  </div>
+                </div>
+              )}
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowAddonSelector(false)}
+                  className="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-100 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSaveAddons}
+                  disabled={savingAddons}
+                  className="flex-1 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2 font-medium"
+                >
+                  {savingAddons ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+                  Save Changes
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Cancel Booking Modal */}
       {showCancelModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full overflow-hidden">
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full overflow-hidden">
             <div className="bg-red-600 px-6 py-4">
               <h3 className="text-lg font-semibold text-white">Cancel Reservation</h3>
             </div>
             <div className="p-6">
-              <div className="flex items-start gap-3 mb-4">
-                <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
-                  <AlertCircle className="w-5 h-5 text-red-600" />
+              <div className="flex items-start gap-4 mb-4">
+                <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+                  <AlertCircle className="w-6 h-6 text-red-600" />
                 </div>
                 <div>
                   <p className="text-gray-900 font-medium">Are you sure you want to cancel this reservation?</p>
                   <p className="text-sm text-gray-500 mt-1">
-                    This will cancel the booking for <strong>{booking.guest_name}</strong> ({formatDate(booking.check_in)} - {formatDate(booking.check_out)}).
+                    This will cancel the booking for <strong>{booking.guest_name}</strong>.
                   </p>
                 </div>
               </div>
-              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-4">
-                <p className="text-sm text-yellow-800">
-                  <strong>Note:</strong> This action cannot be undone. The guest will need to make a new booking if they wish to rebook.
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+                <p className="text-sm text-amber-800">
+                  <strong>Note:</strong> This action cannot be undone.
                 </p>
               </div>
             </div>
@@ -2027,14 +1675,14 @@ export default function BookingDetail() {
               <button
                 onClick={() => setShowCancelModal(false)}
                 disabled={cancelling}
-                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-100 transition-colors disabled:opacity-50"
+                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-100 transition-colors disabled:opacity-50"
               >
                 Keep Reservation
               </button>
               <button
                 onClick={handleCancelBooking}
                 disabled={cancelling}
-                className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center gap-2"
+                className="px-4 py-2 bg-red-600 text-white rounded-xl hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center gap-2"
               >
                 {cancelling ? (
                   <>
@@ -2050,6 +1698,63 @@ export default function BookingDetail() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Image Lightbox */}
+      {showLightbox && lightboxImages.length > 0 && (
+        <div
+          className="fixed inset-0 bg-black/90 flex items-center justify-center z-50"
+          onClick={() => setShowLightbox(false)}
+        >
+          {/* Close button */}
+          <button
+            onClick={() => setShowLightbox(false)}
+            className="absolute top-4 right-4 p-2 text-white/80 hover:text-white transition-colors"
+          >
+            <X size={28} />
+          </button>
+
+          {/* Image counter */}
+          {lightboxImages.length > 1 && (
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 text-white/80 text-sm">
+              {lightboxIndex + 1} / {lightboxImages.length}
+            </div>
+          )}
+
+          {/* Previous button */}
+          {lightboxImages.length > 1 && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                setLightboxIndex((prev) => (prev === 0 ? lightboxImages.length - 1 : prev - 1))
+              }}
+              className="absolute left-4 p-2 text-white/80 hover:text-white transition-colors"
+            >
+              <ArrowLeft size={28} />
+            </button>
+          )}
+
+          {/* Image */}
+          <img
+            src={lightboxImages[lightboxIndex]}
+            alt={`Photo ${lightboxIndex + 1}`}
+            className="max-w-[90vw] max-h-[85vh] object-contain rounded-lg"
+            onClick={(e) => e.stopPropagation()}
+          />
+
+          {/* Next button */}
+          {lightboxImages.length > 1 && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                setLightboxIndex((prev) => (prev === lightboxImages.length - 1 ? 0 : prev + 1))
+              }}
+              className="absolute right-4 p-2 text-white/80 hover:text-white transition-colors rotate-180"
+            >
+              <ArrowLeft size={28} />
+            </button>
+          )}
         </div>
       )}
     </div>

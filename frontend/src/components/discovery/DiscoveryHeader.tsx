@@ -1,13 +1,17 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
-import { Menu, X, ChevronDown, MapPin, Compass, Tag } from 'lucide-react'
+import { Menu, X, ChevronDown, MapPin, Compass, Tag, User, LogOut, LayoutDashboard } from 'lucide-react'
 import * as LucideIcons from 'lucide-react'
 import { discoveryApi, CategoriesGrouped, Province } from '../../services/discoveryApi'
+import { useCustomerAuth } from '../../contexts/CustomerAuthContext'
 
 export default function DiscoveryHeader() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [categories, setCategories] = useState<CategoriesGrouped | null>(null)
   const [provinces, setProvinces] = useState<Province[]>([])
+  const { customer, isAuthenticated, logout } = useCustomerAuth()
+  const userMenuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     // Fetch categories and provinces for navigation
@@ -25,6 +29,22 @@ export default function DiscoveryHeader() {
     }
     fetchData()
   }, [])
+
+  // Close user menu on outside click
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
+        setUserMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  const handleLogout = async () => {
+    await logout()
+    setUserMenuOpen(false)
+  }
 
   // Get the icon component dynamically
   const getIcon = (iconName?: string) => {
@@ -129,6 +149,15 @@ export default function DiscoveryHeader() {
             <Link to="/search" className="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors">
               Browse All
             </Link>
+
+            {/* Special Offers - Highlighted */}
+            <Link
+              to="/search?has_coupons=true"
+              className="flex items-center gap-1.5 text-sm font-medium text-emerald-600 hover:text-emerald-700 transition-colors bg-emerald-50 px-3 py-1.5 rounded-full"
+            >
+              <Tag className="w-4 h-4" />
+              Special Offers
+            </Link>
           </div>
 
           {/* Right Side CTAs */}
@@ -139,12 +168,86 @@ export default function DiscoveryHeader() {
             >
               List Your Property
             </Link>
-            <Link
-              to="/login"
-              className="hidden sm:block text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors"
-            >
-              Sign In
-            </Link>
+
+            {isAuthenticated && customer ? (
+              /* Logged-in user menu */
+              <div className="relative" ref={userMenuRef}>
+                <button
+                  onClick={() => setUserMenuOpen(!userMenuOpen)}
+                  className="flex items-center gap-2 cursor-pointer rounded-full px-2 py-1 transition-colors hover:bg-gray-50"
+                >
+                  {customer.profilePictureUrl ? (
+                    <img
+                      src={customer.profilePictureUrl}
+                      alt={customer.name || 'Profile'}
+                      className="w-8 h-8 rounded-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center">
+                      <span className="text-emerald-700 text-xs font-semibold">
+                        {customer.name?.charAt(0).toUpperCase() || customer.email?.charAt(0).toUpperCase() || 'G'}
+                      </span>
+                    </div>
+                  )}
+                  <ChevronDown className={`w-4 h-4 text-gray-400 hidden sm:block transition-transform ${userMenuOpen ? 'rotate-180' : ''}`} />
+                </button>
+
+                {userMenuOpen && (
+                  <div className="absolute right-0 mt-2 w-56 rounded-lg shadow-lg border border-gray-100 bg-white py-1 z-50">
+                    <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-3">
+                      {customer.profilePictureUrl ? (
+                        <img
+                          src={customer.profilePictureUrl}
+                          alt={customer.name || 'Profile'}
+                          className="w-10 h-10 rounded-full object-cover flex-shrink-0"
+                        />
+                      ) : (
+                        <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0">
+                          <span className="text-emerald-700 text-sm font-semibold">
+                            {customer.name?.charAt(0).toUpperCase() || customer.email?.charAt(0).toUpperCase() || 'G'}
+                          </span>
+                        </div>
+                      )}
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-gray-900 truncate">{customer.name || 'Guest'}</p>
+                        <p className="text-xs text-gray-500 truncate">{customer.email}</p>
+                      </div>
+                    </div>
+                    <Link
+                      to="/portal"
+                      onClick={() => setUserMenuOpen(false)}
+                      className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                    >
+                      <LayoutDashboard size={16} />
+                      My Dashboard
+                    </Link>
+                    <Link
+                      to="/portal/profile"
+                      onClick={() => setUserMenuOpen(false)}
+                      className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                    >
+                      <User size={16} />
+                      Profile Settings
+                    </Link>
+                    <button
+                      onClick={handleLogout}
+                      className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-500 hover:bg-red-50 transition-colors"
+                    >
+                      <LogOut size={16} />
+                      Sign out
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <Link
+                to="/portal/login"
+                className="hidden sm:block text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors"
+              >
+                Sign In
+              </Link>
+            )}
+
             <Link
               to="/search"
               className="bg-black text-white px-4 py-2 rounded-full hover:bg-gray-800 transition-colors text-sm font-medium"
@@ -173,6 +276,16 @@ export default function DiscoveryHeader() {
               onClick={() => setMobileMenuOpen(false)}
             >
               Browse All
+            </Link>
+
+            {/* Special Offers - Mobile */}
+            <Link
+              to="/search?has_coupons=true"
+              className="flex items-center gap-2 py-3 text-emerald-600 font-medium border-b border-gray-100"
+              onClick={() => setMobileMenuOpen(false)}
+            >
+              <Tag className="w-4 h-4" />
+              Special Offers
             </Link>
 
             {/* Mobile Destinations */}
@@ -237,13 +350,64 @@ export default function DiscoveryHeader() {
             >
               List Your Property
             </Link>
-            <Link
-              to="/login"
-              className="block py-2 text-gray-600"
-              onClick={() => setMobileMenuOpen(false)}
-            >
-              Sign In
-            </Link>
+
+            {isAuthenticated && customer ? (
+              <>
+                <div className="flex items-center gap-3 py-3 border-t border-gray-100 mt-3">
+                  {customer.profilePictureUrl ? (
+                    <img
+                      src={customer.profilePictureUrl}
+                      alt={customer.name || 'Profile'}
+                      className="w-10 h-10 rounded-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center">
+                      <span className="text-emerald-700 text-sm font-semibold">
+                        {customer.name?.charAt(0).toUpperCase() || customer.email?.charAt(0).toUpperCase() || 'G'}
+                      </span>
+                    </div>
+                  )}
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-gray-900 truncate">{customer.name || 'Guest'}</p>
+                    <p className="text-xs text-gray-500 truncate">{customer.email}</p>
+                  </div>
+                </div>
+                <Link
+                  to="/portal"
+                  className="flex items-center gap-2 py-2 text-gray-700"
+                  onClick={() => setMobileMenuOpen(false)}
+                >
+                  <LayoutDashboard size={16} />
+                  My Dashboard
+                </Link>
+                <Link
+                  to="/portal/profile"
+                  className="flex items-center gap-2 py-2 text-gray-700"
+                  onClick={() => setMobileMenuOpen(false)}
+                >
+                  <User size={16} />
+                  Profile Settings
+                </Link>
+                <button
+                  onClick={() => {
+                    handleLogout()
+                    setMobileMenuOpen(false)
+                  }}
+                  className="flex items-center gap-2 py-2 text-red-500 w-full text-left"
+                >
+                  <LogOut size={16} />
+                  Sign out
+                </button>
+              </>
+            ) : (
+              <Link
+                to="/portal/login"
+                className="block py-2 text-gray-600"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                Sign In
+              </Link>
+            )}
           </div>
         </div>
       )}

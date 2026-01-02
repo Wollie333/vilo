@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { Star, Calendar, Building2, BedDouble, Eye, Pencil, X, Loader2, ChevronDown, ChevronUp } from 'lucide-react'
-import { portalApi, CustomerReview } from '../../services/portalApi'
+import { portalApi, CustomerReview, ReviewImage } from '../../services/portalApi'
 import StarRating from '../../components/StarRating'
 import ReviewCategoryRatings, {
   CategoryRatings,
@@ -11,6 +11,7 @@ import ReviewCategoryRatings, {
   areAllRatingsFilled,
   calculateOverallRating
 } from '../../components/ReviewCategoryRatings'
+import ReviewImageUpload from '../../components/ReviewImageUpload'
 import TermsAcceptance from '../../components/TermsAcceptance'
 
 const reviewStatusColors: Record<string, string> = {
@@ -38,6 +39,7 @@ interface EditModalProps {
     rating_safety: number
     title: string
     content: string
+    images?: ReviewImage[]
   }) => Promise<void>
   isSaving: boolean
 }
@@ -50,6 +52,9 @@ function EditReviewModal({ review, isOpen, onClose, onSave, isSaving }: EditModa
   )
   const [title, setTitle] = useState(review.title || '')
   const [content, setContent] = useState(review.content || '')
+  const [images, setImages] = useState<ReviewImage[]>(
+    (review.images || []).filter(img => !img.hidden)
+  )
   const [termsAccepted, setTermsAccepted] = useState(false)
 
   useEffect(() => {
@@ -57,6 +62,7 @@ function EditReviewModal({ review, isOpen, onClose, onSave, isSaving }: EditModa
     setCategoryRatings(ratings || createEmptyRatings())
     setTitle(review.title || '')
     setContent(review.content || '')
+    setImages((review.images || []).filter(img => !img.hidden))
     setTermsAccepted(false)
   }, [review])
 
@@ -74,7 +80,8 @@ function EditReviewModal({ review, isOpen, onClose, onSave, isSaving }: EditModa
       rating: overallRating,
       ...apiRatings,
       title,
-      content
+      content,
+      images: images.length > 0 ? images : undefined
     })
   }
 
@@ -158,6 +165,20 @@ function EditReviewModal({ review, isOpen, onClose, onSave, isSaving }: EditModa
             <p className="mt-1 text-xs text-gray-400 text-right">{content.length}/1000</p>
           </div>
 
+          {/* Photo Upload */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Photos <span className="text-gray-400">(optional, max 4)</span>
+            </label>
+            <ReviewImageUpload
+              value={images}
+              onChange={setImages}
+              tenantId={review.tenant_id}
+              maxImages={4}
+              disabled={isSaving}
+            />
+          </div>
+
           {/* Terms Acceptance */}
           <TermsAcceptance
             accepted={termsAccepted}
@@ -206,16 +227,28 @@ export default function CustomerReviews() {
   const [expandedReviews, setExpandedReviews] = useState<Set<string>>(new Set())
 
   useEffect(() => {
-    loadReviews()
+    loadData()
   }, [])
 
-  const loadReviews = async () => {
+  // Listen for review-submitted event to refresh data
+  useEffect(() => {
+    const handleReviewSubmitted = () => {
+      loadData()
+    }
+
+    window.addEventListener('review-submitted', handleReviewSubmitted)
+    return () => {
+      window.removeEventListener('review-submitted', handleReviewSubmitted)
+    }
+  }, [])
+
+  const loadData = async () => {
     try {
       setLoading(true)
-      const data = await portalApi.getReviews()
-      setReviews(data)
+      const reviewsData = await portalApi.getReviews()
+      setReviews(reviewsData)
     } catch (error) {
-      console.error('Failed to load reviews:', error)
+      console.error('Failed to load data:', error)
     } finally {
       setLoading(false)
     }
@@ -230,6 +263,7 @@ export default function CustomerReviews() {
     rating_safety: number
     title: string
     content: string
+    images?: ReviewImage[]
   }) => {
     if (!editingReview) return
 
@@ -250,7 +284,8 @@ export default function CustomerReviews() {
               rating_value: updated.rating_value,
               rating_safety: updated.rating_safety,
               title: updated.title,
-              content: updated.content
+              content: updated.content,
+              images: updated.images
             }
           : r
       ))
@@ -429,15 +464,25 @@ export default function CustomerReviews() {
 
                         {/* Review Images */}
                         {visibleImages.length > 0 && (
-                          <div className="flex flex-wrap gap-2 mb-3">
-                            {visibleImages.map((image, index) => (
-                              <img
+                          <div className="flex flex-wrap items-center gap-2 mb-3">
+                            {visibleImages.slice(0, 4).map((image, index) => (
+                              <a
                                 key={image.path || index}
-                                src={image.url}
-                                alt={`Review photo ${index + 1}`}
-                                className="w-16 h-16 object-cover rounded-lg"
-                              />
+                                href={image.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="relative w-16 h-16 rounded-lg overflow-hidden bg-gray-100 hover:opacity-90 transition-opacity ring-1 ring-gray-200"
+                              >
+                                <img
+                                  src={image.url}
+                                  alt={`Review photo ${index + 1}`}
+                                  className="w-full h-full object-cover"
+                                />
+                              </a>
                             ))}
+                            {visibleImages.length > 4 && (
+                              <span className="text-xs text-gray-500">+{visibleImages.length - 4} more</span>
+                            )}
                           </div>
                         )}
 

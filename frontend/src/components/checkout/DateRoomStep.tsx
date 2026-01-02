@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Check, BedDouble, Bath, Loader2, Users, Info, AlertCircle, Plus, Minus } from 'lucide-react'
+import { Check, BedDouble, Bath, Loader2, Users, Info, AlertCircle, Plus, Minus, Tag } from 'lucide-react'
 import { discoveryApi } from '../../services/discoveryApi'
 import type { PropertyDetail, Room } from '../../services/discoveryApi'
 import type { CheckoutState, SelectedRoomWithPricing } from '../../pages/discovery/Checkout'
@@ -541,11 +541,21 @@ export default function DateRoomStep({
                     </div>
 
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <h3 className="font-semibold text-gray-900">{room.name}</h3>
                         {isSelected && (
                           <span className="flex items-center justify-center w-5 h-5 bg-emerald-600 rounded-full">
                             <Check className="w-3 h-3 text-white" />
+                          </span>
+                        )}
+                        {/* Coupon applicable badge */}
+                        {state.initialCouponCode && (
+                          state.couponApplicableRoomIds.length === 0 ||
+                          state.couponApplicableRoomIds.includes(room.id)
+                        ) && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full text-xs font-medium">
+                            <Tag className="w-3 h-3" />
+                            {state.initialCouponCode} applies
                           </span>
                         )}
                       </div>

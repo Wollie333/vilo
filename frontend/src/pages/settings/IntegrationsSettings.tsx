@@ -10,6 +10,7 @@ import {
   Loader2,
   Clock,
   Calendar,
+  CalendarX2,
   Star,
   Trash2,
   ChevronRight,
@@ -41,7 +42,13 @@ export default function IntegrationsSettings() {
     isOpen: false,
     id: null
   })
+  const [removeBookingsConfirm, setRemoveBookingsConfirm] = useState<{
+    isOpen: boolean
+    integration: Integration | null
+    count: number
+  }>({ isOpen: false, integration: null, count: 0 })
   const [deleting, setDeleting] = useState(false)
+  const [removingBookings, setRemovingBookings] = useState(false)
   const [syncing, setSyncing] = useState<string | null>(null)
 
   useEffect(() => {
@@ -106,8 +113,19 @@ export default function IntegrationsSettings() {
   const handleSync = async (integration: Integration) => {
     try {
       setSyncing(integration.id)
-      await integrationsApi.triggerSync(integration.id, 'full')
-      showSuccess('Sync Started', 'Sync has been initiated. Check back shortly for results.')
+      const result = await integrationsApi.triggerSync(integration.id, 'full')
+
+      if (result.conflicts_detected && result.conflicts_detected > 0) {
+        showError(
+          'Sync Completed with Conflicts',
+          `Created ${result.records_created} bookings, updated ${result.records_updated}. ${result.conflicts_detected} booking conflicts detected - check your calendar!`
+        )
+      } else {
+        showSuccess(
+          'Sync Completed',
+          `Created ${result.records_created} bookings, updated ${result.records_updated}.`
+        )
+      }
       await loadIntegrations()
     } catch (error: any) {
       showError('Error', error.message || 'Failed to start sync')
@@ -127,6 +145,38 @@ export default function IntegrationsSettings() {
       await loadIntegrations()
     } catch (error: any) {
       showError('Error', error.message || 'Connection test failed')
+    }
+  }
+
+  const handleRemoveBookingsClick = async (integration: Integration) => {
+    try {
+      const result = await integrationsApi.getSyncedBookingsCount(integration.id)
+      if (result.count === 0) {
+        showSuccess('No Bookings', `No synced bookings from ${PLATFORM_CONFIGS[integration.platform].name} to remove.`)
+        return
+      }
+      setRemoveBookingsConfirm({
+        isOpen: true,
+        integration,
+        count: result.count
+      })
+    } catch (error: any) {
+      showError('Error', error.message || 'Failed to check synced bookings')
+    }
+  }
+
+  const handleRemoveBookingsConfirm = async () => {
+    if (!removeBookingsConfirm.integration) return
+
+    try {
+      setRemovingBookings(true)
+      const result = await integrationsApi.deleteSyncedBookings(removeBookingsConfirm.integration.id)
+      showSuccess('Bookings Removed', result.message)
+      setRemoveBookingsConfirm({ isOpen: false, integration: null, count: 0 })
+    } catch (error: any) {
+      showError('Error', error.message || 'Failed to remove synced bookings')
+    } finally {
+      setRemovingBookings(false)
     }
   }
 
@@ -312,6 +362,13 @@ export default function IntegrationsSettings() {
                       <Settings size={18} />
                     </button>
                     <button
+                      onClick={() => handleRemoveBookingsClick(integration)}
+                      className="p-2 text-gray-500 hover:text-orange-600 hover:bg-orange-50 rounded-lg transition-colors"
+                      title="Remove Synced Bookings"
+                    >
+                      <CalendarX2 size={18} />
+                    </button>
+                    <button
                       onClick={() => setDeleteConfirm({ isOpen: true, id: integration.id })}
                       className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                       title="Remove Integration"
@@ -330,7 +387,7 @@ export default function IntegrationsSettings() {
       {addModalOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[80vh] overflow-hidden">
-            <div className="bg-gradient-to-r from-gray-900 to-gray-800 px-6 py-5">
+            <div className="bg-gradient-to-r from-accent-600 to-accent-500 px-6 py-5">
               <div className="flex items-center justify-between">
                 <h3 className="text-lg font-semibold text-white">Add Integration</h3>
                 <button
@@ -410,6 +467,19 @@ export default function IntegrationsSettings() {
         onConfirm={handleDeleteConfirm}
         onCancel={() => setDeleteConfirm({ isOpen: false, id: null })}
         isLoading={deleting}
+      />
+
+      {/* Remove Synced Bookings Confirmation */}
+      <ConfirmModal
+        isOpen={removeBookingsConfirm.isOpen}
+        title="Remove Synced Bookings"
+        message={`Are you sure you want to remove ${removeBookingsConfirm.count} booking${removeBookingsConfirm.count !== 1 ? 's' : ''} synced from ${removeBookingsConfirm.integration ? PLATFORM_CONFIGS[removeBookingsConfirm.integration.platform]?.name : ''}? This action cannot be undone.`}
+        confirmText="Remove Bookings"
+        cancelText="Cancel"
+        variant="danger"
+        onConfirm={handleRemoveBookingsConfirm}
+        onCancel={() => setRemoveBookingsConfirm({ isOpen: false, integration: null, count: 0 })}
+        isLoading={removingBookings}
       />
     </div>
   )

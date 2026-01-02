@@ -1,0 +1,47 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Booking.com Demo Calendar//EN
+CALSCALE:GREGORIAN
+METHOD:PUBLISH
+X-WR-CALNAME:Booking.com Demo Reservations
+BEGIN:VEVENT
+DTSTART;VALUE=DATE:20260103
+DTEND;VALUE=DATE:20260106
+SUMMARY:Booking.com - Michael Brown
+DESCRIPTION:Booking Ref: BDC-98765\nGuests: 2 adults\nBreakfast included
+UID:booking-001@demo.vilo.co.za
+STATUS:CONFIRMED
+END:VEVENT
+BEGIN:VEVENT
+DTSTART;VALUE=DATE:20260107
+DTEND;VALUE=DATE:20260110
+SUMMARY:Booking.com - Emma Wilson
+DESCRIPTION:Booking Ref: BDC-98766\nGuests: 2 adults, 2 children\nAirport transfer requested
+UID:booking-002@demo.vilo.co.za
+STATUS:CONFIRMED
+END:VEVENT
+BEGIN:VEVENT
+DTSTART;VALUE=DATE:20260111
+DTEND;VALUE=DATE:20260114
+SUMMARY:Booking.com - David Garcia
+DESCRIPTION:Booking Ref: BDC-98767\nGuests: 1 adult\nBusiness traveler - OVERLAPS with Airbnb for testing
+UID:booking-003@demo.vilo.co.za
+STATUS:CONFIRMED
+END:VEVENT
+BEGIN:VEVENT
+DTSTART;VALUE=DATE:20260116
+DTEND;VALUE=DATE:20260119
+SUMMARY:Booking.com - Anna Petrova
+DESCRIPTION:Booking Ref: BDC-98768\nGuests: 2 adults\nHoneymoon trip
+UID:booking-004@demo.vilo.co.za
+STATUS:CONFIRMED
+END:VEVENT
+BEGIN:VEVENT
+DTSTART;VALUE=DATE:20260121
+DTEND;VALUE=DATE:20260125
+SUMMARY:Booking.com - James Lee
+DESCRIPTION:Booking Ref: BDC-98769\nGuests: 3 adults\nFamily reunion - OVERLAPS with Airbnb for testing
+UID:booking-005@demo.vilo.co.za
+STATUS:CONFIRMED
+END:VEVENT
+END:VCALENDAR

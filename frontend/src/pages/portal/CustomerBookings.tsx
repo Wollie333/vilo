@@ -1,7 +1,15 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { Calendar, Building2, Search, Eye, MessageCircle, BedDouble } from 'lucide-react'
+import { Calendar, Building2, Search, Eye, MessageCircle, BedDouble, Star } from 'lucide-react'
 import { portalApi, CustomerBooking } from '../../services/portalApi'
+
+// Check if booking is eligible for review
+const canLeaveReview = (booking: CustomerBooking): boolean => {
+  const isCompletedStay = booking.status === 'checked_out' || booking.status === 'completed'
+  const isPaid = booking.payment_status === 'paid'
+  const hasNoReview = !booking.reviews || booking.reviews.length === 0
+  return isCompletedStay && isPaid && hasNoReview
+}
 
 const statusColors: Record<string, string> = {
   pending: 'bg-yellow-100 text-yellow-700 border-yellow-200',
@@ -242,6 +250,15 @@ export default function CustomerBookings() {
                           </div>
 
                           <div className="flex items-center gap-2">
+                            {canLeaveReview(booking) && (
+                              <Link
+                                to={`/portal/bookings/${booking.id}#review`}
+                                className="flex items-center gap-1.5 px-3 py-2 bg-yellow-50 text-yellow-700 border border-yellow-200 text-sm font-medium rounded-lg hover:bg-yellow-100 transition-colors"
+                              >
+                                <Star size={16} className="fill-yellow-400 text-yellow-400" />
+                                Leave Review
+                              </Link>
+                            )}
                             <Link
                               to={`/portal/support?booking=${booking.id}`}
                               className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"

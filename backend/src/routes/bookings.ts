@@ -1,6 +1,17 @@
 import { Router } from 'express'
 import { supabase } from '../lib/supabase.js'
 import { generateInvoice, getInvoiceByBookingId } from '../services/invoiceService.js'
+import { recordCouponUsage } from './coupons.js'
+import { logBookingCreated, logBookingStatusChange, logPaymentReceived } from '../services/activityService.js'
+import {
+  notifyNewBooking,
+  notifyBookingCancelled,
+  notifyCheckIn,
+  notifyCheckOut,
+  notifyPaymentReceived,
+  notifyCustomerBookingConfirmed,
+  notifyCustomerBookingCancelled
+} from '../services/notificationService.js'
 
 const router = Router()
 
@@ -76,6 +87,63 @@ router.get('/:id', async (req, res) => {
   }
 })
 
+// Check for booking conflicts
+router.post('/check-conflicts', async (req, res) => {
+  try {
+    const tenantId = req.headers['x-tenant-id'] as string
+    const { room_id, check_in, check_out, exclude_booking_id } = req.body
+
+    if (!tenantId) {
+      return res.status(400).json({ error: 'Tenant ID required' })
+    }
+
+    if (!room_id || !check_in || !check_out) {
+      return res.status(400).json({ error: 'room_id, check_in, and check_out are required' })
+    }
+
+    // Find overlapping bookings for the same room
+    // Overlap: existing.check_in < new.check_out AND existing.check_out > new.check_in
+    let query = supabase
+      .from('bookings')
+      .select('id, guest_name, source, check_in, check_out, status')
+      .eq('room_id', room_id)
+      .eq('tenant_id', tenantId)
+      .neq('status', 'cancelled')
+      .lt('check_in', check_out)
+      .gt('check_out', check_in)
+
+    // Exclude the current booking if editing
+    if (exclude_booking_id) {
+      query = query.neq('id', exclude_booking_id)
+    }
+
+    const { data: conflicts, error } = await query
+
+    if (error) {
+      console.error('Error checking conflicts:', error)
+      return res.status(500).json({ error: 'Failed to check conflicts' })
+    }
+
+    if (conflicts && conflicts.length > 0) {
+      res.json({
+        hasConflict: true,
+        conflicts: conflicts.map(c => ({
+          id: c.id,
+          guest: c.guest_name,
+          source: c.source || 'vilo',
+          dates: `${c.check_in} - ${c.check_out}`,
+          status: c.status
+        }))
+      })
+    } else {
+      res.json({ hasConflict: false, conflicts: [] })
+    }
+  } catch (error) {
+    console.error('Unexpected error:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
 // Create new booking
 router.post('/', async (req, res) => {
   try {
@@ -94,48 +162,138 @@ router.post('/', async (req, res) => {
       status = 'pending',
       payment_status = 'pending',
       // FOB integration fields
-      source = 'manual',
+      source = 'vilo',
       external_id,
       external_url,
-      synced_at
+      synced_at,
+      // Conflict handling
+      force_create = false,
+      // Coupon fields
+      coupon,
+      subtotal_before_discount,
+      discount_amount
     } = req.body
 
     if (!tenantId) {
       return res.status(400).json({ error: 'Tenant ID required' })
     }
 
-    if (!guest_name || !room_id || !check_in || !check_out || !total_amount) {
+    if (!guest_name || !room_id || !check_in || !check_out || total_amount === undefined) {
       return res.status(400).json({ error: 'Missing required fields' })
+    }
+
+    // Check for conflicts unless force_create is true
+    if (!force_create) {
+      const { data: conflicts, error: conflictError } = await supabase
+        .from('bookings')
+        .select('id, guest_name, source, check_in, check_out, status')
+        .eq('room_id', room_id)
+        .eq('tenant_id', tenantId)
+        .neq('status', 'cancelled')
+        .lt('check_in', check_out)
+        .gt('check_out', check_in)
+
+      if (!conflictError && conflicts && conflicts.length > 0) {
+        return res.status(409).json({
+          error: 'Booking conflict detected',
+          conflicts: conflicts.map(c => ({
+            id: c.id,
+            guest: c.guest_name,
+            source: c.source || 'vilo',
+            dates: `${c.check_in} - ${c.check_out}`,
+            status: c.status
+          })),
+          message: `This room has ${conflicts.length} overlapping booking(s). Set force_create=true to create anyway.`
+        })
+      }
+    }
+
+    // Build insert data
+    const insertData: any = {
+      tenant_id: tenantId,
+      guest_name,
+      guest_email,
+      guest_phone,
+      room_id,
+      room_name,
+      check_in,
+      check_out,
+      total_amount,
+      currency,
+      notes,
+      status,
+      payment_status,
+      // FOB integration fields
+      source,
+      external_id,
+      external_url,
+      synced_at
+    }
+
+    // Add coupon fields if coupon was applied
+    if (coupon && coupon.id) {
+      insertData.coupon_id = coupon.id
+      insertData.coupon_code = coupon.code
+      insertData.discount_amount = discount_amount || coupon.discount_amount || 0
+      insertData.subtotal_before_discount = subtotal_before_discount || (total_amount + (discount_amount || coupon.discount_amount || 0))
     }
 
     const { data, error } = await supabase
       .from('bookings')
-      .insert({
-        tenant_id: tenantId,
-        guest_name,
-        guest_email,
-        guest_phone,
-        room_id,
-        room_name,
-        check_in,
-        check_out,
-        total_amount,
-        currency,
-        notes,
-        status,
-        payment_status,
-        // FOB integration fields
-        source,
-        external_id,
-        external_url,
-        synced_at
-      })
+      .insert(insertData)
       .select()
       .single()
 
     if (error) {
       console.error('Error creating booking:', error)
       return res.status(500).json({ error: 'Failed to create booking' })
+    }
+
+    // Record coupon usage if a coupon was applied
+    if (coupon && coupon.id && data.id && guest_email) {
+      const originalAmount = subtotal_before_discount || (total_amount + (discount_amount || coupon.discount_amount || 0))
+      await recordCouponUsage(
+        tenantId,
+        coupon.id,
+        data.id,
+        guest_email,
+        discount_amount || coupon.discount_amount || 0,
+        originalAmount,
+        total_amount
+      )
+    }
+
+    // Log activity for customer tracking
+    console.log('[Booking] Created booking:', data.id, 'guest_email:', guest_email)
+
+    if (guest_email) {
+      // Get customer_id if exists
+      const { data: customer } = await supabase
+        .from('customers')
+        .select('id')
+        .ilike('email', guest_email)
+        .single()
+
+      logBookingCreated(
+        tenantId,
+        guest_email,
+        customer?.id || null,
+        data.id,
+        room_name || 'Room',
+        total_amount,
+        currency
+      )
+
+      // Send notification to all team members
+      console.log('[Booking] Calling notifyNewBooking for tenant:', tenantId)
+      notifyNewBooking(
+        tenantId,
+        data.id,
+        guest_name,
+        room_name || 'Room'
+      )
+    } else {
+      console.log('[Booking] Skipping notification - no guest_email')
     }
 
     res.status(201).json(data)
@@ -156,14 +314,15 @@ router.put('/:id', async (req, res) => {
       return res.status(400).json({ error: 'Tenant ID required' })
     }
 
-    // Get current booking state to check payment_status change
+    // Get current booking state to check status/payment changes
     const { data: existingBooking } = await supabase
       .from('bookings')
-      .select('payment_status')
+      .select('status, payment_status, guest_email, guest_name, room_name, total_amount, currency, check_in')
       .eq('id', id)
       .eq('tenant_id', tenantId)
       .single()
 
+    const previousStatus = existingBooking?.status
     const previousPaymentStatus = existingBooking?.payment_status
 
     // Remove tenant_id from update data (cannot be changed)
@@ -201,6 +360,77 @@ router.put('/:id', async (req, res) => {
       } catch (invoiceError) {
         // Log error but don't fail the booking update
         console.error('Failed to auto-generate invoice:', invoiceError)
+      }
+    }
+
+    // Log activity for customer tracking
+    const guestEmail = data.guest_email || existingBooking?.guest_email
+    if (guestEmail) {
+      // Get customer_id if exists
+      const { data: customer } = await supabase
+        .from('customers')
+        .select('id')
+        .ilike('email', guestEmail)
+        .single()
+
+      const customerId = customer?.id || null
+      const roomName = data.room_name || existingBooking?.room_name || 'Room'
+
+      const guestName = data.guest_name || existingBooking?.guest_name || 'Guest'
+
+      // Log status change and send notifications
+      if (updateData.status && updateData.status !== previousStatus) {
+        logBookingStatusChange(
+          tenantId,
+          guestEmail,
+          customerId,
+          id,
+          roomName,
+          updateData.status
+        )
+
+        // Send notifications based on status change
+        switch (updateData.status) {
+          case 'confirmed':
+            // Notify customer their booking is confirmed
+            if (customerId) {
+              const checkInDate = data.check_in || existingBooking?.check_in
+              notifyCustomerBookingConfirmed(
+                tenantId,
+                customerId,
+                id,
+                roomName,
+                new Date(checkInDate).toLocaleDateString()
+              )
+            }
+            break
+          case 'cancelled':
+            // Notify all team members about cancellation
+            notifyBookingCancelled(tenantId, id, guestName, roomName)
+            // Notify customer about cancellation
+            if (customerId) {
+              notifyCustomerBookingCancelled(tenantId, customerId, id, roomName)
+            }
+            break
+          case 'checked_in':
+            // Notify all team members about check-in
+            notifyCheckIn(tenantId, id, guestName, roomName)
+            break
+          case 'checked_out':
+            // Notify all team members about check-out
+            notifyCheckOut(tenantId, id, guestName, roomName)
+            break
+        }
+      }
+
+      // Log payment received and send notification
+      if (updateData.payment_status === 'paid' && previousPaymentStatus !== 'paid') {
+        const amount = data.total_amount || existingBooking?.total_amount || 0
+        const currency = data.currency || existingBooking?.currency || 'ZAR'
+        logPaymentReceived(tenantId, guestEmail, customerId, id, amount, currency)
+
+        // Notify all team members about payment
+        notifyPaymentReceived(tenantId, id, guestName, amount, currency)
       }
     }
 

@@ -7,6 +7,7 @@ export interface Category {
   description: string
   icon: LucideIcon
   image: string
+  propertyCount?: number
 }
 
 interface CategoryCardProps {
@@ -18,7 +19,7 @@ export default function CategoryCard({ category }: CategoryCardProps) {
 
   return (
     <Link
-      to={`/search?category=${category.slug}`}
+      to={`/categories/${category.slug}`}
       className="block bg-white rounded-xl border border-gray-100 overflow-hidden hover:shadow-lg hover:border-emerald-200 transition-all group"
     >
       {/* Image */}
@@ -32,6 +33,11 @@ export default function CategoryCard({ category }: CategoryCardProps) {
         <div className="absolute bottom-3 left-3 p-2 bg-white/90 backdrop-blur-sm rounded-lg">
           <Icon className="w-5 h-5 text-emerald-600" />
         </div>
+        {category.propertyCount !== undefined && category.propertyCount > 0 && (
+          <div className="absolute top-3 right-3 px-2 py-1 bg-black/60 backdrop-blur-sm rounded-full text-xs text-white font-medium">
+            {category.propertyCount} {category.propertyCount === 1 ? 'property' : 'properties'}
+          </div>
+        )}
       </div>
 
       {/* Content */}

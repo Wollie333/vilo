@@ -1,5 +1,6 @@
-import { User, Mail, Phone, FileText } from 'lucide-react'
+import { User, Mail, FileText } from 'lucide-react'
 import GuestSelector from '../GuestSelector'
+import PhoneInput from '../PhoneInput'
 
 interface GuestInfoStepProps {
   guestName: string
@@ -93,17 +94,11 @@ export default function GuestInfoStep({
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              <div className="flex items-center gap-2">
-                <Phone className="w-4 h-4" />
-                Phone Number
-              </div>
+              Phone Number
             </label>
-            <input
-              type="tel"
+            <PhoneInput
               value={guestPhone}
-              onChange={(e) => onGuestPhoneChange(e.target.value)}
-              placeholder="+27 XX XXX XXXX"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
+              onChange={onGuestPhoneChange}
             />
             <p className="text-xs text-gray-500 mt-1">Optional - for contact purposes</p>
           </div>

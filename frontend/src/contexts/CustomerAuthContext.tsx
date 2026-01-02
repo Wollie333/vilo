@@ -8,6 +8,7 @@ interface CustomerAuthContextType {
   requestMagicLink: (email: string) => Promise<{ success: boolean; dev_token?: string }>
   verifyToken: (token: string) => Promise<void>
   login: (email: string, password: string) => Promise<void>
+  loginWithToken: (token: string) => Promise<void>
   logout: () => Promise<void>
   setPassword: (password: string) => Promise<void>
   refreshCustomer: () => Promise<void>
@@ -59,9 +60,23 @@ export function CustomerAuthProvider({ children }: { children: ReactNode }) {
     setCustomer(result.customer)
   }
 
+  // Login with an existing token (e.g., from coupon claim flow)
+  const loginWithToken = async (token: string) => {
+    setCustomerToken(token)
+    try {
+      const customerData = await portalApi.getMe()
+      setCustomer(customerData)
+    } catch (error) {
+      setCustomerToken(null)
+      throw new Error('Invalid token')
+    }
+  }
+
   const logout = async () => {
     await portalApi.logout()
     setCustomer(null)
+    // Clear password modal dismissed flag so it shows for next login if needed
+    sessionStorage.removeItem('vilo_password_modal_dismissed')
   }
 
   const setPassword = async (password: string) => {
@@ -80,6 +95,7 @@ export function CustomerAuthProvider({ children }: { children: ReactNode }) {
         requestMagicLink,
         verifyToken,
         login,
+        loginWithToken,
         logout,
         setPassword,
         refreshCustomer,

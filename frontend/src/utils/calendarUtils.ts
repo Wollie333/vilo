@@ -35,6 +35,11 @@ export const statusColors: Record<Booking['status'], { bg: string; border: strin
     border: 'border-blue-400',
     text: 'text-blue-800',
   },
+  occupied: {
+    bg: 'bg-teal-100',
+    border: 'border-teal-400',
+    text: 'text-teal-800',
+  },
   checked_out: {
     bg: 'bg-purple-100',
     border: 'border-purple-400',
@@ -50,6 +55,65 @@ export const statusColors: Record<Booking['status'], { bg: string; border: strin
     border: 'border-gray-400',
     text: 'text-gray-800',
   },
+}
+
+// Get status color for a booking
+export function getStatusColor(status: Booking['status']): { bg: string; border: string; text: string } {
+  return statusColors[status] || statusColors.pending
+}
+
+// Get status label for display
+export function getStatusLabel(status: Booking['status']): string {
+  const labels: Record<Booking['status'], string> = {
+    pending: 'Pending',
+    confirmed: 'Confirmed',
+    checked_in: 'Checked In',
+    occupied: 'Occupied',
+    checked_out: 'Checked Out',
+    cancelled: 'Cancelled',
+    completed: 'Completed',
+  }
+  return labels[status] || status
+}
+
+// Payment status colors
+export const paymentStatusColors: Record<Booking['payment_status'], { bg: string; border: string; text: string }> = {
+  pending: {
+    bg: 'bg-gray-100',
+    border: 'border-gray-400',
+    text: 'text-gray-700',
+  },
+  paid: {
+    bg: 'bg-green-100',
+    border: 'border-green-400',
+    text: 'text-green-700',
+  },
+  partial: {
+    bg: 'bg-yellow-100',
+    border: 'border-yellow-400',
+    text: 'text-yellow-700',
+  },
+  refunded: {
+    bg: 'bg-red-100',
+    border: 'border-red-400',
+    text: 'text-red-700',
+  },
+}
+
+// Get payment status color
+export function getPaymentStatusColor(status: Booking['payment_status']): { bg: string; border: string; text: string } {
+  return paymentStatusColors[status] || paymentStatusColors.pending
+}
+
+// Get payment status label for display
+export function getPaymentStatusLabel(status: Booking['payment_status']): string {
+  const labels: Record<Booking['payment_status'], string> = {
+    pending: 'Unpaid',
+    paid: 'Paid',
+    partial: 'Partial',
+    refunded: 'Refunded',
+  }
+  return labels[status] || status
 }
 
 // Get all days for a month view (includes days from prev/next months to fill the grid)

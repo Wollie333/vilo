@@ -143,21 +143,20 @@ export default function InteractiveRatesTable({
           const dateMap = new Map<string, RoomDateData>()
 
           try {
-            // Fetch pricing and availability in parallel
-            const [pricingResult, availResult] = await Promise.all([
+            // Fetch pricing and booked dates in parallel
+            const [pricingResult, bookedDatesResult] = await Promise.all([
               discoveryApi.getPricing(propertySlug, room.id, startDateStr, endDateStr),
-              discoveryApi.checkAvailability(propertySlug, room.id, startDateStr, endDateStr)
+              discoveryApi.getBookedDates(propertySlug, room.id, startDateStr, endDateStr)
             ])
 
-            // Check if room is actually booked out (ignore min_stay for rates table)
-            // available_units > 0 means there's physical availability
-            const isRoomAvailable = availResult.available_units > 0
+            // Create a set of booked dates for fast lookup
+            const bookedDatesSet = new Set(bookedDatesResult.booked_dates)
 
-            // Map each night's data
+            // Map each night's data with per-night availability
             for (const night of pricingResult.nights) {
               dateMap.set(night.date, {
                 price: night.price,
-                available: isRoomAvailable,
+                available: !bookedDatesSet.has(night.date), // Check if this specific date is booked
                 rateName: night.rate_name
               })
             }
@@ -306,20 +305,12 @@ export default function InteractiveRatesTable({
                           <div className="h-5 bg-gray-200 rounded w-16 mx-auto mb-1"></div>
                           <div className="h-3 bg-gray-100 rounded w-12 mx-auto"></div>
                         </div>
-                      ) : (
+                      ) : isAvailable ? (
                         <Link
                           to={`/accommodation/${propertySlug}/book?room=${room.id}&checkIn=${dateStr}`}
-                          className={`block p-2 rounded-lg transition-colors group ${
-                            isAvailable
-                              ? 'bg-emerald-50 hover:bg-emerald-100'
-                              : 'bg-gray-50 hover:bg-gray-100'
-                          }`}
+                          className="block p-2 rounded-lg transition-colors group bg-emerald-50 hover:bg-emerald-100"
                         >
-                          <div className={`font-semibold ${
-                            isAvailable
-                              ? 'text-gray-900 group-hover:text-emerald-700'
-                              : 'text-gray-500'
-                          }`}>
+                          <div className="font-semibold text-gray-900 group-hover:text-emerald-700">
                             {formatPrice(price)}
                           </div>
                           <div className="text-xs text-gray-500">per night</div>
@@ -329,6 +320,13 @@ export default function InteractiveRatesTable({
                             </div>
                           )}
                         </Link>
+                      ) : (
+                        <div className="block p-2 rounded-lg bg-red-50 border border-red-100 cursor-not-allowed">
+                          <div className="font-semibold text-red-400 line-through">
+                            {formatPrice(price)}
+                          </div>
+                          <div className="text-xs text-red-400 font-medium">Booked</div>
+                        </div>
                       )}
                     </td>
                   )

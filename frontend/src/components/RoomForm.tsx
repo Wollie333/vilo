@@ -314,52 +314,9 @@ export default function RoomForm({ room, isOpen, onClose, onSubmit, isSubmitting
           {/* Inventory */}
           <div>
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Inventory</h3>
-            <div className="space-y-4">
-              <div className="flex items-center gap-4">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="inventory_mode"
-                    value="single_unit"
-                    checked={formData.inventory_mode === 'single_unit'}
-                    onChange={handleChange}
-                    className="w-4 h-4 text-black focus:ring-black"
-                  />
-                  <span className="text-sm font-medium">Single Unit</span>
-                </label>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="inventory_mode"
-                    value="room_type"
-                    checked={formData.inventory_mode === 'room_type'}
-                    onChange={handleChange}
-                    className="w-4 h-4 text-black focus:ring-black"
-                  />
-                  <span className="text-sm font-medium">Room Type (Multiple Units)</span>
-                </label>
-              </div>
-              <p className="text-sm text-gray-500">
-                {formData.inventory_mode === 'single_unit'
-                  ? 'This is a single, unique room (e.g., "Room 101").'
-                  : 'This is a room type with multiple identical units available.'}
-              </p>
-              {formData.inventory_mode === 'room_type' && (
-                <div className="max-w-xs">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Total Units Available
-                  </label>
-                  <input
-                    type="number"
-                    name="total_units"
-                    value={formData.total_units ?? ''}
-                    onChange={handleChange}
-                    min="1"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
-                  />
-                </div>
-              )}
-            </div>
+            <p className="text-sm text-gray-500">
+              This is a single, unique room (e.g., "Room 101").
+            </p>
           </div>
 
           {/* Status */}

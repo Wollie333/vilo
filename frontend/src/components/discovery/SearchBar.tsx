@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { MapPin, Users, Search, ChevronDown, X } from 'lucide-react'
+import { MapPin, Users, Search, ChevronDown, X, Calendar } from 'lucide-react'
 import DatePickerModal from '../DatePickerModal'
 
 interface SearchBarProps {
@@ -70,19 +70,103 @@ export default function SearchBar({
 
   if (variant === 'compact') {
     return (
-      <div className={`flex items-center gap-2 bg-gray-100 rounded-full px-4 py-2 ${className}`}>
-        <Search className="w-4 h-4 text-gray-500" />
-        <input
-          type="text"
-          placeholder="Where are you going?"
-          value={location}
-          onChange={(e) => setLocation(e.target.value)}
-          onKeyDown={handleKeyDown}
-          className="bg-transparent border-none outline-none text-sm text-gray-700 placeholder-gray-500 w-40"
+      <div className={`flex items-center bg-white border border-gray-200 rounded-full shadow-sm ${className}`}>
+        {/* Location */}
+        <div className="flex items-center gap-2 px-4 py-2.5 flex-1 min-w-0 border-r border-gray-200">
+          <MapPin className="w-4 h-4 text-gray-400 flex-shrink-0" />
+          <input
+            type="text"
+            placeholder="Where to?"
+            value={location}
+            onChange={(e) => setLocation(e.target.value)}
+            onKeyDown={handleKeyDown}
+            className="bg-transparent border-none outline-none text-sm text-gray-700 placeholder-gray-400 w-full min-w-0"
+          />
+        </div>
+
+        {/* Check-in */}
+        <DatePickerModal
+          value={checkIn}
+          onChange={setCheckIn}
+          placeholder="Check in"
+          minDate={new Date().toISOString().split('T')[0]}
+          customTrigger={({ onClick }) => (
+            <button
+              onClick={onClick}
+              className="flex items-center gap-2 px-4 py-2.5 border-r border-gray-200 hover:bg-gray-50 transition-colors"
+            >
+              <Calendar className="w-4 h-4 text-gray-400 flex-shrink-0" />
+              <span className={`text-sm whitespace-nowrap ${checkIn ? 'text-gray-700' : 'text-gray-400'}`}>
+                {checkIn ? new Date(checkIn).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'Check in'}
+              </span>
+            </button>
+          )}
         />
+
+        {/* Check-out */}
+        <DatePickerModal
+          value={checkOut}
+          onChange={setCheckOut}
+          placeholder="Check out"
+          minDate={checkIn || new Date().toISOString().split('T')[0]}
+          customTrigger={({ onClick }) => (
+            <button
+              onClick={onClick}
+              className="flex items-center gap-2 px-4 py-2.5 border-r border-gray-200 hover:bg-gray-50 transition-colors"
+            >
+              <Calendar className="w-4 h-4 text-gray-400 flex-shrink-0" />
+              <span className={`text-sm whitespace-nowrap ${checkOut ? 'text-gray-700' : 'text-gray-400'}`}>
+                {checkOut ? new Date(checkOut).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'Check out'}
+              </span>
+            </button>
+          )}
+        />
+
+        {/* Guests */}
+        <div className="relative">
+          <button
+            onClick={() => setShowGuestDropdown(!showGuestDropdown)}
+            className="flex items-center gap-2 px-4 py-2.5 hover:bg-gray-50 transition-colors"
+          >
+            <Users className="w-4 h-4 text-gray-400 flex-shrink-0" />
+            <span className="text-sm text-gray-700 whitespace-nowrap">{guests} guest{guests !== 1 ? 's' : ''}</span>
+            <ChevronDown className="w-3 h-3 text-gray-400" />
+          </button>
+
+          {showGuestDropdown && (
+            <div className="absolute top-full right-0 mt-2 w-56 bg-white rounded-xl shadow-lg border border-gray-100 p-4 z-50">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-gray-700 font-medium">Guests</span>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => setGuests(Math.max(1, guests - 1))}
+                    className="w-8 h-8 rounded-full border border-gray-300 flex items-center justify-center text-gray-600 hover:border-gray-400 hover:bg-gray-50 transition-colors"
+                  >
+                    -
+                  </button>
+                  <span className="text-gray-900 font-medium w-6 text-center">{guests}</span>
+                  <button
+                    onClick={() => setGuests(Math.min(20, guests + 1))}
+                    className="w-8 h-8 rounded-full border border-gray-300 flex items-center justify-center text-gray-600 hover:border-gray-400 hover:bg-gray-50 transition-colors"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowGuestDropdown(false)}
+                className="mt-3 w-full py-2 text-sm text-emerald-600 font-medium hover:text-emerald-700 transition-colors"
+              >
+                Done
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Search Button */}
         <button
           onClick={handleSearch}
-          className="bg-black text-white p-1.5 rounded-full hover:bg-gray-800 transition-colors"
+          className="bg-gray-900 hover:bg-gray-800 text-white p-2.5 m-1 rounded-full transition-colors flex-shrink-0"
         >
           <Search className="w-4 h-4" />
         </button>
@@ -147,13 +231,12 @@ export default function SearchBar({
 
         {/* Check-in */}
         <div className="flex-1 min-w-0">
-          <DatePickerModal
+          <SearchDateField
             value={checkIn}
             onChange={setCheckIn}
             label="Check in"
             placeholder="Add dates"
             minDate={new Date().toISOString().split('T')[0]}
-            className="[&>label]:text-xs [&>label]:text-gray-500 [&>label]:font-medium [&>label]:mb-0 [&>button]:border-0 [&>button]:shadow-none [&>button]:rounded-full [&>button]:hover:bg-gray-50 [&>button]:py-4 [&>button]:px-6"
           />
         </div>
 
@@ -162,13 +245,12 @@ export default function SearchBar({
 
         {/* Check-out */}
         <div className="flex-1 min-w-0">
-          <DatePickerModal
+          <SearchDateField
             value={checkOut}
             onChange={setCheckOut}
             label="Check out"
             placeholder="Add dates"
             minDate={checkIn || new Date().toISOString().split('T')[0]}
-            className="[&>label]:text-xs [&>label]:text-gray-500 [&>label]:font-medium [&>label]:mb-0 [&>button]:border-0 [&>button]:shadow-none [&>button]:rounded-full [&>button]:hover:bg-gray-50 [&>button]:py-4 [&>button]:px-6"
           />
         </div>
 
@@ -231,5 +313,49 @@ export default function SearchBar({
         </div>
       </div>
     </div>
+  )
+}
+
+// Custom date field component that matches the styling of other search fields
+function SearchDateField({
+  value,
+  onChange,
+  label,
+  placeholder,
+  minDate
+}: {
+  value: string
+  onChange: (date: string) => void
+  label: string
+  placeholder: string
+  minDate?: string
+}) {
+  const formatDisplayDate = (dateStr: string) => {
+    if (!dateStr) return ''
+    const date = new Date(dateStr)
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  }
+
+  return (
+    <DatePickerModal
+      value={value}
+      onChange={onChange}
+      placeholder={placeholder}
+      minDate={minDate}
+      customTrigger={({ onClick }) => (
+        <div
+          className="flex items-center gap-3 px-6 py-4 rounded-full hover:bg-gray-50 cursor-pointer transition-colors"
+          onClick={onClick}
+        >
+          <Calendar className="w-5 h-5 text-emerald-600 flex-shrink-0" />
+          <div className="min-w-0">
+            <div className="text-xs text-gray-500 font-medium">{label}</div>
+            <div className={`text-sm ${value ? 'text-gray-900' : 'text-gray-400'}`}>
+              {value ? formatDisplayDate(value) : placeholder}
+            </div>
+          </div>
+        </div>
+      )}
+    />
   )
 }

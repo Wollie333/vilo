@@ -13,6 +13,7 @@ interface DatePickerModalProps {
   error?: string
   className?: string
   unavailableDates?: string[]
+  customTrigger?: (props: { onClick: () => void; displayValue: string }) => React.ReactNode
 }
 
 export default function DatePickerModal({
@@ -26,6 +27,7 @@ export default function DatePickerModal({
   error,
   className = '',
   unavailableDates = [],
+  customTrigger,
 }: DatePickerModalProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [currentMonth, setCurrentMonth] = useState(() => {
@@ -36,6 +38,8 @@ export default function DatePickerModal({
     const today = new Date()
     return new Date(today.getFullYear(), today.getMonth(), 1)
   })
+  const [showMonthPicker, setShowMonthPicker] = useState(false)
+  const [showYearPicker, setShowYearPicker] = useState(false)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const modalRef = useRef<HTMLDivElement>(null)
 
@@ -51,6 +55,8 @@ export default function DatePickerModal({
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isOpen) {
+        setShowMonthPicker(false)
+        setShowYearPicker(false)
         setIsOpen(false)
       }
     }
@@ -168,20 +174,53 @@ export default function DatePickerModal({
   function handleDateClick(day: typeof calendarDays[0]) {
     if (day.isDisabled) return
     onChange(day.dateStr)
+    setShowMonthPicker(false)
+    setShowYearPicker(false)
+    setIsOpen(false)
+  }
+
+  function closeModal() {
+    setShowMonthPicker(false)
+    setShowYearPicker(false)
     setIsOpen(false)
   }
 
   function goToPrevMonth() {
+    setShowMonthPicker(false)
+    setShowYearPicker(false)
     setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))
   }
 
   function goToNextMonth() {
+    setShowMonthPicker(false)
+    setShowYearPicker(false)
     setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))
   }
 
   function goToToday() {
+    setShowMonthPicker(false)
+    setShowYearPicker(false)
     setCurrentMonth(new Date(today.getFullYear(), today.getMonth(), 1))
   }
+
+  function handleMonthSelect(month: number) {
+    setCurrentMonth(new Date(currentMonth.getFullYear(), month, 1))
+    setShowMonthPicker(false)
+  }
+
+  function handleYearSelect(year: number) {
+    setCurrentMonth(new Date(year, currentMonth.getMonth(), 1))
+    setShowYearPicker(false)
+  }
+
+  const months = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ]
+
+  // Generate year options (current year - 1 to current year + 5)
+  const currentYear = new Date().getFullYear()
+  const years = Array.from({ length: 7 }, (_, i) => currentYear - 1 + i)
 
   const displayValue = value
     ? new Date(value).toLocaleDateString('en-US', {
@@ -192,7 +231,6 @@ export default function DatePickerModal({
       })
     : ''
 
-  const monthName = currentMonth.toLocaleString('default', { month: 'long', year: 'numeric' })
   const weekDays = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
 
   const modal = isOpen && createPortal(
@@ -200,7 +238,7 @@ export default function DatePickerModal({
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/40 backdrop-blur-sm animate-fadeIn"
-        onClick={() => setIsOpen(false)}
+        onClick={closeModal}
       />
 
       {/* Modal */}
@@ -224,7 +262,7 @@ export default function DatePickerModal({
             </p>
           </div>
           <button
-            onClick={() => setIsOpen(false)}
+            onClick={closeModal}
             className="p-2 hover:bg-white/20 rounded-full transition-colors"
           >
             <X size={20} />
@@ -239,12 +277,75 @@ export default function DatePickerModal({
           >
             <ChevronLeft size={20} />
           </button>
-          <button
-            onClick={goToToday}
-            className="text-base font-semibold text-gray-800 hover:text-accent transition-colors"
-          >
-            {monthName}
-          </button>
+
+          <div className="flex items-center gap-1">
+            {/* Month Selector */}
+            <div className="relative">
+              <button
+                onClick={() => {
+                  setShowMonthPicker(!showMonthPicker)
+                  setShowYearPicker(false)
+                }}
+                className="px-2 py-1 text-base font-semibold text-gray-800 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                {months[currentMonth.getMonth()]}
+              </button>
+
+              {showMonthPicker && (
+                <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 bg-white rounded-xl shadow-lg border border-gray-200 p-2 z-10 w-48">
+                  <div className="grid grid-cols-3 gap-1">
+                    {months.map((month, index) => (
+                      <button
+                        key={month}
+                        onClick={() => handleMonthSelect(index)}
+                        className={`px-2 py-2 text-sm rounded-lg transition-colors ${
+                          index === currentMonth.getMonth()
+                            ? 'bg-accent text-white font-medium'
+                            : 'text-gray-700 hover:bg-gray-100'
+                        }`}
+                      >
+                        {month.slice(0, 3)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Year Selector */}
+            <div className="relative">
+              <button
+                onClick={() => {
+                  setShowYearPicker(!showYearPicker)
+                  setShowMonthPicker(false)
+                }}
+                className="px-2 py-1 text-base font-semibold text-gray-800 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                {currentMonth.getFullYear()}
+              </button>
+
+              {showYearPicker && (
+                <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 bg-white rounded-xl shadow-lg border border-gray-200 p-2 z-10">
+                  <div className="flex flex-col gap-1">
+                    {years.map((year) => (
+                      <button
+                        key={year}
+                        onClick={() => handleYearSelect(year)}
+                        className={`px-4 py-2 text-sm rounded-lg transition-colors ${
+                          year === currentMonth.getFullYear()
+                            ? 'bg-accent text-white font-medium'
+                            : 'text-gray-700 hover:bg-gray-100'
+                        }`}
+                      >
+                        {year}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
           <button
             onClick={goToNextMonth}
             className="p-2 hover:bg-gray-100 rounded-full transition-colors text-gray-600"
@@ -266,7 +367,7 @@ export default function DatePickerModal({
         </div>
 
         {/* Calendar Grid */}
-        <div className="grid grid-cols-7 gap-1 p-3">
+        <div className="grid grid-cols-7 gap-1 p-3" onClick={() => { setShowMonthPicker(false); setShowYearPicker(false) }}>
           {calendarDays.map((day, index) => {
             const isSelectable = !day.isDisabled
 
@@ -304,14 +405,14 @@ export default function DatePickerModal({
             <button
               onClick={() => {
                 onChange('')
-                setIsOpen(false)
+                closeModal()
               }}
               className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-200 rounded-lg transition-colors"
             >
               Clear
             </button>
             <button
-              onClick={() => setIsOpen(false)}
+              onClick={closeModal}
               className="px-4 py-2 text-sm bg-accent text-white rounded-lg hover:bg-accent-700 transition-colors font-medium"
             >
               Done
@@ -345,6 +446,19 @@ export default function DatePickerModal({
     </div>,
     document.body
   )
+
+  // If custom trigger is provided, render it instead of default trigger
+  if (customTrigger) {
+    return (
+      <>
+        {customTrigger({
+          onClick: () => !disabled && setIsOpen(true),
+          displayValue: displayValue || placeholder
+        })}
+        {modal}
+      </>
+    )
+  }
 
   return (
     <div className={`${className}`}>

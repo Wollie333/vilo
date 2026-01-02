@@ -1,7 +1,7 @@
 import { Plus, Trash2, Bed } from 'lucide-react'
 import AmenitiesInput from '../AmenitiesInput'
 import RoomImageUpload from '../RoomImageUpload'
-import { RoomFormData } from '../../pages/RoomWizard'
+import { RoomFormData } from '../../hooks/useRoomCompleteness'
 import { BedConfiguration } from '../../services/api'
 
 const BED_TYPES = [
@@ -47,7 +47,7 @@ export default function RoomDetailsStep({ formData, onChange, tenantId }: RoomDe
   }
 
   // Calculate total sleeps from all beds
-  const totalBedSleeps = formData.beds.reduce((sum, bed) => sum + (bed.quantity * bed.sleeps), 0)
+  const totalBedSleeps = formData.beds.reduce((sum: number, bed: BedConfiguration) => sum + (bed.quantity * bed.sleeps), 0)
 
   // Add a new bed configuration
   const handleAddBed = () => {
@@ -63,13 +63,13 @@ export default function RoomDetailsStep({ formData, onChange, tenantId }: RoomDe
   // Remove a bed configuration
   const handleRemoveBed = (id: string) => {
     if (formData.beds.length <= 1) return // Keep at least one bed
-    onChange({ beds: formData.beds.filter(bed => bed.id !== id) })
+    onChange({ beds: formData.beds.filter((bed: BedConfiguration) => bed.id !== id) })
   }
 
   // Update a bed configuration
   const handleBedChange = (id: string, field: keyof BedConfiguration, value: string | number) => {
     onChange({
-      beds: formData.beds.map(bed => {
+      beds: formData.beds.map((bed: BedConfiguration) => {
         if (bed.id !== id) return bed
 
         const updates: Partial<BedConfiguration> = { [field]: value }
@@ -191,7 +191,7 @@ export default function RoomDetailsStep({ formData, onChange, tenantId }: RoomDe
         </div>
 
         <div className="space-y-3">
-          {formData.beds.map((bed) => (
+          {formData.beds.map((bed: BedConfiguration) => (
             <div
               key={bed.id}
               className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200"
@@ -303,52 +303,9 @@ export default function RoomDetailsStep({ formData, onChange, tenantId }: RoomDe
       {/* Inventory */}
       <div>
         <h3 className="text-lg font-semibold text-gray-900 mb-4">Inventory</h3>
-        <div className="space-y-4">
-          <div className="flex items-center gap-6">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="radio"
-                name="inventory_mode"
-                value="single_unit"
-                checked={formData.inventory_mode === 'single_unit'}
-                onChange={handleChange}
-                className="w-4 h-4 text-black focus:ring-black"
-              />
-              <span className="text-sm font-medium">Single Unit</span>
-            </label>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="radio"
-                name="inventory_mode"
-                value="room_type"
-                checked={formData.inventory_mode === 'room_type'}
-                onChange={handleChange}
-                className="w-4 h-4 text-black focus:ring-black"
-              />
-              <span className="text-sm font-medium">Room Type (Multiple Units)</span>
-            </label>
-          </div>
-          <p className="text-sm text-gray-500">
-            {formData.inventory_mode === 'single_unit'
-              ? 'This is a single, unique room (e.g., "Room 101").'
-              : 'This is a room type with multiple identical units available.'}
-          </p>
-          {formData.inventory_mode === 'room_type' && (
-            <div className="max-w-xs">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Total Units Available
-              </label>
-              <input
-                type="number"
-                name="total_units"
-                value={formData.total_units ?? ''}
-                onChange={handleChange}
-                min="1"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
-              />
-            </div>
-          )}
-        </div>
+        <p className="text-sm text-gray-500">
+          This is a single, unique room (e.g., "Room 101").
+        </p>
       </div>
 
       {/* Status */}

@@ -2,6 +2,8 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import ScrollToTop from './components/ScrollToTop'
 import { AuthProvider } from './contexts/AuthContext'
 import { CustomerAuthProvider } from './contexts/CustomerAuthContext'
+import { WebSocketProvider } from './contexts/WebSocketContext'
+import { CustomerWebSocketProvider } from './contexts/CustomerWebSocketContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import CustomerProtectedRoute from './components/CustomerProtectedRoute'
 // Admin pages
@@ -20,6 +22,7 @@ import BusinessDetails from './pages/business/BusinessDetails'
 import BusinessDirectory from './pages/business/BusinessDirectory'
 import PaymentIntegration from './pages/business/PaymentIntegration'
 import IntegrationsSettings from './pages/settings/IntegrationsSettings'
+import RolesSettings from './pages/settings/RolesSettings'
 import Customers from './pages/Customers'
 import CustomerDetail from './pages/CustomerDetail'
 import Support from './pages/Support'
@@ -31,20 +34,23 @@ import PaymentCallback from './pages/PaymentCallback'
 import Book from './pages/public/Book'
 import LeaveReview from './pages/public/LeaveReview'
 import JoinTeam from './pages/JoinTeam'
+import SetupPassword from './pages/SetupPassword'
 import Pricing from './pages/Pricing'
 import HostSignup from './pages/HostSignup'
 // Customer Portal pages
 import CustomerLayout from './components/CustomerLayout'
 import CustomerLogin from './pages/portal/CustomerLogin'
 import CustomerVerify from './pages/portal/CustomerVerify'
-// CustomerDashboard is available but currently routes to bookings
-// import CustomerDashboard from './pages/portal/CustomerDashboard'
+import CustomerDashboard from './pages/portal/CustomerDashboard'
 import CustomerBookings from './pages/portal/CustomerBookings'
 import CustomerBookingDetail from './pages/portal/CustomerBookingDetail'
 import CustomerReviews from './pages/portal/CustomerReviews'
 import CustomerSupport from './pages/portal/CustomerSupport'
 import CustomerSupportThread from './pages/portal/CustomerSupportThread'
 import CustomerProfile from './pages/portal/CustomerProfile'
+import PortalBrowse from './pages/portal/PortalBrowse'
+import PortalPropertyDetail from './pages/portal/PortalPropertyDetail'
+import PortalCheckout from './pages/portal/PortalCheckout'
 // Discovery pages
 import DiscoveryLayout from './components/discovery/DiscoveryLayout'
 import DiscoveryHome from './pages/discovery/DiscoveryHome'
@@ -66,9 +72,11 @@ function App() {
   return (
     <AuthProvider>
       <CustomerAuthProvider>
-        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-          <ScrollToTop />
-          <Routes>
+        <WebSocketProvider>
+          <CustomerWebSocketProvider>
+            <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+              <ScrollToTop />
+              <Routes>
             {/* Discovery Platform (public) */}
             <Route path="/" element={<DiscoveryLayout />}>
               <Route index element={<DiscoveryHome />} />
@@ -100,8 +108,9 @@ function App() {
             {/* Public review submission route */}
             <Route path="/review/:tenantId/:token" element={<LeaveReview />} />
 
-            {/* Team invitation route */}
+            {/* Team invitation routes */}
             <Route path="/join" element={<JoinTeam />} />
+            <Route path="/setup-password" element={<SetupPassword />} />
 
             {/* Pricing page (public) */}
             <Route path="/pricing" element={<Pricing />} />
@@ -122,8 +131,11 @@ function App() {
                 <CustomerLayout />
               </CustomerProtectedRoute>
             }>
-              <Route index element={<Navigate to="/portal/bookings" replace />} />
+              <Route index element={<CustomerDashboard />} />
               <Route path="bookings" element={<CustomerBookings />} />
+              <Route path="bookings/browse" element={<PortalBrowse />} />
+              <Route path="bookings/browse/:slug" element={<PortalPropertyDetail />} />
+              <Route path="bookings/checkout/:slug" element={<PortalCheckout />} />
               <Route path="bookings/:id" element={<CustomerBookingDetail />} />
               <Route path="reviews" element={<CustomerReviews />} />
               <Route path="support" element={<CustomerSupport />} />
@@ -154,13 +166,17 @@ function App() {
               <Route path="customers/:email" element={<CustomerDetail />} />
               <Route path="support" element={<Support />} />
               <Route path="settings" element={<Settings />} />
+              <Route path="business" element={<Navigate to="/dashboard/business/details" replace />} />
               <Route path="business/details" element={<BusinessDetails />} />
               <Route path="business/directory" element={<BusinessDirectory />} />
               <Route path="business/payments" element={<PaymentIntegration />} />
               <Route path="settings/integrations" element={<IntegrationsSettings />} />
+              <Route path="settings/roles" element={<RolesSettings />} />
             </Route>
-          </Routes>
-        </BrowserRouter>
+              </Routes>
+            </BrowserRouter>
+          </CustomerWebSocketProvider>
+        </WebSocketProvider>
       </CustomerAuthProvider>
     </AuthProvider>
   )

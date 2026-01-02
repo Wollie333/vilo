@@ -45,7 +45,13 @@
       "Bash(del:*)",
       "Bash(git log:*)",
       "Bash(timeout 15 npm run dev:*)",
-      "WebFetch(domain:localhost)"
+      "WebFetch(domain:localhost)",
+      "Bash(timeout /t 10 /nobreak)",
+      "Bash(npx eslint:*)",
+      "Bash(awk:*)",
+      "Bash(git stash:*)",
+      "Bash(ls:*)",
+      "Bash(timeout 10 npx tsx:*)"
     ]
   }
 }

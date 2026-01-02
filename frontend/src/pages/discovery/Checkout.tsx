@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from 'react'
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft, Loader2 } from 'lucide-react'
 import { discoveryApi } from '../../services/discoveryApi'
+import { useCustomerAuth } from '../../contexts/CustomerAuthContext'
+import type { AppliedCoupon } from '../../components/CouponInput'
 import type {
   PropertyDetail,
   Room,
@@ -47,6 +49,11 @@ export interface CheckoutState {
   specialRequests: string
   // Step 4: Payment
   selectedPaymentMethod: 'paystack' | 'eft' | 'paypal' | null
+  // Coupon
+  initialCouponCode: string
+  couponApplicableRoomIds: string[]
+  appliedCoupon: AppliedCoupon | null
+  discountAmount: number
   // Totals
   roomTotal: number
   addonsTotal: number
@@ -57,6 +64,9 @@ export default function Checkout() {
   const { slug } = useParams<{ slug: string }>()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
+
+  // Get logged-in customer data for pre-populating forms
+  const { customer, isAuthenticated } = useCustomerAuth()
 
   // Property data
   const [property, setProperty] = useState<PropertyDetail | null>(null)
@@ -71,6 +81,12 @@ export default function Checkout() {
     const checkIn = searchParams.get('checkIn') || ''
     const checkOut = searchParams.get('checkOut') || ''
     const guests = parseInt(searchParams.get('guests') || '2')
+    // Pre-fill guest details from URL params (e.g., from coupon claim)
+    const guestName = searchParams.get('name') || ''
+    const guestEmail = searchParams.get('email') || ''
+    const guestPhone = searchParams.get('phone') || ''
+    // Pre-fill coupon code from URL params
+    const initialCouponCode = searchParams.get('coupon') || ''
 
     return {
       step: 1,
@@ -82,16 +98,34 @@ export default function Checkout() {
       childrenAges: [],
       selectedRooms: [],
       selectedAddons: [],
-      guestName: '',
-      guestEmail: '',
-      guestPhone: '',
+      guestName,
+      guestEmail,
+      guestPhone,
       specialRequests: '',
       selectedPaymentMethod: null,
+      initialCouponCode,
+      couponApplicableRoomIds: [],
+      appliedCoupon: null,
+      discountAmount: 0,
       roomTotal: 0,
       addonsTotal: 0,
       grandTotal: 0
     }
   })
+
+  // Pre-populate guest details from logged-in customer profile
+  // This runs once when customer data becomes available and fields are empty
+  useEffect(() => {
+    if (isAuthenticated && customer) {
+      setState(prev => ({
+        ...prev,
+        // Only pre-fill if the field is empty (don't override URL params or user input)
+        guestName: prev.guestName || customer.name || '',
+        guestEmail: prev.guestEmail || customer.email || '',
+        guestPhone: prev.guestPhone || customer.phone || ''
+      }))
+    }
+  }, [isAuthenticated, customer])
 
   // Fetch property and payment methods
   useEffect(() => {
@@ -126,6 +160,18 @@ export default function Checkout() {
                 children: 0,
                 childrenAges: []
               }]
+            }))
+          }
+        }
+
+        // Fetch coupon info if coupon code is provided in URL
+        const couponCode = searchParams.get('coupon')
+        if (couponCode) {
+          const couponInfo = await discoveryApi.getCouponByCode(slug, couponCode)
+          if (couponInfo?.applicable_room_ids && couponInfo.applicable_room_ids.length > 0) {
+            setState(prev => ({
+              ...prev,
+              couponApplicableRoomIds: couponInfo.applicable_room_ids || []
             }))
           }
         }
@@ -164,7 +210,7 @@ export default function Checkout() {
     }, 0)
   }, [])
 
-  // Update totals when pricing or addons change
+  // Update totals when pricing, addons, or coupon change
   useEffect(() => {
     // Sum up all selected rooms' adjusted totals (accounts for pricing mode and guests)
     // If adjustedTotal is set (calculated by DateRoomStep), use it; otherwise fall back to backend subtotal
@@ -176,15 +222,17 @@ export default function Checkout() {
     // Get nights from first room's pricing (all rooms have same dates)
     const nights = state.selectedRooms[0]?.pricing?.night_count || 0
     const addonsTotal = calculateAddonsTotal(state.selectedAddons, nights, state.guests)
-    const grandTotal = roomTotal + addonsTotal
+    const discountAmount = state.appliedCoupon?.discount_amount || 0
+    const grandTotal = Math.max(0, roomTotal + addonsTotal - discountAmount)
 
     setState(prev => ({
       ...prev,
       roomTotal,
       addonsTotal,
+      discountAmount,
       grandTotal
     }))
-  }, [state.selectedRooms, state.selectedAddons, state.guests, calculateAddonsTotal])
+  }, [state.selectedRooms, state.selectedAddons, state.guests, state.appliedCoupon, calculateAddonsTotal])
 
   // Navigation handlers
   const nextStep = () => {

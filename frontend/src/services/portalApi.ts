@@ -38,11 +38,22 @@ export interface Customer {
   email: string
   name: string | null
   phone: string | null
+  profilePictureUrl?: string | null
   hasPassword: boolean
   preferredLanguage?: string
   marketingConsent?: boolean
   createdAt?: string
   lastLoginAt?: string
+  // Business details for invoices
+  businessName?: string | null
+  businessVatNumber?: string | null
+  businessRegistrationNumber?: string | null
+  businessAddressLine1?: string | null
+  businessAddressLine2?: string | null
+  businessCity?: string | null
+  businessPostalCode?: string | null
+  businessCountry?: string | null
+  useBusinessDetailsOnInvoice?: boolean
 }
 
 export interface CustomerBooking {
@@ -59,6 +70,16 @@ export interface CustomerBooking {
   total_amount: number
   currency: string
   notes: string | null
+  // Payment tracking fields
+  payment_method?: 'paystack' | 'paypal' | 'eft' | 'manual' | null
+  payment_reference?: string | null
+  payment_completed_at?: string | null
+  proof_of_payment?: {
+    url: string
+    path: string
+    filename: string
+    uploaded_at: string
+  } | null
   tenants: {
     id: string
     business_name: string
@@ -94,6 +115,7 @@ export interface ReviewImage {
 
 export interface CustomerReview {
   id: string
+  tenant_id: string
   rating: number
   // Category ratings (1-5)
   rating_cleanliness?: number
@@ -134,6 +156,7 @@ export interface SupportTicket {
   tenants: {
     id: string
     business_name: string
+    slug?: string
   }
   bookings?: {
     id: string
@@ -147,6 +170,8 @@ export interface SupportTicket {
     sender_type: 'customer' | 'admin'
     sender_name: string
     created_at: string
+    status?: 'sending' | 'sent' | 'delivered' | 'read'
+    read_at?: string | null
   }>
 }
 
@@ -351,6 +376,42 @@ export const portalApi = {
     return response.json()
   },
 
+  // Upload proof of payment (for EFT/manual payments)
+  uploadProofOfPayment: async (bookingId: string, file: File): Promise<{ success: boolean }> => {
+    const token = getCustomerToken()
+    const headers: Record<string, string> = {}
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`
+    }
+
+    // Read file as base64
+    const reader = new FileReader()
+    const base64Promise = new Promise<string>((resolve, reject) => {
+      reader.onload = () => resolve(reader.result as string)
+      reader.onerror = reject
+      reader.readAsDataURL(file)
+    })
+    const base64Data = await base64Promise
+
+    const response = await fetch(`${API_BASE_URL}/portal/bookings/${bookingId}/proof`, {
+      method: 'POST',
+      headers: {
+        ...headers,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        filename: file.name,
+        data: base64Data
+      }),
+    })
+
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || 'Failed to upload proof of payment')
+    }
+    return response.json()
+  },
+
   // Reviews
   getReviews: async (): Promise<CustomerReview[]> => {
     const response = await fetch(`${API_BASE_URL}/portal/reviews`, {
@@ -362,7 +423,16 @@ export const portalApi = {
     return response.json()
   },
 
-  submitReview: async (bookingId: string, data: { rating: number; title?: string; content?: string }): Promise<{ success: boolean; review: any }> => {
+  submitReview: async (bookingId: string, data: {
+    rating_cleanliness: number
+    rating_service: number
+    rating_location: number
+    rating_value: number
+    rating_safety: number
+    title?: string
+    content?: string
+    images?: Array<{ url: string; path: string }>
+  }): Promise<{ success: boolean; review: any }> => {
     const response = await fetch(`${API_BASE_URL}/portal/bookings/${bookingId}/review`, {
       method: 'POST',
       headers: getHeaders(),
@@ -385,7 +455,17 @@ export const portalApi = {
     return response.json()
   },
 
-  updateReview: async (id: string, data: { rating: number; title?: string; content?: string }): Promise<CustomerReview> => {
+  updateReview: async (id: string, data: {
+    rating: number
+    rating_cleanliness: number
+    rating_service: number
+    rating_location: number
+    rating_value: number
+    rating_safety: number
+    title?: string
+    content?: string
+    images?: Array<{ url: string; path: string }>
+  }): Promise<CustomerReview> => {
     const response = await fetch(`${API_BASE_URL}/portal/reviews/${id}`, {
       method: 'PUT',
       headers: getHeaders(),
@@ -456,7 +536,22 @@ export const portalApi = {
     return response.json()
   },
 
-  updateProfile: async (data: { name?: string; phone?: string; preferredLanguage?: string; marketingConsent?: boolean }): Promise<{ success: boolean; customer: Customer }> => {
+  updateProfile: async (data: {
+    name?: string
+    phone?: string
+    preferredLanguage?: string
+    marketingConsent?: boolean
+    // Business details
+    businessName?: string
+    businessVatNumber?: string
+    businessRegistrationNumber?: string
+    businessAddressLine1?: string
+    businessAddressLine2?: string
+    businessCity?: string
+    businessPostalCode?: string
+    businessCountry?: string
+    useBusinessDetailsOnInvoice?: boolean
+  }): Promise<{ success: boolean; customer: Customer }> => {
     const response = await fetch(`${API_BASE_URL}/portal/profile`, {
       method: 'PUT',
       headers: getHeaders(),
@@ -465,6 +560,31 @@ export const portalApi = {
     if (!response.ok) {
       const error = await response.json()
       throw new Error(error.error || 'Failed to update profile')
+    }
+    return response.json()
+  },
+
+  uploadProfilePicture: async (imageBase64: string): Promise<{ success: boolean; profilePictureUrl: string }> => {
+    const response = await fetch(`${API_BASE_URL}/portal/profile/picture`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ image: imageBase64 }),
+    })
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || 'Failed to upload profile picture')
+    }
+    return response.json()
+  },
+
+  deleteProfilePicture: async (): Promise<{ success: boolean }> => {
+    const response = await fetch(`${API_BASE_URL}/portal/profile/picture`, {
+      method: 'DELETE',
+      headers: getHeaders(),
+    })
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || 'Failed to delete profile picture')
     }
     return response.json()
   },
@@ -560,5 +680,123 @@ export const portalApi = {
       throw new Error('Failed to download invoice')
     }
     return response.blob()
+  },
+
+  // Get bookings that are eligible for review
+  getReviewableBookings: async (): Promise<CustomerBooking[]> => {
+    const bookings = await portalApi.getBookings()
+    return bookings.filter(booking => {
+      const isCompletedStay = booking.status === 'checked_out' || booking.status === 'completed'
+      const isPaid = booking.payment_status === 'paid'
+      const hasNoReview = !booking.reviews || booking.reviews.length === 0
+      return isCompletedStay && isPaid && hasNoReview
+    }).sort((a, b) => {
+      // Sort by check_out date descending (most recent first)
+      return new Date(b.check_out).getTime() - new Date(a.check_out).getTime()
+    })
+  },
+
+  // ============================================
+  // NOTIFICATION METHODS
+  // ============================================
+
+  getNotifications: async (options: { limit?: number; offset?: number; unreadOnly?: boolean } = {}): Promise<{
+    notifications: Array<{
+      id: string
+      type: string
+      title: string
+      message: string | null
+      link_type: string | null
+      link_id: string | null
+      read_at: string | null
+      created_at: string
+    }>
+    total: number
+    unread: number
+  }> => {
+    const params = new URLSearchParams()
+    if (options.limit) params.set('limit', options.limit.toString())
+    if (options.offset) params.set('offset', options.offset.toString())
+    if (options.unreadOnly) params.set('unread_only', 'true')
+
+    const response = await fetch(`${API_BASE_URL}/portal/notifications?${params}`, {
+      headers: getHeaders(),
+    })
+    if (!response.ok) {
+      throw new Error('Failed to fetch notifications')
+    }
+    return response.json()
+  },
+
+  getUnreadCount: async (): Promise<{ count: number }> => {
+    const response = await fetch(`${API_BASE_URL}/portal/notifications/unread-count`, {
+      headers: getHeaders(),
+    })
+    if (!response.ok) {
+      throw new Error('Failed to fetch unread count')
+    }
+    return response.json()
+  },
+
+  markNotificationAsRead: async (id: string): Promise<{ success: boolean }> => {
+    const response = await fetch(`${API_BASE_URL}/portal/notifications/${id}/read`, {
+      method: 'POST',
+      headers: getHeaders(),
+    })
+    if (!response.ok) {
+      throw new Error('Failed to mark as read')
+    }
+    return response.json()
+  },
+
+  markAllNotificationsAsRead: async (): Promise<{ success: boolean }> => {
+    const response = await fetch(`${API_BASE_URL}/portal/notifications/read-all`, {
+      method: 'POST',
+      headers: getHeaders(),
+    })
+    if (!response.ok) {
+      throw new Error('Failed to mark all as read')
+    }
+    return response.json()
+  },
+
+  getNotificationPreferences: async (): Promise<{
+    bookings: boolean
+    payments: boolean
+    reviews: boolean
+    support: boolean
+    system: boolean
+  }> => {
+    const response = await fetch(`${API_BASE_URL}/portal/notifications/preferences`, {
+      headers: getHeaders(),
+    })
+    if (!response.ok) {
+      throw new Error('Failed to fetch preferences')
+    }
+    return response.json()
+  },
+
+  updateNotificationPreferences: async (preferences: Partial<{
+    bookings: boolean
+    payments: boolean
+    reviews: boolean
+    support: boolean
+    system: boolean
+  }>): Promise<{
+    bookings: boolean
+    payments: boolean
+    reviews: boolean
+    support: boolean
+    system: boolean
+  }> => {
+    const response = await fetch(`${API_BASE_URL}/portal/notifications/preferences`, {
+      method: 'PUT',
+      headers: getHeaders(),
+      body: JSON.stringify(preferences),
+    })
+    if (!response.ok) {
+      throw new Error('Failed to update preferences')
+    }
+    return response.json()
   },
 }

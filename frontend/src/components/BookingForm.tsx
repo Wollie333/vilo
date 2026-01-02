@@ -4,6 +4,7 @@ import Button from './Button'
 import TermsAcceptance from './TermsAcceptance'
 import GuestSelector, { GuestData, createDefaultGuestData } from './GuestSelector'
 import DateRangePicker from './DateRangePicker'
+import PhoneInput from './PhoneInput'
 import { roomsApi, Room } from '../services/api'
 
 interface Booking {
@@ -222,12 +223,9 @@ export default function BookingForm({ booking, isOpen, onClose, onSubmit, isSubm
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Guest Phone
                 </label>
-                <input
-                  type="tel"
-                  name="guest_phone"
+                <PhoneInput
                   value={formData.guest_phone || ''}
-                  onChange={handleChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
+                  onChange={(value) => setFormData(prev => ({ ...prev, guest_phone: value || undefined }))}
                 />
               </div>
             </div>

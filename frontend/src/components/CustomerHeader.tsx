@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { LogOut, ChevronDown, HelpCircle } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useCustomerAuth } from '../contexts/CustomerAuthContext'
+import CustomerNotificationBell from './portal/CustomerNotificationBell'
 
 export default function CustomerHeader() {
   const { customer, logout } = useCustomerAuth()
@@ -37,7 +38,7 @@ export default function CustomerHeader() {
           </h2>
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
           <Link
             to="/portal/support"
             className="flex items-center gap-2 text-gray-600 hover:text-gray-900 px-3 py-1.5 rounded-md transition-colors"
@@ -46,14 +47,24 @@ export default function CustomerHeader() {
             <span className="text-sm font-medium">Help</span>
           </Link>
 
+          <CustomerNotificationBell />
+
           <div className="relative" ref={dropdownRef}>
             <button
               onClick={() => setDropdownOpen(!dropdownOpen)}
               className="flex items-center gap-2 cursor-pointer rounded-md px-2 py-1.5 transition-colors hover:bg-gray-50"
             >
-              <div className="w-8 h-8 rounded-full bg-accent-100 flex items-center justify-center">
-                <span className="text-accent-700 text-xs font-semibold">{userInitials}</span>
-              </div>
+              {customer?.profilePictureUrl ? (
+                <img
+                  src={customer.profilePictureUrl}
+                  alt={displayName}
+                  className="w-8 h-8 rounded-full object-cover"
+                />
+              ) : (
+                <div className="w-8 h-8 rounded-full bg-accent-100 flex items-center justify-center">
+                  <span className="text-accent-700 text-xs font-semibold">{userInitials}</span>
+                </div>
+              )}
               <span className="text-sm font-medium text-gray-900 max-w-[120px] truncate">{displayName}</span>
               <ChevronDown size={16} className="text-gray-400" />
             </button>
@@ -61,9 +72,17 @@ export default function CustomerHeader() {
             {dropdownOpen && (
               <div className="absolute right-0 mt-2 w-56 rounded-lg shadow-lg border border-gray-100 bg-white py-1 z-50">
                 <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-accent-100 flex items-center justify-center flex-shrink-0">
-                    <span className="text-accent-700 text-sm font-semibold">{userInitials}</span>
-                  </div>
+                  {customer?.profilePictureUrl ? (
+                    <img
+                      src={customer.profilePictureUrl}
+                      alt={displayName}
+                      className="w-10 h-10 rounded-full object-cover flex-shrink-0"
+                    />
+                  ) : (
+                    <div className="w-10 h-10 rounded-full bg-accent-100 flex items-center justify-center flex-shrink-0">
+                      <span className="text-accent-700 text-sm font-semibold">{userInitials}</span>
+                    </div>
+                  )}
                   <div className="min-w-0">
                     <p className="text-sm font-medium text-gray-900 truncate">{displayName}</p>
                     <p className="text-xs text-gray-500 truncate">{userEmail}</p>

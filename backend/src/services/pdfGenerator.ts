@@ -24,19 +24,6 @@ function formatDate(dateStr: string): string {
   })
 }
 
-// Fetch image as buffer from URL
-async function fetchImageBuffer(url: string): Promise<Buffer | null> {
-  try {
-    const response = await fetch(url)
-    if (!response.ok) return null
-    const arrayBuffer = await response.arrayBuffer()
-    return Buffer.from(arrayBuffer)
-  } catch (error) {
-    console.error('Error fetching image:', error)
-    return null
-  }
-}
-
 // Generate clean, printer-friendly A4 invoice PDF
 export async function generateInvoicePDF(invoiceData: InvoiceData): Promise<Buffer> {
   return new Promise(async (resolve, reject) => {
@@ -64,12 +51,11 @@ export async function generateInvoicePDF(invoiceData: InvoiceData): Promise<Buff
       const contentWidth = pageWidth - margin * 2
 
       // Brand colors - Vilo emerald theme (printer-friendly)
-      const brandColor = '#047857'      // Emerald-700 - primary brand
+      const brandColor = '#047857'      // Brand green - matches --accent
       const primaryText = '#111827'      // Gray-900 - main text
       const secondaryText = '#6B7280'    // Gray-500 - secondary text
       const lightBg = '#F9FAFB'          // Gray-50 - subtle background
       const borderColor = '#E5E7EB'      // Gray-200 - borders
-      const paidGreen = '#059669'        // Emerald-600 - paid badge
 
       let yPos = margin
 
@@ -77,25 +63,11 @@ export async function generateInvoicePDF(invoiceData: InvoiceData): Promise<Buff
       // HEADER - Business info left, Invoice title right
       // ============================================
 
-      // Try to add logo
-      let logoOffset = 0
-      if (invoiceData.business.logo_url) {
-        const logoBuffer = await fetchImageBuffer(invoiceData.business.logo_url)
-        if (logoBuffer) {
-          try {
-            doc.image(logoBuffer, margin, yPos, { height: 45 })
-            logoOffset = 55
-          } catch (e) {
-            console.error('Error adding logo to PDF:', e)
-          }
-        }
-      }
-
       // Business name
       doc.fontSize(14)
         .fillColor(primaryText)
         .font('Helvetica-Bold')
-        .text(invoiceData.business.name, margin + logoOffset, yPos)
+        .text(invoiceData.business.name, margin, yPos)
 
       // Business address (stacked neatly)
       let businessY = yPos + 20
@@ -104,29 +76,29 @@ export async function generateInvoicePDF(invoiceData: InvoiceData): Promise<Buff
         .font('Helvetica')
 
       if (invoiceData.business.address_line1) {
-        doc.text(invoiceData.business.address_line1, margin + logoOffset, businessY)
+        doc.text(invoiceData.business.address_line1, margin, businessY)
         businessY += 12
       }
       if (invoiceData.business.city || invoiceData.business.postal_code) {
         const cityLine = [invoiceData.business.city, invoiceData.business.postal_code]
           .filter(Boolean).join(', ')
-        doc.text(cityLine, margin + logoOffset, businessY)
+        doc.text(cityLine, margin, businessY)
         businessY += 12
       }
       if (invoiceData.business.email) {
-        doc.text(invoiceData.business.email, margin + logoOffset, businessY)
+        doc.text(invoiceData.business.email, margin, businessY)
         businessY += 12
       }
       if (invoiceData.business.phone) {
-        doc.text(invoiceData.business.phone, margin + logoOffset, businessY)
+        doc.text(invoiceData.business.phone, margin, businessY)
         businessY += 12
       }
       if (invoiceData.business.vat_number) {
-        doc.text(`VAT: ${invoiceData.business.vat_number}`, margin + logoOffset, businessY)
+        doc.text(`VAT: ${invoiceData.business.vat_number}`, margin, businessY)
         businessY += 12
       }
       if (invoiceData.business.company_registration_number) {
-        doc.text(`Reg: ${invoiceData.business.company_registration_number}`, margin + logoOffset, businessY)
+        doc.text(`Reg: ${invoiceData.business.company_registration_number}`, margin, businessY)
       }
 
       // INVOICE title on right
@@ -180,22 +152,69 @@ export async function generateInvoicePDF(invoiceData: InvoiceData): Promise<Buff
         .text('BILL TO', margin, yPos)
 
       let billY = yPos + 18
-      doc.fontSize(11)
-        .fillColor(primaryText)
-        .font('Helvetica-Bold')
-        .text(invoiceData.customer.name, margin, billY)
 
-      billY += 18
-      doc.fontSize(9)
-        .fillColor(secondaryText)
-        .font('Helvetica')
+      // Check if customer has business details enabled
+      if (invoiceData.customer.use_business_details && invoiceData.customer.business_name) {
+        // Show business details
+        doc.fontSize(11)
+          .fillColor(primaryText)
+          .font('Helvetica-Bold')
+          .text(invoiceData.customer.business_name, margin, billY)
 
-      if (invoiceData.customer.email) {
-        doc.text(invoiceData.customer.email, margin, billY)
-        billY += 14
-      }
-      if (invoiceData.customer.phone) {
-        doc.text(invoiceData.customer.phone, margin, billY)
+        billY += 18
+        doc.fontSize(9)
+          .fillColor(secondaryText)
+          .font('Helvetica')
+
+        // Business address
+        if (invoiceData.customer.business_address_line1) {
+          doc.text(invoiceData.customer.business_address_line1, margin, billY)
+          billY += 12
+        }
+        if (invoiceData.customer.business_address_line2) {
+          doc.text(invoiceData.customer.business_address_line2, margin, billY)
+          billY += 12
+        }
+        if (invoiceData.customer.business_city || invoiceData.customer.business_postal_code) {
+          const cityLine = [invoiceData.customer.business_city, invoiceData.customer.business_postal_code]
+            .filter(Boolean).join(', ')
+          doc.text(cityLine, margin, billY)
+          billY += 12
+        }
+        if (invoiceData.customer.business_country) {
+          doc.text(invoiceData.customer.business_country, margin, billY)
+          billY += 12
+        }
+        // VAT and Registration numbers
+        if (invoiceData.customer.business_vat_number) {
+          doc.text(`VAT: ${invoiceData.customer.business_vat_number}`, margin, billY)
+          billY += 12
+        }
+        if (invoiceData.customer.business_registration_number) {
+          doc.text(`Reg: ${invoiceData.customer.business_registration_number}`, margin, billY)
+          billY += 12
+        }
+        // Also show contact person
+        doc.text(`Contact: ${invoiceData.customer.name}`, margin, billY)
+      } else {
+        // Show personal details (original behavior)
+        doc.fontSize(11)
+          .fillColor(primaryText)
+          .font('Helvetica-Bold')
+          .text(invoiceData.customer.name, margin, billY)
+
+        billY += 18
+        doc.fontSize(9)
+          .fillColor(secondaryText)
+          .font('Helvetica')
+
+        if (invoiceData.customer.email) {
+          doc.text(invoiceData.customer.email, margin, billY)
+          billY += 14
+        }
+        if (invoiceData.customer.phone) {
+          doc.text(invoiceData.customer.phone, margin, billY)
+        }
       }
 
       // BOOKING DETAILS section (right column)
@@ -360,7 +379,7 @@ export async function generateInvoicePDF(invoiceData: InvoiceData): Promise<Buff
 
       // Paid badge
       doc.roundedRect(margin, yPos, 70, 24, 4)
-        .fill(paidGreen)
+        .fill(brandColor)
 
       doc.fontSize(10)
         .fillColor('#FFFFFF')
@@ -370,18 +389,7 @@ export async function generateInvoicePDF(invoiceData: InvoiceData): Promise<Buff
       doc.fontSize(9)
         .fillColor(secondaryText)
         .font('Helvetica')
-        .text(`Payment received on ${formatDate(invoiceData.payment_date)}`, margin + 85, yPos + 7)
-
-      // ============================================
-      // FOOTER - Powered by Vilo
-      // ============================================
-
-      const footerY = 800
-
-      doc.fontSize(9)
-        .fillColor(secondaryText)
-        .font('Helvetica')
-        .text('Powered by ', margin, footerY, { width: contentWidth, align: 'center', continued: true })
+        .text(`Payment received on ${formatDate(invoiceData.payment_date)}  |  powered by `, margin + 85, yPos + 7, { continued: true })
       doc.fillColor(brandColor)
         .font('Helvetica-Bold')
         .text('Vilo', { continued: false })

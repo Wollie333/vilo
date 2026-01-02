@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express'
 import { supabase } from '../lib/supabase.js'
+import { syncICalFeed, validateICalUrl } from '../services/icalService.js'
 
 const router = Router()
 
@@ -121,7 +122,16 @@ router.patch('/me', async (req: Request, res: Response) => {
       'longitude',
       'google_place_id',
       'formatted_address',
-      'category_slugs'
+      'category_slugs',
+      // SEO fields
+      'seo_meta_title',
+      'seo_meta_description',
+      'seo_keywords',
+      'seo_og_image',
+      'seo_og_image_alt',
+      // Verification fields
+      'verification_user_status',
+      'verification_business_status'
     ]
 
     const updates: Record<string, unknown> = {}
@@ -181,6 +191,37 @@ router.patch('/me', async (req: Request, res: Response) => {
     if (updateError) {
       console.error('Error updating tenant:', updateError)
       return res.status(500).json({ error: 'Failed to update settings' })
+    }
+
+    // Sync category_slugs to tenant_categories table if categories were updated
+    if (updates.category_slugs !== undefined) {
+      const categorySlugs = updates.category_slugs as string[] || []
+
+      // Get category IDs for the slugs
+      const { data: categoryRecords } = await supabase
+        .from('property_categories')
+        .select('id, slug')
+        .in('slug', categorySlugs)
+        .eq('is_active', true)
+
+      // Delete existing tenant categories
+      await supabase
+        .from('tenant_categories')
+        .delete()
+        .eq('tenant_id', existingTenant.id)
+
+      // Insert new tenant categories
+      if (categoryRecords && categoryRecords.length > 0) {
+        const insertData = categoryRecords.map((cat, idx) => ({
+          tenant_id: existingTenant.id,
+          category_id: cat.id,
+          is_primary: idx === 0
+        }))
+
+        await supabase
+          .from('tenant_categories')
+          .insert(insertData)
+      }
     }
 
     res.json({ tenant })
@@ -586,6 +627,228 @@ router.get('/me/categories', async (req: Request, res: Response) => {
     res.json({ categories: tenant.category_slugs || [] })
   } catch (error) {
     console.error('Error in GET /tenants/me/categories:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+// ============================================
+// SYNC APPS (iCal sync per platform)
+// ============================================
+
+// Platform name mapping for source field
+const PLATFORM_SOURCE_MAP: Record<string, string> = {
+  airbnb: 'airbnb',
+  bookingcom: 'booking_com',
+  booking_com: 'booking_com',
+  lekkeslaap: 'lekkerslaap',
+  vrbo: 'vrbo',
+  expedia: 'expedia',
+  tripadvisor: 'tripadvisor',
+  agoda: 'agoda',
+  hotels_com: 'hotels_com',
+  google: 'google',
+  outlook: 'outlook',
+}
+
+// Save sync settings for a platform
+router.put('/me/sync-apps/:platform', async (req: Request, res: Response) => {
+  const authHeader = req.headers.authorization
+  const { platform } = req.params
+
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Missing or invalid authorization header' })
+  }
+
+  const token = authHeader.split(' ')[1]
+  const { enabled, ical_import_url, sync_frequency } = req.body
+
+  try {
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token)
+
+    if (authError || !user) {
+      return res.status(401).json({ error: 'Invalid token' })
+    }
+
+    const { data: tenant, error: tenantError } = await supabase
+      .from('tenants')
+      .select('id')
+      .eq('owner_user_id', user.id)
+      .single()
+
+    if (tenantError || !tenant) {
+      console.error('Tenant lookup error:', tenantError)
+      return res.status(404).json({ error: 'Tenant not found' })
+    }
+
+    // Validate iCal URL if provided
+    if (ical_import_url && enabled) {
+      const validation = await validateICalUrl(ical_import_url)
+      if (!validation.valid) {
+        return res.status(400).json({
+          error: `Invalid iCal URL: ${validation.error}`,
+          valid: false
+        })
+      }
+    }
+
+    // Try to update sync settings in the tenant's sync_settings JSONB field
+    // Note: sync_settings column may not exist yet if migration hasn't run
+    let updatedSettings: Record<string, unknown> = {}
+    try {
+      // First try to get current settings
+      const { data: tenantWithSettings } = await supabase
+        .from('tenants')
+        .select('sync_settings')
+        .eq('id', tenant.id)
+        .single()
+
+      const currentSettings = (tenantWithSettings?.sync_settings as Record<string, unknown>) || {}
+      updatedSettings = {
+        ...currentSettings,
+        [platform]: {
+          enabled: enabled || false,
+          ical_import_url: ical_import_url || null,
+          sync_frequency: sync_frequency || 'hourly',
+          updated_at: new Date().toISOString()
+        }
+      }
+
+      await supabase
+        .from('tenants')
+        .update({ sync_settings: updatedSettings })
+        .eq('id', tenant.id)
+    } catch (settingsError) {
+      // sync_settings column may not exist - that's okay, continue with sync
+      console.log('Note: sync_settings column may not exist yet, skipping settings save')
+    }
+
+    // If enabled and has iCal URL, trigger an immediate sync
+    if (enabled && ical_import_url) {
+      // Get all rooms for this tenant to sync bookings to
+      const { data: rooms } = await supabase
+        .from('rooms')
+        .select('id')
+        .eq('tenant_id', tenant.id)
+        .limit(1) // For now, sync to first room (in production, user would select which room)
+
+      if (rooms && rooms.length > 0) {
+        try {
+          console.log(`Syncing iCal from ${platform}: ${ical_import_url}`)
+          const bookings = await syncICalFeed(ical_import_url, platform)
+          const source = PLATFORM_SOURCE_MAP[platform] || platform
+
+          let created = 0
+          let updated = 0
+
+          for (const booking of bookings) {
+            // Check if booking already exists
+            const { data: existing } = await supabase
+              .from('bookings')
+              .select('id')
+              .eq('external_id', booking.external_id)
+              .eq('tenant_id', tenant.id)
+              .single()
+
+            if (existing) {
+              // Update existing
+              await supabase
+                .from('bookings')
+                .update({
+                  guest_name: booking.guest_name,
+                  check_in: booking.check_in,
+                  check_out: booking.check_out,
+                  notes: booking.notes,
+                  synced_at: new Date().toISOString()
+                })
+                .eq('id', existing.id)
+              updated++
+            } else {
+              // Create new booking
+              await supabase
+                .from('bookings')
+                .insert({
+                  tenant_id: tenant.id,
+                  room_id: rooms[0].id,
+                  guest_name: booking.guest_name,
+                  check_in: booking.check_in,
+                  check_out: booking.check_out,
+                  status: 'confirmed',
+                  payment_status: 'pending',
+                  source: source,
+                  external_id: booking.external_id,
+                  synced_at: new Date().toISOString(),
+                  total_amount: 0,
+                  currency: 'ZAR',
+                  notes: booking.notes
+                })
+              created++
+            }
+          }
+
+          console.log(`Sync complete for ${platform}: ${created} created, ${updated} updated`)
+
+          return res.json({
+            success: true,
+            platform,
+            sync_result: {
+              bookings_found: bookings.length,
+              created,
+              updated
+            }
+          })
+        } catch (syncError: any) {
+          console.error(`Sync error for ${platform}:`, syncError)
+          // Still return success for settings save, but include sync error
+          return res.json({
+            success: true,
+            platform,
+            sync_error: syncError.message
+          })
+        }
+      }
+    }
+
+    res.json({
+      success: true,
+      platform,
+      message: 'Settings saved. Sync will run when a room is available.'
+    })
+  } catch (error) {
+    console.error('Error in PUT /tenants/me/sync-apps/:platform:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+// Get sync settings for all platforms
+router.get('/me/sync-apps', async (req: Request, res: Response) => {
+  const authHeader = req.headers.authorization
+
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Missing or invalid authorization header' })
+  }
+
+  const token = authHeader.split(' ')[1]
+
+  try {
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token)
+
+    if (authError || !user) {
+      return res.status(401).json({ error: 'Invalid token' })
+    }
+
+    const { data: tenant, error: tenantError } = await supabase
+      .from('tenants')
+      .select('id, sync_settings')
+      .eq('owner_user_id', user.id)
+      .single()
+
+    if (tenantError || !tenant) {
+      return res.status(404).json({ error: 'Tenant not found' })
+    }
+
+    res.json({ sync_settings: tenant.sync_settings || {} })
+  } catch (error) {
+    console.error('Error in GET /tenants/me/sync-apps:', error)
     res.status(500).json({ error: 'Internal server error' })
   }
 })

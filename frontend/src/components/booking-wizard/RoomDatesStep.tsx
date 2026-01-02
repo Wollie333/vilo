@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
-import { AlertTriangle, Info, Calendar } from 'lucide-react'
-import { Room, roomsApi } from '../../services/api'
+import { useState, useEffect, useCallback } from 'react'
+import { AlertTriangle, AlertCircle, Info, Calendar } from 'lucide-react'
+import { Room, roomsApi, bookingsApi, BookingSource, BOOKING_SOURCE_DISPLAY } from '../../services/api'
 import DateRangePicker from '../DateRangePicker'
 
 interface ValidationWarning {
@@ -8,6 +8,14 @@ interface ValidationWarning {
   message: string
   roomRule: number
   actualNights: number
+}
+
+interface BookingConflict {
+  id: string
+  guest: string
+  source: BookingSource
+  dates: string
+  status: string
 }
 
 interface RoomDatesStepProps {
@@ -40,6 +48,8 @@ export default function RoomDatesStep({
   const [selectedRoom, setSelectedRoom] = useState<Room | null>(null)
   const [isLoadingRooms, setIsLoadingRooms] = useState(true)
   const [warnings, setWarnings] = useState<ValidationWarning[]>([])
+  const [conflicts, setConflicts] = useState<BookingConflict[]>([])
+  const [isCheckingConflicts, setIsCheckingConflicts] = useState(false)
 
   // Load active rooms
   useEffect(() => {
@@ -57,7 +67,34 @@ export default function RoomDatesStep({
   // Validate dates against room rules
   useEffect(() => {
     validateDates()
-  }, [selectedRoom, checkIn, checkOut, overrideRules])
+  }, [selectedRoom, checkIn, checkOut, overrideRules, conflicts])
+
+  // Check for booking conflicts
+  const checkConflicts = useCallback(async () => {
+    if (!roomId || !checkIn || !checkOut) {
+      setConflicts([])
+      return
+    }
+
+    try {
+      setIsCheckingConflicts(true)
+      const result = await bookingsApi.checkConflicts({
+        room_id: roomId,
+        check_in: checkIn,
+        check_out: checkOut,
+      })
+      setConflicts(result.conflicts || [])
+    } catch (error) {
+      console.error('Failed to check conflicts:', error)
+      setConflicts([])
+    } finally {
+      setIsCheckingConflicts(false)
+    }
+  }, [roomId, checkIn, checkOut])
+
+  useEffect(() => {
+    checkConflicts()
+  }, [checkConflicts])
 
   const loadRooms = async () => {
     try {
@@ -108,12 +145,13 @@ export default function RoomDatesStep({
 
     setWarnings(newWarnings)
 
-    // Valid if no warnings, or if warnings exist but override is checked
+    // Valid if: no conflicts, no warnings (or warnings overridden), and required fields filled
     const isValid =
       roomId !== '' &&
       checkIn !== '' &&
       checkOut !== '' &&
       nights > 0 &&
+      conflicts.length === 0 && // Block if there are conflicts
       (newWarnings.length === 0 || overrideRules)
 
     onValidationChange(isValid, newWarnings)
@@ -235,6 +273,50 @@ export default function RoomDatesStep({
           </div>
         </div>
       </div>
+
+      {/* Booking Conflicts Warning */}
+      {conflicts.length > 0 && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <h4 className="text-sm font-medium text-red-800 mb-2">
+                Booking Conflict{conflicts.length > 1 ? 's' : ''} Detected
+              </h4>
+              <p className="text-sm text-red-700 mb-3">
+                The selected dates overlap with {conflicts.length} existing booking{conflicts.length > 1 ? 's' : ''}:
+              </p>
+              <div className="space-y-2">
+                {conflicts.map((conflict) => {
+                  const sourceDisplay = BOOKING_SOURCE_DISPLAY[conflict.source] || BOOKING_SOURCE_DISPLAY.vilo
+                  return (
+                    <div key={conflict.id} className="flex items-center justify-between bg-red-100 rounded-lg px-3 py-2">
+                      <div className="flex items-center gap-3">
+                        <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${sourceDisplay.bgColor} ${sourceDisplay.textColor}`}>
+                          {sourceDisplay.label}
+                        </span>
+                        <span className="text-sm font-medium text-red-900">{conflict.guest}</span>
+                      </div>
+                      <div className="text-sm text-red-700">{conflict.dates}</div>
+                    </div>
+                  )
+                })}
+              </div>
+              <p className="text-xs text-red-600 mt-3">
+                Please select different dates or a different room to avoid double-booking.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Loading state for conflict check */}
+      {isCheckingConflicts && (
+        <div className="flex items-center gap-2 text-sm text-gray-500">
+          <div className="w-4 h-4 border-2 border-gray-300 border-t-accent-500 rounded-full animate-spin" />
+          Checking for conflicts...
+        </div>
+      )}
 
       {/* Validation Warnings */}
       {warnings.length > 0 && (

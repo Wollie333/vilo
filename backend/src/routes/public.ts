@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express'
 import { supabase } from '../lib/supabase.js'
 import { getOrCreateCustomer, createSessionToken } from '../middleware/customerAuth.js'
+import { notifyNewBooking, notifyCustomerBookingConfirmed } from '../services/notificationService.js'
 
 const router = Router()
 
@@ -286,9 +287,9 @@ router.get('/:tenantId/rooms/:roomId/booked-dates', async (req, res) => {
       })
     } else {
       // Multiple units - count bookings per date
-      const dateBookingCount: Record<string, number> = {}
+      const dateBookingCount: Record<string, number> = {};
 
-      (bookings || []).forEach(booking => {
+      (bookings || []).forEach((booking: { check_in: string; check_out: string }) => {
         const checkIn = new Date(booking.check_in)
         const checkOut = new Date(booking.check_out)
         const current = new Date(checkIn)
@@ -577,6 +578,28 @@ router.post('/:tenantId/bookings', async (req, res) => {
     if (bookingError) {
       console.error('Error creating booking:', bookingError)
       return res.status(500).json({ error: 'Failed to create booking' })
+    }
+
+    // Send notifications
+    console.log('[Public] Sending notifications for new booking:', booking.id)
+
+    // Notify staff about the new booking
+    notifyNewBooking(
+      tenantId,
+      booking.id,
+      guest_name,
+      room.name
+    )
+
+    // Notify customer if they have an account
+    if (customer) {
+      notifyCustomerBookingConfirmed(
+        tenantId,
+        customer.id,
+        booking.id,
+        room.name,
+        check_in
+      )
     }
 
     // Create session token for automatic login to customer portal

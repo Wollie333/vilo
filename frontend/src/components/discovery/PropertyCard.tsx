@@ -25,9 +25,11 @@ export interface DiscoveryProperty {
 interface PropertyCardProps {
   property: DiscoveryProperty
   layout?: 'grid' | 'list'
+  linkPrefix?: string
 }
 
-export default function PropertyCard({ property, layout = 'grid' }: PropertyCardProps) {
+export default function PropertyCard({ property, layout = 'grid', linkPrefix = '/accommodation' }: PropertyCardProps) {
+  const propertyLink = `${linkPrefix}/${property.slug}`
   const [isFavorite, setIsFavorite] = useState(false)
   const [imageIndex, setImageIndex] = useState(0)
 
@@ -36,7 +38,7 @@ export default function PropertyCard({ property, layout = 'grid' }: PropertyCard
   if (layout === 'list') {
     return (
       <Link
-        to={`/accommodation/${property.slug}`}
+        to={propertyLink}
         className="flex bg-white rounded-xl overflow-hidden border border-gray-100 hover:shadow-lg transition-all group"
       >
         {/* Image */}
@@ -118,7 +120,7 @@ export default function PropertyCard({ property, layout = 'grid' }: PropertyCard
 
   return (
     <Link
-      to={`/accommodation/${property.slug}`}
+      to={propertyLink}
       className="block bg-white rounded-xl overflow-hidden border border-gray-100 hover:shadow-lg transition-all group"
     >
       {/* Image Container */}

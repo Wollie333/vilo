@@ -5,14 +5,21 @@ import { supabase } from '../lib/supabase.js'
 // TYPES
 // ============================================
 
-export type Role = 'owner' | 'general_manager' | 'accountant'
 export type Permission = 'none' | 'view' | 'edit' | 'full'
+
+export interface RoleInfo {
+  id: string
+  name: string
+  slug: string
+  is_system_role: boolean
+  permissions: Record<string, Permission>
+}
 
 export interface UserContext {
   userId: string
   email: string
   tenantId: string
-  role: Role
+  role: RoleInfo
 }
 
 // Extend Express Request to include user context
@@ -25,139 +32,23 @@ declare global {
 }
 
 // ============================================
-// PERMISSION MATRIX
-// Industry standard for hospitality management
-// ============================================
-
-const PERMISSIONS: Record<string, Record<Role, Permission>> = {
-  // Dashboard - View analytics and overview
-  'dashboard': {
-    owner: 'full',
-    general_manager: 'full',
-    accountant: 'view'
-  },
-
-  // Bookings - Create, view, modify reservations
-  'bookings': {
-    owner: 'full',
-    general_manager: 'full',
-    accountant: 'view'
-  },
-
-  // Rooms - Manage room inventory and settings
-  'rooms': {
-    owner: 'full',
-    general_manager: 'full',
-    accountant: 'view'
-  },
-
-  // Reviews - View and respond to guest reviews
-  'reviews': {
-    owner: 'full',
-    general_manager: 'full',
-    accountant: 'view'
-  },
-
-  // Calendar - View and manage availability
-  'calendar': {
-    owner: 'full',
-    general_manager: 'full',
-    accountant: 'view'
-  },
-
-  // Settings - Account (own profile)
-  'settings.account': {
-    owner: 'full',
-    general_manager: 'edit', // Can edit own profile only
-    accountant: 'edit'       // Can edit own profile only
-  },
-
-  // Settings - Business information
-  'settings.business': {
-    owner: 'full',
-    general_manager: 'full',
-    accountant: 'view'
-  },
-
-  // Settings - Team members
-  'settings.members': {
-    owner: 'full',
-    general_manager: 'view',
-    accountant: 'none'
-  },
-
-  // Settings - Billing and payments
-  'settings.billing': {
-    owner: 'full',
-    general_manager: 'none',
-    accountant: 'full'
-  },
-
-  // Account deletion
-  'account.delete': {
-    owner: 'full',
-    general_manager: 'none',
-    accountant: 'none'
-  },
-
-  // Seasonal rates
-  'seasonal_rates': {
-    owner: 'full',
-    general_manager: 'full',
-    accountant: 'view'
-  },
-
-  // Addons
-  'addons': {
-    owner: 'full',
-    general_manager: 'full',
-    accountant: 'view'
-  },
-
-  // Reports (financial)
-  'reports': {
-    owner: 'full',
-    general_manager: 'view',
-    accountant: 'full'
-  },
-
-  // Payments
-  'payments': {
-    owner: 'full',
-    general_manager: 'view',
-    accountant: 'full'
-  }
-}
-
-// ============================================
 // PERMISSION FUNCTIONS
 // ============================================
 
 /**
- * Get the permission level for a resource and role
+ * Get the permission level for a resource from a role's permissions
  */
-export function getPermission(resource: string, role: Role): Permission {
-  return PERMISSIONS[resource]?.[role] || 'none'
+export function getPermission(permissions: Record<string, Permission>, resource: string): Permission {
+  return permissions[resource] || 'none'
 }
 
 /**
  * Check if a role has at least the required permission level
  */
-export function hasPermission(resource: string, role: Role, required: Permission): boolean {
-  const userPermission = getPermission(resource, role)
+export function hasPermission(permissions: Record<string, Permission>, resource: string, required: Permission): boolean {
+  const userPermission = getPermission(permissions, resource)
   const levels: Permission[] = ['none', 'view', 'edit', 'full']
   return levels.indexOf(userPermission) >= levels.indexOf(required)
-}
-
-/**
- * Get all permissions for a role (for frontend)
- */
-export function getRolePermissions(role: Role): Record<string, Permission> {
-  const result: Record<string, Permission> = {}
-  for (const resource of Object.keys(PERMISSIONS)) {
-    result[resource] = PERMISSIONS[resource][role]
-  }
-  return result
 }
 
 // ============================================
@@ -165,7 +56,7 @@ export function getRolePermissions(role: Role): Record<string, Permission> {
 // ============================================
 
 /**
- * Middleware to attach user context (role, tenant) to request
+ * Middleware to attach user context (role with permissions, tenant) to request
  * Must be called before requirePermission
  */
 export async function attachUserContext(req: Request, res: Response, next: NextFunction) {
@@ -227,25 +118,42 @@ export async function attachUserContext(req: Request, res: Response, next: NextF
       .eq('id', tenantId)
       .single()
 
-    let role: Role
+    let roleInfo: RoleInfo | null = null
 
     if (tenant && tenant.owner_user_id === user.id) {
-      role = 'owner'
+      // User is owner - get owner role from roles table
+      const { data: ownerRole } = await supabase
+        .from('roles')
+        .select('id, name, slug, is_system_role, permissions')
+        .eq('tenant_id', tenantId)
+        .eq('slug', 'owner')
+        .single()
+
+      if (ownerRole) {
+        roleInfo = ownerRole as RoleInfo
+      }
     } else {
-      // Check tenant_members
+      // Check tenant_members with role join
       const { data: membership } = await supabase
         .from('tenant_members')
-        .select('role')
+        .select(`
+          role_id,
+          roles (id, name, slug, is_system_role, permissions)
+        `)
         .eq('tenant_id', tenantId)
         .eq('user_id', user.id)
         .eq('status', 'active')
         .single()
 
-      if (!membership) {
+      if (!membership || !membership.roles) {
         return next() // No valid membership
       }
 
-      role = membership.role as Role
+      roleInfo = membership.roles as unknown as RoleInfo
+    }
+
+    if (!roleInfo) {
+      return next()
     }
 
     // Attach context to request
@@ -253,7 +161,7 @@ export async function attachUserContext(req: Request, res: Response, next: NextF
       userId: user.id,
       email: user.email || '',
       tenantId,
-      role
+      role: roleInfo
     }
 
     next()
@@ -275,12 +183,13 @@ export function requirePermission(resource: string, required: Permission) {
       return res.status(401).json({ error: 'Unauthorized' })
     }
 
-    if (!hasPermission(resource, context.role, required)) {
+    const permissions = context.role.permissions || {}
+    if (!hasPermission(permissions, resource, required)) {
       return res.status(403).json({
         error: 'Access denied',
         message: `Insufficient permissions for ${resource}`,
         required_permission: required,
-        your_permission: getPermission(resource, context.role)
+        your_permission: getPermission(permissions, resource)
       })
     }
 
@@ -298,7 +207,7 @@ export function requireOwner(req: Request, res: Response, next: NextFunction) {
     return res.status(401).json({ error: 'Unauthorized' })
   }
 
-  if (context.role !== 'owner') {
+  if (context.role.slug !== 'owner' && !context.role.is_system_role) {
     return res.status(403).json({
       error: 'Access denied',
       message: 'This action requires owner privileges'

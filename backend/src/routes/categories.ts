@@ -165,17 +165,29 @@ router.get('/:slug/properties', async (req: Request, res: Response) => {
         directory_featured,
         latitude,
         longitude,
-        category_slugs,
-        rooms (
-          id,
-          base_price_per_night,
-          currency
-        )
+        category_slugs
       `)
       .in('id', tenantIds)
       .eq('discoverable', true)
 
     if (tenantError) throw tenantError
+
+    // Get rooms for pricing (separate query to avoid FK issues)
+    const { data: allRooms } = await supabase
+      .from('rooms')
+      .select('tenant_id, base_price_per_night, currency')
+      .in('tenant_id', tenantIds)
+
+    // Build room map
+    const roomMap: Record<string, { prices: number[]; currency: string }> = {}
+    allRooms?.forEach(r => {
+      if (!roomMap[r.tenant_id]) {
+        roomMap[r.tenant_id] = { prices: [], currency: r.currency || 'ZAR' }
+      }
+      if (r.base_price_per_night) {
+        roomMap[r.tenant_id].prices.push(r.base_price_per_night)
+      }
+    })
 
     // Get reviews for ratings
     const { data: reviews, error: reviewError } = await supabase
@@ -198,10 +210,8 @@ router.get('/:slug/properties', async (req: Request, res: Response) => {
 
     // Build properties array
     let properties = tenants?.map(t => {
-      const rooms = t.rooms || []
-      const prices = rooms.map((r: any) => r.base_price_per_night).filter(Boolean)
-      const priceFrom = prices.length > 0 ? Math.min(...prices) : null
-      const currency = rooms[0]?.currency || 'ZAR'
+      const roomData = roomMap[t.id] || { prices: [], currency: 'ZAR' }
+      const priceFrom = roomData.prices.length > 0 ? Math.min(...roomData.prices) : null
 
       const ratingData = ratingMap[t.id]
       const rating = ratingData ? ratingData.sum / ratingData.count : null
@@ -225,7 +235,7 @@ router.get('/:slug/properties', async (req: Request, res: Response) => {
         },
         images,
         priceFrom,
-        currency,
+        currency: roomData.currency,
         rating,
         reviewCount,
         propertyType: t.property_type || 'Accommodation',

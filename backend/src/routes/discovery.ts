@@ -1,6 +1,8 @@
 import { Router, Request, Response } from 'express'
 import { supabase } from '../lib/supabase.js'
 import { getOrCreateCustomer, createSessionToken } from '../middleware/customerAuth.js'
+import { recordCouponUsage } from './coupons.js'
+import { notifyNewBooking, notifyCustomerBookingConfirmed } from '../services/notificationService.js'
 
 const router = Router()
 
@@ -40,7 +42,9 @@ router.get('/properties', async (req: Request, res: Response) => {
       // Proximity search
       near_lat,
       near_lng,
-      radius_km
+      radius_km,
+      // Special offers filter
+      has_coupons
     } = req.query
 
     // Build query for discoverable tenants
@@ -202,6 +206,25 @@ router.get('/properties', async (req: Request, res: Response) => {
       })
     }
 
+    // Filter by properties with active coupons (Special Offers)
+    if (has_coupons === 'true') {
+      const today = new Date().toISOString().split('T')[0]
+      const { data: activeCoupons } = await supabase
+        .from('coupons')
+        .select('tenant_id')
+        .eq('is_active', true)
+        .or(`valid_from.is.null,valid_from.lte.${today}`)
+        .or(`valid_until.is.null,valid_until.gte.${today}`)
+
+      if (activeCoupons && activeCoupons.length > 0) {
+        const tenantIdsWithCoupons = new Set(activeCoupons.map(c => c.tenant_id))
+        filtered = filtered.filter(p => tenantIdsWithCoupons.has(p.id))
+      } else {
+        // No active coupons found, return empty list
+        filtered = []
+      }
+    }
+
     // Filter by proximity (Haversine distance)
     if (near_lat && near_lng && typeof near_lat === 'string' && typeof near_lng === 'string') {
       const lat = parseFloat(near_lat)
@@ -343,30 +366,69 @@ router.get('/properties/:slug', async (req: Request, res: Response) => {
       .eq('is_active', true)
       .order('base_price_per_night', { ascending: true })
 
-    // Get reviews (only published ones)
+    // Get reviews (only published ones) - including category ratings, images, and customer info
     const { data: reviews } = await supabase
       .from('reviews')
       .select(`
         id,
         rating,
+        rating_cleanliness,
+        rating_service,
+        rating_location,
+        rating_value,
+        rating_safety,
         title,
         content,
         guest_name,
         created_at,
-        booking_id
+        booking_id,
+        images,
+        bookings (
+          customer_id,
+          customers (
+            id,
+            name,
+            profile_picture_url
+          )
+        )
       `)
       .eq('tenant_id', tenant.id)
       .eq('status', 'published')
       .order('created_at', { ascending: false })
       .limit(20)
 
-    // Calculate average rating
+    // Calculate average rating and category averages
     let rating = null
     let reviewCount = 0
+    let categoryAverages: {
+      cleanliness: number | null
+      service: number | null
+      location: number | null
+      value: number | null
+      safety: number | null
+    } = {
+      cleanliness: null,
+      service: null,
+      location: null,
+      value: null,
+      safety: null
+    }
+
     if (reviews && reviews.length > 0) {
       reviewCount = reviews.length
       const sum = reviews.reduce((acc, r) => acc + (r.rating || 0), 0)
       rating = Math.round((sum / reviewCount) * 10) / 10
+
+      // Calculate category averages from reviews that have category ratings
+      const categoryFields = ['cleanliness', 'service', 'location', 'value', 'safety'] as const
+      for (const category of categoryFields) {
+        const fieldName = `rating_${category}` as keyof typeof reviews[0]
+        const validRatings = reviews.filter(r => r[fieldName] != null).map(r => r[fieldName] as number)
+        if (validRatings.length > 0) {
+          const categorySum = validRatings.reduce((acc, val) => acc + val, 0)
+          categoryAverages[category] = Math.round((categorySum / validRatings.length) * 10) / 10
+        }
+      }
     }
 
     // Get price range
@@ -437,7 +499,7 @@ router.get('/properties/:slug', async (req: Request, res: Response) => {
       latitude: tenant.latitude,
       longitude: tenant.longitude,
       featured: tenant.directory_featured || false,
-      rooms: (rooms || []).map(room => {
+      rooms: await Promise.all((rooms || []).map(async (room) => {
         // Room images are stored as JSONB: { featured: {url, path} | null, gallery: {url, path}[] }
         // Convert to flat array of URLs with featured image first
         let roomImages: string[] = []
@@ -462,6 +524,49 @@ router.get('/properties/:slug', async (req: Request, res: Response) => {
           }
         }
 
+        // Get room-specific reviews via bookings
+        const { data: roomReviews } = await supabase
+          .from('reviews')
+          .select(`
+            id,
+            rating,
+            rating_cleanliness,
+            rating_service,
+            rating_location,
+            rating_value,
+            rating_safety,
+            title,
+            content,
+            guest_name,
+            created_at,
+            images,
+            booking_id,
+            bookings!inner (
+              room_id,
+              customer_id,
+              customers (
+                id,
+                name,
+                profile_picture_url
+              )
+            )
+          `)
+          .eq('tenant_id', tenant.id)
+          .eq('status', 'published')
+          .order('created_at', { ascending: false })
+
+        // Filter to only reviews for this room
+        const filteredRoomReviews = (roomReviews || []).filter((r: any) => r.bookings?.room_id === room.id)
+
+        // Calculate room rating
+        let roomRating = null
+        let roomReviewCount = 0
+        if (filteredRoomReviews.length > 0) {
+          roomReviewCount = filteredRoomReviews.length
+          const sum = filteredRoomReviews.reduce((acc: number, r: any) => acc + (r.rating || 0), 0)
+          roomRating = Math.round((sum / roomReviewCount) * 10) / 10
+        }
+
         return {
           id: room.id,
           name: room.name,
@@ -480,16 +585,50 @@ router.get('/properties/:slug', async (req: Request, res: Response) => {
           additionalPersonRate: room.additional_person_rate,
           childPricePerNight: room.child_price_per_night,
           childFreeUntilAge: room.child_free_until_age,
-          childAgeLimit: room.child_age_limit
+          childAgeLimit: room.child_age_limit,
+          // Room reviews
+          rating: roomRating,
+          reviewCount: roomReviewCount,
+          reviews: filteredRoomReviews.slice(0, 10).map((review: any) => {
+            const customer = review.bookings?.customers
+            return {
+              id: review.id,
+              rating: review.rating,
+              ratingCleanliness: review.rating_cleanliness,
+              ratingService: review.rating_service,
+              ratingLocation: review.rating_location,
+              ratingValue: review.rating_value,
+              ratingSafety: review.rating_safety,
+              title: review.title,
+              comment: review.content,
+              guestName: customer?.name || review.guest_name,
+              guestProfilePicture: customer?.profile_picture_url || null,
+              date: review.created_at,
+              images: review.images || []
+            }
+          })
         }
-      }),
-      reviews: (reviews || []).map(review => ({
-        id: review.id,
-        rating: review.rating,
-        comment: review.content,
-        guestName: review.guest_name,
-        date: review.created_at
-      }))
+      })),
+      categoryAverages,
+      reviews: (reviews || []).map(review => {
+        // Prefer current customer profile over snapshot
+        const customer = (review.bookings as any)?.customers
+        return {
+          id: review.id,
+          rating: review.rating,
+          ratingCleanliness: review.rating_cleanliness,
+          ratingService: review.rating_service,
+          ratingLocation: review.rating_location,
+          ratingValue: review.rating_value,
+          ratingSafety: review.rating_safety,
+          title: review.title,
+          comment: review.content,
+          guestName: customer?.name || review.guest_name,
+          guestProfilePicture: customer?.profile_picture_url || null,
+          date: review.created_at,
+          images: review.images || []
+        }
+      })
     })
   } catch (error) {
     console.error('Error fetching property:', error)
@@ -795,6 +934,154 @@ router.get('/featured', async (req: Request, res: Response) => {
 })
 
 /**
+ * GET /api/discovery/newly-added
+ * Get recently added properties for homepage
+ */
+router.get('/newly-added', async (req: Request, res: Response) => {
+  try {
+    const { limit = '4' } = req.query
+
+    // Get most recently created discoverable tenants
+    const { data: tenants } = await supabase
+      .from('tenants')
+      .select(`
+        id,
+        slug,
+        business_name,
+        business_description,
+        logo_url,
+        cover_image,
+        city,
+        state_province,
+        property_type,
+        region,
+        directory_featured,
+        created_at
+      `)
+      .eq('discoverable', true)
+      .order('created_at', { ascending: false })
+      .limit(parseInt(limit as string))
+
+    // Get pricing and ratings
+    const properties = await Promise.all((tenants || []).map(async (tenant) => {
+      const { data: rooms } = await supabase
+        .from('rooms')
+        .select('base_price_per_night, currency')
+        .eq('tenant_id', tenant.id)
+        .eq('is_active', true)
+        .order('base_price_per_night', { ascending: true })
+        .limit(1)
+
+      const { data: reviews } = await supabase
+        .from('reviews')
+        .select('rating')
+        .eq('tenant_id', tenant.id)
+
+      const priceFrom = rooms && rooms.length > 0 ? rooms[0].base_price_per_night : null
+      const currency = rooms && rooms.length > 0 ? rooms[0].currency : 'ZAR'
+
+      let rating = null
+      let reviewCount = 0
+      if (reviews && reviews.length > 0) {
+        reviewCount = reviews.length
+        const sum = reviews.reduce((acc, r) => acc + (r.rating || 0), 0)
+        rating = Math.round((sum / reviewCount) * 10) / 10
+      }
+
+      return {
+        id: tenant.id,
+        slug: tenant.slug,
+        tenantId: tenant.id,
+        name: tenant.business_name || 'Property',
+        description: tenant.business_description,
+        location: {
+          city: tenant.city || '',
+          region: tenant.state_province || tenant.region || ''
+        },
+        images: tenant.cover_image ? [tenant.cover_image] : [],
+        priceFrom,
+        currency,
+        rating,
+        reviewCount,
+        propertyType: tenant.property_type || 'Accommodation',
+        featured: tenant.directory_featured || false
+      }
+    }))
+
+    res.json({ properties })
+  } catch (error) {
+    console.error('Error fetching newly added:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+/**
+ * GET /api/discovery/reviews
+ * Get all platform reviews for review carousel
+ */
+router.get('/reviews', async (req: Request, res: Response) => {
+  try {
+    const { limit = '20' } = req.query
+
+    // Get published reviews with tenant and customer info
+    const { data: reviews, error } = await supabase
+      .from('reviews')
+      .select(`
+        id,
+        rating,
+        title,
+        content,
+        guest_name,
+        created_at,
+        tenant_id,
+        booking_id,
+        tenants!inner (
+          business_name,
+          slug,
+          discoverable
+        ),
+        bookings (
+          customer_id,
+          customers (
+            id,
+            name,
+            profile_picture_url
+          )
+        )
+      `)
+      .eq('status', 'published')
+      .eq('tenants.discoverable', true)
+      .order('created_at', { ascending: false })
+      .limit(parseInt(limit as string))
+
+    if (error) {
+      console.error('Error fetching reviews:', error)
+      return res.status(500).json({ error: 'Failed to fetch reviews' })
+    }
+
+    res.json({
+      reviews: (reviews || []).map(review => {
+        const customer = (review.bookings as any)?.customers
+        return {
+          id: review.id,
+          rating: review.rating,
+          title: review.title,
+          comment: review.content,
+          guestName: customer?.name || review.guest_name,
+          guestProfilePicture: customer?.profile_picture_url || null,
+          date: review.created_at,
+          propertyName: (review.tenants as any)?.business_name || 'Property',
+          propertySlug: (review.tenants as any)?.slug || ''
+        }
+      })
+    })
+  } catch (error) {
+    console.error('Error fetching reviews:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+/**
  * GET /api/discovery/stats
  * Get platform statistics for homepage
  */
@@ -872,7 +1159,10 @@ router.post('/bookings', async (req: Request, res: Response) => {
       addons,
       special_requests,
       total_amount,
-      currency
+      currency,
+      coupon,
+      subtotal_before_discount,
+      discount_amount
     } = req.body
 
     // Validate required fields
@@ -945,40 +1235,95 @@ router.post('/bookings', async (req: Request, res: Response) => {
     // Get or create customer for this email
     const customer = await getOrCreateCustomer(guest_email, guest_name, guest_phone)
 
+    // Build notes object
+    const notesData: any = {
+      guests: guests || 1,
+      room_ids: room_ids || [room_id],
+      room_details: room_details || null,
+      addons: addons || [],
+      special_requests: special_requests || '',
+      booking_reference: bookingRef,
+      booked_online: true,
+      booked_via: 'discovery'
+    }
+
+    // Add coupon info to notes if present
+    if (coupon) {
+      notesData.coupon = coupon
+    }
+
+    // Build booking insert data
+    const bookingInsertData: any = {
+      tenant_id: tenant.id,
+      customer_id: customer?.id || null,
+      guest_name,
+      guest_email,
+      guest_phone,
+      room_id,
+      room_name: room.name,
+      check_in,
+      check_out,
+      status: 'pending',
+      payment_status: 'pending',
+      total_amount,
+      currency: currency || 'ZAR',
+      notes: JSON.stringify(notesData)
+    }
+
+    // Add coupon fields if coupon was applied
+    if (coupon && coupon.id) {
+      bookingInsertData.coupon_id = coupon.id
+      bookingInsertData.coupon_code = coupon.code
+      bookingInsertData.discount_amount = discount_amount || coupon.discount_amount || 0
+      bookingInsertData.subtotal_before_discount = subtotal_before_discount || (total_amount + (discount_amount || coupon.discount_amount || 0))
+    }
+
     // Create booking
     const { data: booking, error: bookingError } = await supabase
       .from('bookings')
-      .insert({
-        tenant_id: tenant.id,
-        customer_id: customer?.id || null,
-        guest_name,
-        guest_email,
-        guest_phone,
-        room_id,
-        room_name: room.name,
-        check_in,
-        check_out,
-        status: 'pending',
-        payment_status: 'pending',
-        total_amount,
-        currency: currency || 'ZAR',
-        notes: JSON.stringify({
-          guests: guests || 1,
-          room_ids: room_ids || [room_id],
-          room_details: room_details || null,
-          addons: addons || [],
-          special_requests: special_requests || '',
-          booking_reference: bookingRef,
-          booked_online: true,
-          booked_via: 'discovery' // Track that this came from discovery platform
-        })
-      })
+      .insert(bookingInsertData)
       .select()
       .single()
 
     if (bookingError) {
       console.error('Error creating booking:', bookingError)
       return res.status(500).json({ error: 'Failed to create booking' })
+    }
+
+    // Record coupon usage if a coupon was applied
+    if (coupon && coupon.id && booking.id) {
+      const originalAmount = subtotal_before_discount || (total_amount + (discount_amount || coupon.discount_amount || 0))
+      await recordCouponUsage(
+        tenant.id,
+        coupon.id,
+        booking.id,
+        guest_email,
+        discount_amount || coupon.discount_amount || 0,
+        originalAmount,
+        total_amount
+      )
+    }
+
+    // Send notifications for new booking
+    console.log('[Discovery] Sending notifications for new booking:', booking.id)
+
+    // Notify all team members about the new booking
+    notifyNewBooking(
+      tenant.id,
+      booking.id,
+      guest_name,
+      room.name
+    )
+
+    // Notify customer if they have an account
+    if (customer) {
+      notifyCustomerBookingConfirmed(
+        tenant.id,
+        customer.id,
+        booking.id,
+        room.name,
+        check_in
+      )
     }
 
     // Create session token for automatic login
@@ -1110,6 +1455,98 @@ router.get('/properties/:slug/availability', async (req: Request, res: Response)
     })
   } catch (error) {
     console.error('Error checking availability:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+/**
+ * GET /api/discovery/properties/:slug/booked-dates
+ * Get list of booked dates for a room within a date range
+ * Returns an array of dates that are unavailable
+ */
+router.get('/properties/:slug/booked-dates', async (req: Request, res: Response) => {
+  try {
+    const { slug } = req.params
+    const { room_id, start_date, end_date } = req.query
+
+    if (!room_id || !start_date || !end_date) {
+      return res.status(400).json({ error: 'room_id, start_date, and end_date are required' })
+    }
+
+    // Get tenant by slug
+    const { data: tenant } = await supabase
+      .from('tenants')
+      .select('id')
+      .eq('slug', slug)
+      .eq('discoverable', true)
+      .single()
+
+    if (!tenant) {
+      return res.status(404).json({ error: 'Property not found' })
+    }
+
+    // Get room details for total_units
+    const { data: room } = await supabase
+      .from('rooms')
+      .select('total_units')
+      .eq('id', room_id)
+      .eq('tenant_id', tenant.id)
+      .eq('is_active', true)
+      .single()
+
+    if (!room) {
+      return res.status(404).json({ error: 'Room not found' })
+    }
+
+    const totalUnits = room.total_units || 1
+
+    // Get all bookings that overlap with the requested date range
+    const { data: bookings } = await supabase
+      .from('bookings')
+      .select('check_in, check_out')
+      .eq('room_id', room_id)
+      .eq('tenant_id', tenant.id)
+      .in('status', ['pending', 'confirmed'])
+      .or(`and(check_in.lt.${end_date},check_out.gt.${start_date})`)
+
+    // Build a map of date -> booking count
+    const bookingCountByDate: Record<string, number> = {}
+
+    for (const booking of bookings || []) {
+      const bookingStart = new Date(booking.check_in + 'T12:00:00')
+      const bookingEnd = new Date(booking.check_out + 'T12:00:00')
+      const rangeStart = new Date(start_date as string + 'T12:00:00')
+      const rangeEnd = new Date(end_date as string + 'T12:00:00')
+
+      // Iterate through each night of the booking
+      const currentDate = new Date(Math.max(bookingStart.getTime(), rangeStart.getTime()))
+      const endDate = new Date(Math.min(bookingEnd.getTime(), rangeEnd.getTime()))
+
+      while (currentDate < endDate) {
+        const year = currentDate.getFullYear()
+        const month = String(currentDate.getMonth() + 1).padStart(2, '0')
+        const day = String(currentDate.getDate()).padStart(2, '0')
+        const dateStr = `${year}-${month}-${day}`
+
+        bookingCountByDate[dateStr] = (bookingCountByDate[dateStr] || 0) + 1
+        currentDate.setDate(currentDate.getDate() + 1)
+      }
+    }
+
+    // Find dates where all units are booked
+    const bookedDates: string[] = []
+    for (const [date, count] of Object.entries(bookingCountByDate)) {
+      if (count >= totalUnits) {
+        bookedDates.push(date)
+      }
+    }
+
+    res.json({
+      booked_dates: bookedDates.sort(),
+      total_units: totalUnits
+    })
+  } catch (error) {
+    console.error('Error fetching booked dates:', error)
     res.status(500).json({ error: 'Internal server error' })
   }
 })
@@ -1518,16 +1955,20 @@ router.post('/bookings/:id/verify-payment', async (req: Request, res: Response) 
       })
     }
 
-    // Update booking status
+    // Update booking status with payment tracking
+    const paymentCompletedAt = new Date().toISOString()
     const { data: updatedBooking, error: updateError } = await supabase
       .from('bookings')
       .update({
         status: 'confirmed',
         payment_status: 'paid',
+        payment_method: 'paystack',
+        payment_reference: reference,
+        payment_completed_at: paymentCompletedAt,
         notes: JSON.stringify({
           ...(typeof booking.notes === 'string' ? JSON.parse(booking.notes || '{}') : booking.notes || {}),
           paystack_reference: reference,
-          payment_verified_at: new Date().toISOString()
+          payment_verified_at: paymentCompletedAt
         })
       })
       .eq('id', id)
@@ -1749,6 +2190,490 @@ router.get('/properties-map', async (req: Request, res: Response) => {
     res.json({ markers })
   } catch (error) {
     console.error('Error fetching map properties:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+/**
+ * GET /api/discovery/platform-stats
+ * Get platform-wide statistics for the landing page
+ * Returns: total revenue, fees saved, properties, bookings
+ */
+router.get('/platform-stats', async (req: Request, res: Response) => {
+  try {
+    // Industry standard OTA commission rate (average of Airbnb 15%, Booking.com 15-20%)
+    const OTA_COMMISSION_RATE = 0.15
+
+    // Get total revenue from paid bookings
+    const { data: revenueData, error: revenueError } = await supabase
+      .from('bookings')
+      .select('total_amount')
+      .eq('payment_status', 'paid')
+
+    if (revenueError) {
+      console.error('Error fetching revenue:', revenueError)
+    }
+
+    const totalRevenue = (revenueData || []).reduce((sum, booking) => {
+      return sum + (Number(booking.total_amount) || 0)
+    }, 0)
+
+    // Calculate fees saved (what hosts would have paid to OTAs)
+    const feesSaved = Math.round(totalRevenue * OTA_COMMISSION_RATE)
+
+    // Get total discoverable properties count
+    const { count: propertiesCount, error: propertiesError } = await supabase
+      .from('tenants')
+      .select('id', { count: 'exact', head: true })
+      .eq('discoverable', true)
+
+    if (propertiesError) {
+      console.error('Error counting properties:', propertiesError)
+    }
+
+    // Get total completed bookings count
+    const { count: bookingsCount, error: bookingsError } = await supabase
+      .from('bookings')
+      .select('id', { count: 'exact', head: true })
+      .eq('payment_status', 'paid')
+
+    if (bookingsError) {
+      console.error('Error counting bookings:', bookingsError)
+    }
+
+    // Get total reviews count
+    const { count: reviewsCount, error: reviewsError } = await supabase
+      .from('reviews')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'approved')
+
+    if (reviewsError) {
+      console.error('Error counting reviews:', reviewsError)
+    }
+
+    // Get average rating
+    const { data: ratingsData, error: ratingsError } = await supabase
+      .from('reviews')
+      .select('rating')
+      .eq('status', 'approved')
+
+    let averageRating = 0
+    if (!ratingsError && ratingsData && ratingsData.length > 0) {
+      const sum = ratingsData.reduce((acc, r) => acc + (r.rating || 0), 0)
+      averageRating = Math.round((sum / ratingsData.length) * 10) / 10
+    }
+
+    res.json({
+      totalRevenue,
+      feesSaved,
+      commissionRate: OTA_COMMISSION_RATE,
+      propertiesCount: propertiesCount || 0,
+      bookingsCount: bookingsCount || 0,
+      reviewsCount: reviewsCount || 0,
+      averageRating,
+      currency: 'ZAR'
+    })
+  } catch (error) {
+    console.error('Error fetching platform stats:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+/**
+ * POST /api/discovery/properties/:slug/claim-coupon
+ * Submit a coupon claim request (creates a support ticket)
+ * For coupons with is_claimable = true
+ */
+router.post('/properties/:slug/claim-coupon', async (req: Request, res: Response) => {
+  try {
+    const { slug } = req.params
+    const {
+      coupon_code,
+      name,
+      email,
+      phone,
+      check_in,
+      check_out,
+      message
+    } = req.body
+
+    // Validate required fields
+    if (!coupon_code || !name || !email || !phone) {
+      return res.status(400).json({
+        error: 'Missing required fields: coupon_code, name, email, phone'
+      })
+    }
+
+    // Get tenant by slug
+    const { data: tenant, error: tenantError } = await supabase
+      .from('tenants')
+      .select('id, business_name, business_email')
+      .eq('slug', slug)
+      .eq('discoverable', true)
+      .single()
+
+    if (tenantError || !tenant) {
+      return res.status(404).json({ error: 'Property not found' })
+    }
+
+    // Find the coupon by code for this tenant
+    const { data: coupon, error: couponError } = await supabase
+      .from('coupons')
+      .select('id, code, name, description, discount_type, discount_value, is_claimable, is_active')
+      .eq('tenant_id', tenant.id)
+      .ilike('code', coupon_code.trim())
+      .single()
+
+    if (couponError || !coupon) {
+      return res.status(404).json({ error: 'Coupon not found' })
+    }
+
+    // Verify the coupon is claimable
+    if (!coupon.is_claimable) {
+      return res.status(400).json({ error: 'This coupon is not available for claim requests' })
+    }
+
+    // Verify the coupon is active
+    if (!coupon.is_active) {
+      return res.status(400).json({ error: 'This coupon is no longer active' })
+    }
+
+    // Format the message for the support ticket
+    const discountText = coupon.discount_type === 'percentage'
+      ? `${coupon.discount_value}% off`
+      : coupon.discount_type === 'fixed_amount'
+        ? `R${coupon.discount_value} off`
+        : `${coupon.discount_value} free nights`
+
+    const ticketMessage = `
+Coupon Claim Request
+
+Coupon Details:
+- Code: ${coupon.code}
+- Name: ${coupon.name}
+- Discount: ${discountText}
+${coupon.description ? `- Description: ${coupon.description}` : ''}
+
+Contact Information:
+- Name: ${name}
+- Email: ${email}
+- Phone: ${phone}
+
+${check_in || check_out ? `Intended Stay:
+- Check-in: ${check_in || 'Not specified'}
+- Check-out: ${check_out || 'Not specified'}
+` : ''}
+${message ? `Additional Message:
+${message}` : ''}
+`.trim()
+
+    // Create support ticket
+    const { data: ticket, error: ticketError } = await supabase
+      .from('support_messages')
+      .insert({
+        tenant_id: tenant.id,
+        subject: `Coupon Claim Request: ${coupon.code}`,
+        message: ticketMessage,
+        sender_email: email,
+        sender_name: name,
+        sender_phone: phone,
+        source: 'website',
+        status: 'new',
+        priority: 'normal'
+      })
+      .select('id')
+      .single()
+
+    if (ticketError) {
+      console.error('Error creating support ticket:', ticketError)
+      return res.status(500).json({ error: 'Failed to submit claim request' })
+    }
+
+    // Create or get customer account and issue session token
+    // This allows the user to access the customer portal immediately
+    let customerToken: string | null = null
+    let customerId: string | null = null
+
+    try {
+      // getOrCreateCustomer already handles updating name/phone if missing
+      const customer = await getOrCreateCustomer(email, name, phone)
+      if (customer) {
+        customerId = customer.id
+
+        // Link the support message to the customer
+        await supabase
+          .from('support_messages')
+          .update({ customer_id: customer.id })
+          .eq('id', ticket.id)
+
+        // Create session token for immediate portal access
+        const session = await createSessionToken(customer.id)
+        if (session) {
+          customerToken = session.token
+        }
+      }
+    } catch (customerError) {
+      // Don't fail the whole request if customer creation fails
+      console.error('Error creating customer session:', customerError)
+    }
+
+    res.json({
+      success: true,
+      message: 'Your coupon claim request has been submitted. The property owner will contact you shortly.',
+      ticket_id: ticket.id,
+      tenant_id: tenant.id,
+      tenant_name: tenant.business_name,
+      customer_token: customerToken,
+      customer_id: customerId
+    })
+  } catch (error) {
+    console.error('Error processing coupon claim:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+/**
+ * POST /api/discovery/properties/:slug/contact
+ * Submit a contact/inquiry request to the property host
+ * Creates a support ticket and customer account
+ */
+router.post('/properties/:slug/contact', async (req: Request, res: Response) => {
+  try {
+    const { slug } = req.params
+    const {
+      name,
+      email,
+      phone,
+      check_in,
+      check_out,
+      guests,
+      message
+    } = req.body
+
+    // Validate required fields
+    if (!name || !email || !phone || !message) {
+      return res.status(400).json({
+        error: 'Missing required fields: name, email, phone, message'
+      })
+    }
+
+    // Get tenant by slug
+    const { data: tenant, error: tenantError } = await supabase
+      .from('tenants')
+      .select('id, business_name, business_email')
+      .eq('slug', slug)
+      .eq('discoverable', true)
+      .single()
+
+    if (tenantError || !tenant) {
+      return res.status(404).json({ error: 'Property not found' })
+    }
+
+    // Format the message for the support ticket
+    const ticketMessage = `
+Inquiry from Website
+
+Contact Information:
+- Name: ${name}
+- Email: ${email}
+- Phone: ${phone}
+
+${check_in || check_out || guests ? `Stay Details:
+${check_in ? `- Check-in: ${check_in}` : ''}
+${check_out ? `- Check-out: ${check_out}` : ''}
+${guests ? `- Guests: ${guests}` : ''}
+` : ''}
+Message:
+${message}
+`.trim()
+
+    // Create support ticket
+    const { data: ticket, error: ticketError } = await supabase
+      .from('support_messages')
+      .insert({
+        tenant_id: tenant.id,
+        subject: `Website Inquiry from ${name}`,
+        message: ticketMessage,
+        sender_email: email,
+        sender_name: name,
+        sender_phone: phone,
+        source: 'website',
+        status: 'new',
+        priority: 'normal'
+      })
+      .select('id')
+      .single()
+
+    if (ticketError) {
+      console.error('Error creating support ticket:', ticketError)
+      return res.status(500).json({ error: 'Failed to submit inquiry' })
+    }
+
+    // Create or get customer account and issue session token
+    let customerToken: string | null = null
+    let customerId: string | null = null
+
+    try {
+      const customer = await getOrCreateCustomer(email, name, phone)
+      if (customer) {
+        customerId = customer.id
+
+        // Link the support message to the customer
+        await supabase
+          .from('support_messages')
+          .update({ customer_id: customer.id })
+          .eq('id', ticket.id)
+
+        // Create session token for immediate portal access
+        const session = await createSessionToken(customer.id)
+        if (session) {
+          customerToken = session.token
+        }
+      }
+    } catch (customerError) {
+      console.error('Error creating customer session:', customerError)
+    }
+
+    res.json({
+      success: true,
+      message: 'Your inquiry has been submitted. The property host will contact you shortly.',
+      ticket_id: ticket.id,
+      tenant_id: tenant.id,
+      tenant_name: tenant.business_name,
+      customer_token: customerToken,
+      customer_id: customerId
+    })
+  } catch (error) {
+    console.error('Error processing contact inquiry:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+/**
+ * GET /api/discovery/properties/:slug/claimable-coupons
+ * Get all claimable coupons for a property
+ */
+router.get('/properties/:slug/claimable-coupons', async (req: Request, res: Response) => {
+  try {
+    const { slug } = req.params
+
+    // Get tenant by slug
+    const { data: tenant, error: tenantError } = await supabase
+      .from('tenants')
+      .select('id')
+      .eq('slug', slug)
+      .eq('discoverable', true)
+      .single()
+
+    if (tenantError || !tenant) {
+      return res.status(404).json({ error: 'Property not found' })
+    }
+
+    // Get all active claimable coupons for this tenant
+    const { data: coupons, error: couponsError } = await supabase
+      .from('coupons')
+      .select(`
+        id,
+        code,
+        name,
+        description,
+        discount_type,
+        discount_value,
+        valid_from,
+        valid_until
+      `)
+      .eq('tenant_id', tenant.id)
+      .eq('is_active', true)
+      .eq('is_claimable', true)
+      .order('created_at', { ascending: false })
+
+    if (couponsError) {
+      console.error('Error fetching claimable coupons:', couponsError)
+      return res.status(500).json({ error: 'Failed to fetch coupons' })
+    }
+
+    // Filter out expired coupons
+    const today = new Date().toISOString().split('T')[0]
+    const validCoupons = (coupons || []).filter(coupon => {
+      if (coupon.valid_until && coupon.valid_until < today) {
+        return false
+      }
+      return true
+    })
+
+    res.json(validCoupons)
+  } catch (error) {
+    console.error('Error fetching claimable coupons:', error)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+/**
+ * GET /api/discovery/properties/:slug/coupon/:code
+ * Get coupon info by code for a property (including applicable rooms)
+ */
+router.get('/properties/:slug/coupon/:code', async (req: Request, res: Response) => {
+  try {
+    const { slug, code } = req.params
+
+    // Get tenant by slug
+    const { data: tenant, error: tenantError } = await supabase
+      .from('tenants')
+      .select('id')
+      .eq('slug', slug)
+      .eq('discoverable', true)
+      .single()
+
+    if (tenantError || !tenant) {
+      return res.status(404).json({ error: 'Property not found' })
+    }
+
+    // Get coupon by code (case-insensitive)
+    const { data: coupon, error: couponError } = await supabase
+      .from('coupons')
+      .select(`
+        id,
+        code,
+        name,
+        description,
+        discount_type,
+        discount_value,
+        valid_from,
+        valid_until,
+        applicable_room_ids
+      `)
+      .eq('tenant_id', tenant.id)
+      .eq('is_active', true)
+      .ilike('code', code)
+      .single()
+
+    if (couponError || !coupon) {
+      return res.status(404).json({ error: 'Coupon not found' })
+    }
+
+    // Check if coupon is expired
+    const today = new Date().toISOString().split('T')[0]
+    if (coupon.valid_until && coupon.valid_until < today) {
+      return res.status(404).json({ error: 'Coupon has expired' })
+    }
+
+    // Get room names if applicable_room_ids exists
+    let applicable_rooms: { id: string; name: string }[] = []
+    if (coupon.applicable_room_ids && coupon.applicable_room_ids.length > 0) {
+      const { data: rooms } = await supabase
+        .from('rooms')
+        .select('id, name')
+        .in('id', coupon.applicable_room_ids)
+
+      applicable_rooms = rooms || []
+    }
+
+    res.json({
+      ...coupon,
+      applicable_rooms
+    })
+  } catch (error) {
+    console.error('Error fetching coupon by code:', error)
     res.status(500).json({ error: 'Internal server error' })
   }
 })

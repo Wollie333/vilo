@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
-import { CreditCard, Calendar, DollarSign, User, AlertTriangle, Info, Package, Plus, Minus, Coffee } from 'lucide-react'
-import { Room, roomsApi, EffectivePrice, AddOn, addonsApi } from '../../services/api'
+import { CreditCard, Calendar, DollarSign, User, AlertTriangle, Info, Package, Plus, Minus, Coffee, Tag } from 'lucide-react'
+import { Room, roomsApi, EffectivePrice, AddOn, addonsApi, couponsApi } from '../../services/api'
+import CouponInput, { AppliedCoupon } from '../CouponInput'
 
 interface PricingBreakdownNight {
   date: string
@@ -27,18 +28,20 @@ interface PaymentConfirmStepProps {
   guestEmail: string
   guestPhone: string
   notes: string
-  status: 'pending' | 'confirmed' | 'checked_in' | 'checked_out' | 'cancelled' | 'completed'
+  status: 'pending' | 'confirmed' | 'checked_in' | 'checked_out' | 'cancelled' | 'completed' | 'occupied'
   paymentStatus: 'pending' | 'paid' | 'partial' | 'refunded'
   totalAmount: number
   currency: string
   overrideRules: boolean
   selectedAddons: SelectedAddon[]
   guests?: number
-  onStatusChange: (status: 'pending' | 'confirmed' | 'checked_in' | 'checked_out' | 'cancelled' | 'completed') => void
+  appliedCoupon?: AppliedCoupon | null
+  onStatusChange: (status: 'pending' | 'confirmed' | 'checked_in' | 'checked_out' | 'cancelled' | 'completed' | 'occupied') => void
   onPaymentStatusChange: (status: 'pending' | 'paid' | 'partial' | 'refunded') => void
   onTotalAmountChange: (amount: number) => void
   onCurrencyChange: (currency: string) => void
   onAddonsChange: (addons: SelectedAddon[]) => void
+  onCouponChange?: (coupon: AppliedCoupon | null) => void
 }
 
 const CURRENCIES = [
@@ -82,11 +85,13 @@ export default function PaymentConfirmStep({
   overrideRules,
   selectedAddons,
   guests = 2,
+  appliedCoupon,
   onStatusChange,
   onPaymentStatusChange,
   onTotalAmountChange,
   onCurrencyChange,
   onAddonsChange,
+  onCouponChange,
 }: PaymentConfirmStepProps) {
   const [pricingBreakdown, setPricingBreakdown] = useState<PricingBreakdownNight[]>([])
   const [isLoadingPrices, setIsLoadingPrices] = useState(false)
@@ -184,12 +189,14 @@ export default function PaymentConfirmStep({
     return selectedAddons.reduce((sum, a) => sum + a.total, 0)
   }
 
-  // Update total when calculated total or add-ons change (unless manually overridden)
+  // Update total when calculated total, add-ons, or coupon change (unless manually overridden)
   useEffect(() => {
     if (!manualOverride && calculatedTotal > 0) {
-      onTotalAmountChange(calculatedTotal + getAddonsTotal())
+      const subtotal = calculatedTotal + getAddonsTotal()
+      const discount = appliedCoupon?.discount_amount || 0
+      onTotalAmountChange(Math.max(0, subtotal - discount))
     }
-  }, [calculatedTotal, selectedAddons, manualOverride])
+  }, [calculatedTotal, selectedAddons, appliedCoupon, manualOverride])
 
   // Set currency from room if available
   useEffect(() => {
@@ -386,6 +393,41 @@ export default function PaymentConfirmStep({
           </div>
         )}
       </div>
+
+      {/* Promotional Code Section */}
+      {onCouponChange && (
+        <div>
+          <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+            <Tag className="w-5 h-5" />
+            Promotional Code
+          </h3>
+          <CouponInput
+            onApply={async (code) => {
+              const result = await couponsApi.validate({
+                code,
+                room_id: roomId,
+                subtotal: calculatedTotal + getAddonsTotal(),
+                nights: pricingBreakdown.length,
+                check_in: checkIn,
+                check_out: checkOut,
+                customer_email: guestEmail,
+              })
+              if (result.valid && result.coupon && result.discount_amount !== undefined) {
+                const couponWithDiscount: AppliedCoupon = {
+                  ...result.coupon,
+                  discount_amount: result.discount_amount,
+                }
+                onCouponChange(couponWithDiscount)
+              }
+              return result
+            }}
+            onRemove={() => onCouponChange(null)}
+            appliedCoupon={appliedCoupon || null}
+            currency={currency}
+            disabled={!roomId || !checkIn || !checkOut}
+          />
+        </div>
+      )}
 
       {/* Add-ons Section */}
       <div>

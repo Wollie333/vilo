@@ -208,6 +208,47 @@ export default function FlagIcon({ country, className = 'w-5 h-4' }: FlagIconPro
         <path fill="#ff0000" d="M0 0h180v480H0z" />
       </svg>
     ),
+    IN: (
+      <svg viewBox="0 0 640 480" className={className}>
+        <path fill="#f93" d="M0 0h640v160H0z" />
+        <path fill="#fff" d="M0 160h640v160H0z" />
+        <path fill="#128807" d="M0 320h640v160H0z" />
+        <circle cx="320" cy="240" r="60" fill="#008" />
+        <circle cx="320" cy="240" r="52" fill="#fff" />
+        <circle cx="320" cy="240" r="16" fill="#008" />
+      </svg>
+    ),
+    NZ: (
+      <svg viewBox="0 0 640 480" className={className}>
+        <path fill="#00247d" d="M0 0h640v480H0z" />
+        <path fill="#fff" d="M0 0v27.95L307.037 250h38.647v-27.95L38.647 0H0zm345.684 0v27.95L38.647 250H0v-27.95L307.037 0h38.647z" />
+        <path fill="#fff" d="M144.035 0v250h57.614V0h-57.614zM0 83.333v83.334h345.684V83.333H0z" />
+        <path fill="#c8102e" d="M0 100v50h345.684v-50H0zM155.572 0v250h34.54V0h-34.54zM0 250l115.228-83.333h25.765L25.765 250H0zM0 0l115.228 83.333H89.463L0 18.633V0zm204.691 83.333L319.92 0h25.764l-115.228 83.333h-25.765zm140.993 166.667l-115.228-83.333h25.765l89.463 64.7V250z" />
+        <g fill="#c8102e">
+          <path d="M493 296l-7.4-21.3-7.4 21.3-22.4-.1 18.1 13.2-6.9 21.4 18.6-13.5 18.5 13.5-6.9-21.4 18.1-13.2z" />
+          <path d="M548 177l-5.9-17-5.9 17-17.9-.1 14.5 10.5-5.5 17.1 14.8-10.8 14.8 10.8-5.5-17.1 14.5-10.5z" />
+          <path d="M567 289l-5.9-17-5.9 17-17.9-.1 14.5 10.5-5.5 17.1 14.8-10.8 14.8 10.8-5.5-17.1 14.5-10.5z" />
+          <path d="M522 399l-5.9-17-5.9 17-17.9-.1 14.5 10.5-5.5 17.1 14.8-10.8 14.8 10.8-5.5-17.1 14.5-10.5z" />
+        </g>
+      </svg>
+    ),
+    LS: (
+      <svg viewBox="0 0 640 480" className={className}>
+        <path fill="#00209f" d="M0 0h640v160H0z" />
+        <path fill="#fff" d="M0 160h640v160H0z" />
+        <path fill="#009543" d="M0 320h640v160H0z" />
+        <path d="M260 200h120v80H260z" />
+      </svg>
+    ),
+    SZ: (
+      <svg viewBox="0 0 640 480" className={className}>
+        <path fill="#3e5eb9" d="M0 0h640v160H0z" />
+        <path fill="#ffd900" d="M0 135h640v210H0z" />
+        <path fill="#b10c0c" d="M0 175h640v130H0z" />
+        <path fill="#3e5eb9" d="M0 320h640v160H0z" />
+        <ellipse cx="320" cy="240" rx="100" ry="60" fill="#fff" stroke="#000" strokeWidth="2" />
+      </svg>
+    ),
   }
 
   return flags[country] || (

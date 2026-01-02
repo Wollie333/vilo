@@ -21,7 +21,7 @@ export async function getExchangeRates(): Promise<ExchangeRates> {
 
   try {
     const response = await fetch(EXCHANGE_API_URL)
-    const data = await response.json()
+    const data = await response.json() as { rates: Record<string, number> }
 
     cachedRates = {
       base: 'USD',

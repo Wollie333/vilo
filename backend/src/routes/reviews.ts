@@ -1,5 +1,7 @@
 import { Router } from 'express'
 import { supabase } from '../lib/supabase.js'
+import { logReviewSubmitted } from '../services/activityService.js'
+import { notifyNewReview, notifyCustomerReviewResponse, notifyCustomerReviewRequested } from '../services/notificationService.js'
 
 const router = Router()
 
@@ -244,6 +246,14 @@ router.put('/:id', async (req, res) => {
       return res.status(400).json({ error: 'Tenant ID required' })
     }
 
+    // Get current review to check for owner_response changes
+    const { data: currentReview } = await supabase
+      .from('reviews')
+      .select('owner_response, room_name, bookings(customer_id)')
+      .eq('id', id)
+      .eq('tenant_id', tenantId)
+      .single()
+
     // Only allow updating owner_response, status, and images (for moderation)
     const updateData: any = {}
 
@@ -291,6 +301,15 @@ router.put('/:id', async (req, res) => {
       }
       console.error('Error updating review:', error)
       return res.status(500).json({ error: 'Failed to update review' })
+    }
+
+    // Notify customer if owner_response was added (not just removed/updated)
+    if (owner_response && !currentReview?.owner_response) {
+      const customerId = (currentReview?.bookings as any)?.customer_id
+      if (customerId) {
+        console.log('[Review] Notifying customer about owner response:', customerId)
+        notifyCustomerReviewResponse(tenantId, customerId, currentReview?.room_name || 'Room')
+      }
     }
 
     res.json(data)
@@ -414,11 +433,25 @@ router.post('/send-request/:bookingId', async (req, res) => {
     console.log('Thank you!')
     console.log('='.repeat(50))
 
-    // Update booking to mark review request as sent
+    // Update booking to mark review request as sent with timestamp
     await supabase
       .from('bookings')
-      .update({ review_request_sent: true })
+      .update({
+        review_request_sent: true,
+        review_request_sent_at: new Date().toISOString()
+      })
       .eq('id', bookingId)
+
+    // Notify customer about review request (in-app notification)
+    if (booking.customer_id) {
+      console.log('[Review] Notifying customer about review request:', booking.customer_id)
+      notifyCustomerReviewRequested(
+        tenantId,
+        booking.customer_id,
+        bookingId,
+        booking.room_name || 'Room'
+      )
+    }
 
     res.json({
       success: true,
@@ -959,6 +992,35 @@ router.post('/public/submit/:tenantId/:token', async (req, res) => {
       .from('bookings')
       .update({ review_token: null })
       .eq('id', booking.id)
+
+    // Log activity for customer tracking
+    if (booking.guest_email) {
+      // Get customer_id if exists
+      const { data: customer } = await supabase
+        .from('customers')
+        .select('id')
+        .ilike('email', booking.guest_email)
+        .single()
+
+      logReviewSubmitted(
+        tenantId,
+        booking.guest_email,
+        customer?.id || null,
+        review.id,
+        booking.id,
+        Math.round(overallRating),
+        booking.room_name || 'Room'
+      )
+
+      // Notify all team members about the new review
+      notifyNewReview(
+        tenantId,
+        booking.id,
+        booking.guest_name || 'Guest',
+        booking.room_name || 'Room',
+        Math.round(overallRating)
+      )
+    }
 
     res.status(201).json({
       success: true,
